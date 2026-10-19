@@ -7,7 +7,7 @@ resource names.
 ## 1. Base naming inputs
 
 The base values are configured in
-[`environments/lab/terraform.tfvars`](../environments/lab/terraform.tfvars):
+`environments/lab/lab.tfvars` (start from [`lab.tfvars.example`](../environments/lab/lab.tfvars.example)):
 
 ```hcl
 project_name = "metlen"
@@ -70,7 +70,7 @@ Most names are then formed as:
 ## 3. Prefixes
 
 Prefixes are configured in
-[`environments/lab/terraform.tfvars`](../environments/lab/terraform.tfvars):
+`environments/lab/lab.tfvars` (start from [`lab.tfvars.example`](../environments/lab/lab.tfvars.example)):
 
 | Resource | Prefix |
 |---|---:|

@@ -13,13 +13,23 @@ param(
     [string]$SmokeTestStorageAccountKey = "primary",
 
     [ValidatePattern("^[a-z][a-z0-9-]{0,11}$")]
-    [string]$SmokeTestPremiumFileAccountKey = "primary"
+    [string]$SmokeTestPremiumFileAccountKey = "primary",
+
+    # Relative paths resolve against environments\lab.
+    [ValidateNotNullOrEmpty()]
+    [string]$VarFile = "lab.tfvars"
 )
 
 $ErrorActionPreference = "Stop"
 $workspacePath = Split-Path -Parent $PSScriptRoot
 $environmentPath = Join-Path $workspacePath "environments\lab"
 $smokeScriptPath = Join-Path $PSScriptRoot "private-connectivity-smoke.sh"
+
+$varFilePath = if ([System.IO.Path]::IsPathRooted($VarFile)) { $VarFile } else { Join-Path $environmentPath $VarFile }
+if (-not (Test-Path -LiteralPath $varFilePath -PathType Leaf)) {
+    throw "Variable file '$varFilePath' was not found. Copy environments\lab\lab.tfvars.example to environments\lab\lab.tfvars or pass -VarFile."
+}
+$varFileArgument = "-var-file=$((Resolve-Path -LiteralPath $varFilePath).Path)"
 
 function Invoke-Terraform {
     param([Parameter(Mandatory)][string[]]$Arguments)
@@ -37,7 +47,7 @@ if ($LASTEXITCODE -ne 0) {
 
 Invoke-Terraform -Arguments @("init", "-input=false")
 Invoke-Terraform -Arguments @("validate", "-no-color")
-Invoke-Terraform -Arguments @("plan", "-input=false", "-out=ephemeral.tfplan", "-no-color")
+Invoke-Terraform -Arguments @("plan", "-input=false", $varFileArgument, "-out=ephemeral.tfplan", "-no-color")
 
 if ($Action -eq "Plan") {
     Write-Host "Plan completed. No Azure resources were created."
@@ -119,6 +129,6 @@ try {
 }
 finally {
     Write-Host "Destroying the ephemeral lab."
-    Invoke-Terraform -Arguments @("plan", "-destroy", "-input=false", "-out=destroy.tfplan", "-no-color")
+    Invoke-Terraform -Arguments @("plan", "-destroy", "-input=false", $varFileArgument, "-out=destroy.tfplan", "-no-color")
     Invoke-Terraform -Arguments @("apply", "-input=false", "-auto-approve", "destroy.tfplan", "-no-color")
 }

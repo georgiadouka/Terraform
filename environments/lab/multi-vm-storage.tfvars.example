@@ -1,3 +1,6 @@
+# Focused multi-VM and multi-storage deployment. This file is self-contained:
+# copy it to multi-vm-storage.tfvars and pass only that file, for example:
+#   terraform -chdir=environments\lab plan -var-file=multi-vm-storage.tfvars
 subscription_id = "00000000-0000-0000-0000-000000000000"
 tenant_id       = "00000000-0000-0000-0000-000000000000"
 

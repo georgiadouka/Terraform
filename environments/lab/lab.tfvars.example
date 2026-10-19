@@ -1,5 +1,7 @@
-# Copy this file to terraform.tfvars and keep all environment-specific values
-# there. The copied file is ignored by Git.
+# Copy this file to lab.tfvars and keep all environment-specific values there.
+# The copied file is ignored by Git. Terraform does not load it automatically;
+# pass it explicitly, for example:
+#   terraform -chdir=environments\lab plan -var-file=lab.tfvars
 
 # Required Azure context
 subscription_id = "00000000-0000-0000-0000-000000000000"

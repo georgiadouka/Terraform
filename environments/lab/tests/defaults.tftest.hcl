@@ -8,8 +8,8 @@ mock_provider "azurerm" {
   }
 }
 
-# terraform test also loads a local terraform.tfvars, so every input that file
-# may set is pinned here. services = {} still exercises each attribute default.
+# Every lab input is pinned here so results never depend on a local
+# terraform.tfvars or *.auto.tfvars, which terraform test loads automatically.
 variables {
   subscription_id       = "00000000-0000-0000-0000-000000000000"
   tenant_id             = "22222222-2222-2222-2222-222222222222"
@@ -18,6 +18,33 @@ variables {
   virtual_machines      = {}
   storage_accounts      = {}
   premium_file_accounts = {}
+  storage_use_azuread   = true
+  location              = "swedencentral"
+  project_name          = "metlen"
+  environment           = "lab"
+  address_space         = ["10.42.0.0/20"]
+  subnet_cidrs = {
+    private_endpoints    = "10.42.0.0/24"
+    virtual_machines     = "10.42.1.0/24"
+    container_apps       = "10.42.2.0/23"
+    web_app_integration  = "10.42.8.0/26"
+    function_integration = "10.42.4.0/24"
+    postgresql           = "10.42.5.0/24"
+    mysql                = "10.42.6.0/24"
+    sql_managed_instance = "10.42.7.0/27"
+  }
+  virtual_machine_scale_set = {}
+  nat_gateway               = {}
+  key_vault                 = {}
+  azure_sql                 = {}
+  container_apps            = {}
+  cosmos_db                 = {}
+  sql_managed_instance      = {}
+  postgresql                = {}
+  mysql                     = {}
+  function_app              = {}
+  web_app                   = {}
+  tags                      = {}
 }
 
 run "services_are_opt_in" {
