@@ -98,9 +98,16 @@ output "nat_gateway_public_ip_address" {
   value       = try(module.nat_gateway[0].public_ip_address, null)
 }
 
-output "key_vault_uri" {
-  description = "Key Vault URI when enabled."
-  value       = try(module.key_vault[0].vault_uri, null)
+output "key_vaults" {
+  description = "Key Vault details keyed by the configured logical vault name."
+  value = {
+    for key, vault in module.key_vault : key => {
+      id        = vault.id
+      name      = vault.name
+      vault_uri = vault.vault_uri
+      hostname  = "${vault.name}.vault.azure.net"
+    }
+  }
 }
 
 output "container_registry_id" {
@@ -254,8 +261,11 @@ output "function_storage_blob_hostname" {
 output "private_endpoint_ids" {
   description = "Private Endpoint IDs grouped by service."
   value = {
-    key_vault          = try(module.private_endpoints["key_vault"].id, null)
     container_registry = try(module.private_endpoints["container_registry"].id, null)
+    key_vaults = {
+      for vault_key in keys(var.key_vaults) :
+      vault_key => module.private_endpoints["key_vault/${vault_key}"].id
+    }
     storage = {
       for account_key in keys(var.storage_accounts) : account_key => {
         for subresource in ["blob", "file"] :

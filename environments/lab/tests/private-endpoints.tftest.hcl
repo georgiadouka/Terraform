@@ -46,8 +46,12 @@ override_module {
 }
 
 override_module {
-  target  = module.key_vault[0]
-  outputs = { id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.KeyVault/vaults/kv", name = "kv", vault_uri = "https://kv.vault.azure.net/" }
+  target  = module.key_vault["primary"]
+  outputs = { id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.KeyVault/vaults/kvprimary", name = "kvprimary", vault_uri = "https://kvprimary.vault.azure.net/" }
+}
+override_module {
+  target  = module.key_vault["secrets"]
+  outputs = { id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.KeyVault/vaults/kvsecrets", name = "kvsecrets", vault_uri = "https://kvsecrets.vault.azure.net/" }
 }
 override_module {
   target  = module.container_registry[0]
@@ -107,12 +111,15 @@ variables {
     primary = {}
     media   = {}
   }
+  key_vaults = {
+    primary = {}
+    secrets = {}
+  }
   container_apps = {}
   web_app        = {}
   function_app   = {}
   cosmos_db      = {}
   services = {
-    key_vault          = true
     container_registry = true
     azure_sql          = true
     cosmos_db          = true
@@ -134,7 +141,6 @@ variables {
   }
   virtual_machine_scale_set = {}
   nat_gateway               = {}
-  key_vault                 = {}
   azure_sql                 = {}
   sql_managed_instance      = {}
   postgresql                = {}
@@ -147,7 +153,7 @@ run "all_endpoints" {
 
   assert {
     condition = keys(local.service_private_endpoints) == [
-      "azure_sql", "container_registry", "cosmos_db", "function_app", "key_vault",
+      "azure_sql", "container_registry", "cosmos_db", "function_app", "key_vault/primary", "key_vault/secrets",
       "premium_files/media/file", "premium_files/primary/file",
       "storage/archive/blob", "storage/archive/file", "storage/primary/blob", "storage/primary/file",
       "web_app"
@@ -174,6 +180,9 @@ run "all_endpoints" {
     condition = (
       local.private_endpoint_target_ids["storage/archive"] == "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Storage/storageAccounts/starchive" &&
       local.private_endpoint_target_ids["premium_files/media"] == "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Storage/storageAccounts/pfmedia" &&
+      local.private_endpoint_target_ids["key_vault/secrets"] == "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.KeyVault/vaults/kvsecrets" &&
+      local.service_private_endpoints["key_vault/secrets"].subresource == "vault" &&
+      local.service_private_endpoints["key_vault/secrets"].dns_zone == "privatelink.vaultcore.azure.net" &&
       local.private_endpoint_target_ids["azure_sql"] == "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Sql/servers/sql" &&
       local.function_storage_target_ids["function_storage"] == "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Storage/storageAccounts/stfn" &&
       local.service_private_endpoints["storage/archive/file"].target == "storage/archive" &&
@@ -189,10 +198,10 @@ run "all_endpoints" {
 
   assert {
     condition = (
-      local.resource_names.private_endpoints["key_vault"] == {
-        name                            = "pe-kv-metlen-lab-test1"
-        private_service_connection_name = "psc-kv-metlen-lab-test1"
-        private_dns_zone_group_name     = "pdnszg-kv-metlen-lab-test1"
+      local.resource_names.private_endpoints["key_vault/primary"] == {
+        name                            = "pe-kv-primary-metlen-lab-test1"
+        private_service_connection_name = "psc-kv-primary-metlen-lab-test1"
+        private_dns_zone_group_name     = "pdnszg-kv-primary-metlen-lab-test1"
       } &&
       local.resource_names.private_endpoints["storage/primary/blob"].name == "pe-st-primary-blob-metlen-lab-test1" &&
       local.resource_names.private_endpoints["premium_files/media/file"].name == "pe-stpf-media-file-metlen-lab-test1" &&
@@ -227,7 +236,7 @@ run "all_endpoints" {
       length(output.private_endpoint_ids.storage["primary"]) == 2 &&
       length(output.private_endpoint_ids.premium_files) == 2 &&
       keys(output.private_endpoint_ids.function_storage) == ["blob", "file", "queue", "table"] &&
-      output.private_endpoint_ids.key_vault != null &&
+      keys(output.private_endpoint_ids.key_vaults) == ["primary", "secrets"] &&
       output.private_endpoint_ids.function_app != null
     )
     error_message = "private_endpoint_ids must keep its service-grouped shape."
@@ -259,6 +268,7 @@ run "no_endpoints" {
     services              = {}
     storage_accounts      = {}
     premium_file_accounts = {}
+    key_vaults            = {}
   }
 
   assert {

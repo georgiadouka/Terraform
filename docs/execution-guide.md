@@ -161,6 +161,9 @@ Important rules:
   logical names. Both default to empty maps, so no accounts are created until
   entries are added; each entry creates an independent account and its Private
   Endpoints. The storage families are not controlled by `services` switches.
+- `key_vaults` is a map keyed by stable logical names and defaults to empty.
+  Each entry creates an RBAC-enabled Key Vault with its own Private Endpoint;
+  there is no `services` switch for Key Vault.
 - App Service Web App creates one app selected by `web_app.mode`: `linux`,
   `windows`, or `container`. All modes disable public access, use a Private
   Endpoint, integrate with the dedicated Web App subnet, and enable a
@@ -189,7 +192,7 @@ Important rules:
   Run Command for Windows. Both check private DNS, NAT egress, and Container
   App HTTPS. It expects the full set of service hostnames, so enable those
   services explicitly in `lab.tfvars`; nothing is enabled by default.
-- keep `key_vault.purge_protection_enabled = false` for the automated
+- keep `purge_protection_enabled = false` on every `key_vaults` entry for the automated
   apply/destroy workflow. Enable it only for a persistent environment with an
   appropriate retention and recovery process.
 - Azure SQL creates a standalone database while
@@ -210,7 +213,7 @@ Subnet creation follows the enabled service graph:
 
 | Subnet | Created when |
 |---|---|
-| `private_endpoints` | Key Vault, Azure Container Registry, Azure SQL, Cosmos DB, Web App, or Function App is enabled, or `storage_accounts`/`premium_file_accounts` is nonempty |
+| `private_endpoints` | Azure Container Registry, Azure SQL, Cosmos DB, Web App, or Function App is enabled, or `key_vaults`/`storage_accounts`/`premium_file_accounts` is nonempty |
 | `virtual_machines` | `virtual_machines` is non-empty or `services.virtual_machine_scale_set` is `true` |
 | `container_apps` | `services.container_apps` is `true` |
 | `web_app_integration` | `services.web_app` is `true` |
@@ -351,7 +354,7 @@ The same convention supplies names to module-internal Azure resources,
 including NICs, OS/data disks, Log Analytics, DNS links, Private Link
 connections, databases, containers, and shares. Storage accounts use compact
 lowercase names without hyphens; Key Vault names are compacted to 24
-characters while preserving the suffix; Cosmos database/container names are
+characters while preserving the suffix and a logical-key token; Cosmos database/container names are
 compact alphanumeric values for compatibility with all five supported APIs.
 With the default prefix, map-based Container Apps workload profiles use
 `<prefix>-<logical key>01`, such as `wp-general01`. A deterministic hash form

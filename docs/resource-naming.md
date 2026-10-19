@@ -92,6 +92,11 @@ Prefixes are configured in
 | Log Analytics workspace | `log` |
 | Private endpoint | `pe` |
 
+Every prefix must be 1-10 lowercase alphanumeric characters starting with a
+letter. Two prefixes are shorter so generated names fit Azure limits: the
+Container App prefix is at most four characters and the Key Vault prefix at
+most seven.
+
 ## 4. Standard resource names
 
 The most common formula is:
@@ -248,12 +253,24 @@ crmetlenlabit6hp
 
 ### Key Vault
 
-Key Vault permits hyphens but has a 24-character limit, so the expression uses
-compact project and environment tokens and truncates as necessary:
+Key Vault names are globally unique, permit hyphens, and have a 24-character
+limit. Each `key_vaults` entry uses the same logical-key token as storage
+accounts: up to five characters of the key plus five characters of its SHA-1
+hash. Compact project and environment tokens fill the remaining space:
 
 ```text
-kv-metlenlab-it6hp
+<prefix>-<key token><project><environment>-<suffix>   (truncated before the suffix)
 ```
+
+| Logical key | Result |
+|---|---|
+| `primary` | `kv-primae3b7cmetle-it6hp` |
+| `secrets` | `kv-secrefe865metle-it6hp` |
+
+The Key Vault prefix is limited to seven characters, so the full key token
+always fits even with a five-character suffix and only the project and
+environment tokens are shortened. Keep keys unchanged after deployment because
+they are part of both Terraform addresses and generated names.
 
 ## 7. Child-resource names
 
@@ -290,7 +307,8 @@ All three share one pattern built from the endpoint's name token:
 
 | Endpoint | Name token |
 |---|---|
-| Single-instance service | Service prefix, such as `kv`, `cr`, `sql`, `cosmos`, `app`, or `func` |
+| Single-instance service | Service prefix, such as `cr`, `sql`, `cosmos`, `app`, or `func` |
+| Key Vault | `kv-<vault key>` |
 | Standard Storage | `st-<account key>-<blob or file>` |
 | Premium Files | `stpf-<account key>-file` |
 | Function host storage | `stfn-<blob, file, queue, or table>` |
@@ -313,7 +331,7 @@ pdnszg-stfn-file-metlen-lab-it6hp
 
 This keeps related resources visibly associated. In the
 `generated_resource_names` output, `private_endpoints` is keyed by endpoint
-key, such as `key_vault` or `storage/primary/blob`, and each entry holds all
+key, such as `key_vault/primary` or `storage/primary/blob`, and each entry holds all
 three names.
 
 ## 9. Container Apps workload-profile names

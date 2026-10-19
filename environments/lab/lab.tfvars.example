@@ -92,7 +92,6 @@ subnet_cidrs = {
 # Enable only the services needed by this environment.
 services = {
   virtual_machine_scale_set = false
-  key_vault                 = true
   container_registry        = true
   azure_sql                 = true
   sql_managed_instance      = false
@@ -216,11 +215,15 @@ nat_gateway = {
   idle_timeout_in_minutes = 4
 }
 
-key_vault = {
-  sku_name = "standard"
+# One entry per Key Vault. Keys are stable logical names; changing a key
+# renames, and therefore replaces, that vault. Use key_vaults = {} for none.
+key_vaults = {
+  primary = {
+    sku_name = "standard"
 
-  # Keep false for an environment that must be destroyed automatically.
-  purge_protection_enabled = false
+    # Keep false for an environment that must be destroyed automatically.
+    purge_protection_enabled = false
+  }
 }
 
 storage_accounts = {

@@ -193,7 +193,8 @@ understand or override every module input.
 Every service is opt-in. With no service switches or resource maps set, the lab
 deploys only the resource group and virtual network. Enable single-instance
 services with `services.<name> = true` and add entries to `virtual_machines`,
-`storage_accounts`, or `premium_file_accounts` for keyed resources. Subnets,
+`storage_accounts`, `premium_file_accounts`, or `key_vaults` for keyed
+resources. Subnets,
 Private DNS zones, Private Endpoints, and the NAT Gateway are created only when
 an enabled service needs them.
 
@@ -268,6 +269,30 @@ of Terraform resource addresses and generated Azure names. All keys follow the
 same naming and lifecycle rules. Remove the storage fields from `services`; map
 membership now controls account creation, just as it does for
 `virtual_machines`.
+
+### Key Vaults
+
+`key_vaults` is keyed by stable logical names. An empty map creates no vaults,
+one entry creates one vault, and multiple entries create independent vaults:
+
+```hcl
+key_vaults = {
+  primary = {}
+  secrets = {
+    sku_name                 = "premium"
+    purge_protection_enabled = true
+  }
+}
+```
+
+Every vault uses RBAC authorization, disables public network access, and
+receives its own `vault` Private Endpoint. `sku_name` defaults to `standard`
+and `purge_protection_enabled` to `false` so the lab can be destroyed and
+purged automatically. Vault details, including the private `hostname`, and
+Private Endpoint IDs are returned as maps using the same keys. Key Vault names
+are globally unique, so changing a key or the naming inputs replaces the vault;
+enabling purge protection prevents that vault's name from being reused until
+its soft-delete retention ends.
 
 ### Virtual Machine Scale Sets
 
@@ -587,8 +612,8 @@ resources, and Function App resources.
 
 Names with stricter Azure rules use the same convention in a valid compact
 form. Storage account names contain no hyphens and stay within 24 characters;
-Azure Container Registry names contain no hyphens, and Key Vault names preserve
-the suffix within 24 characters; Cosmos DB
+Azure Container Registry names contain no hyphens, and Key Vault names keep
+the suffix and a logical-key token within 24 characters; Cosmos DB
 database/container names are compact alphanumeric identifiers compatible with
 all supported APIs. Map-based Container Apps workload profile names use
 `<prefix up to 3 characters>-<4-character SHA-1 of logical key>-<suffix>`, staying

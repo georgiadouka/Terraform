@@ -68,10 +68,14 @@ locals {
   compact_project     = replace(var.project_name, "-", "")
   compact_environment = replace(var.environment, "-", "")
   naming_prefixes     = var.naming.prefixes
-  storage_account_key_tokens = {
+  # Compact per-key tokens for globally unique names with tight length limits:
+  # up to five key characters plus five SHA-1 characters, so similar keys still
+  # produce distinct names.
+  logical_key_tokens = {
     for key in setunion(
       toset(keys(var.storage_accounts)),
-      toset(keys(var.premium_file_accounts))
+      toset(keys(var.premium_file_accounts)),
+      toset(keys(var.key_vaults))
     ) : key => "${substr(replace(key, "-", ""), 0, 5)}${substr(sha1(key), 0, 5)}"
   }
 
@@ -117,11 +121,19 @@ locals {
       }
     }
 
-    key_vault = format(
-      "%s-%s",
-      substr("${local.naming_prefixes.key_vault}-${local.compact_project}${local.compact_environment}", 0, 23 - length(local.naming_suffix)),
-      local.naming_suffix
-    )
+    # <prefix>-<key token><project><environment>-<suffix>, within 24 characters.
+    # The prefix is limited to seven characters so the key token is never cut.
+    key_vaults = {
+      for key in keys(var.key_vaults) : key => format(
+        "%s-%s",
+        substr(
+          "${local.naming_prefixes.key_vault}-${local.logical_key_tokens[key]}${local.compact_project}${local.compact_environment}",
+          0,
+          23 - length(local.naming_suffix)
+        ),
+        local.naming_suffix
+      )
+    }
 
     container_registry = "${local.naming_prefixes.container_registry}${local.compact_project}${local.compact_environment}${local.naming_suffix}"
 
@@ -129,7 +141,7 @@ locals {
       for key in keys(var.storage_accounts) : key => format(
         "%s%s",
         substr(
-          "${local.naming_prefixes.storage_account}${local.storage_account_key_tokens[key]}${local.compact_project}${local.compact_environment}",
+          "${local.naming_prefixes.storage_account}${local.logical_key_tokens[key]}${local.compact_project}${local.compact_environment}",
           0,
           24 - length(local.naming_suffix)
         ),
@@ -140,7 +152,7 @@ locals {
       for key in keys(var.premium_file_accounts) : key => format(
         "%s%s",
         substr(
-          "${local.naming_prefixes.premium_files_account}${local.storage_account_key_tokens[key]}${local.compact_project}${local.compact_environment}",
+          "${local.naming_prefixes.premium_files_account}${local.logical_key_tokens[key]}${local.compact_project}${local.compact_environment}",
           0,
           24 - length(local.naming_suffix)
         ),
@@ -252,14 +264,6 @@ locals {
   # the Function App must wait for them before it is created.
   private_endpoint_catalog = merge(
     {
-      key_vault = {
-        enabled               = var.services.key_vault
-        function_host_storage = false
-        target                = "key_vault"
-        name_token            = local.naming_prefixes.key_vault
-        subresource           = "vault"
-        dns_zone              = "privatelink.vaultcore.azure.net"
-      }
       container_registry = {
         enabled               = var.services.container_registry
         function_host_storage = false
@@ -299,6 +303,17 @@ locals {
         name_token            = local.naming_prefixes.function_app
         subresource           = "sites"
         dns_zone              = "privatelink.azurewebsites.net"
+      }
+    },
+    {
+      for vault_key in keys(var.key_vaults) :
+      "key_vault/${vault_key}" => {
+        enabled               = true
+        function_host_storage = false
+        target                = "key_vault/${vault_key}"
+        name_token            = "${local.naming_prefixes.key_vault}-${vault_key}"
+        subresource           = "vault"
+        dns_zone              = "privatelink.vaultcore.azure.net"
       }
     },
     {
@@ -349,12 +364,12 @@ locals {
   # Private Link resource IDs keyed by catalog target. Function host storage is
   # resolved separately so its endpoints do not wait for the Function App.
   private_endpoint_target_ids = merge(
-    var.services.key_vault ? { key_vault = module.key_vault[0].id } : {},
     var.services.container_registry ? { container_registry = module.container_registry[0].id } : {},
     var.services.azure_sql ? { azure_sql = module.azure_sql[0].server_id } : {},
     var.services.cosmos_db ? { cosmos_db = module.cosmos_db[0].id } : {},
     var.services.web_app ? { web_app = module.web_app[0].id } : {},
     var.services.function_app ? { function_app = module.function_app[0].id } : {},
+    { for key, vault in module.key_vault : "key_vault/${key}" => vault.id },
     { for key, account in module.storage : "storage/${key}" => account.id },
     { for key, account in module.premium_files : "premium_files/${key}" => account.id }
   )
@@ -594,15 +609,15 @@ module "nat_gateway" {
 }
 
 module "key_vault" {
-  count  = var.services.key_vault ? 1 : 0
-  source = "../../modules/key-vault"
+  for_each = var.key_vaults
+  source   = "../../modules/key-vault"
 
-  name                     = local.resource_names.key_vault
+  name                     = local.resource_names.key_vaults[each.key]
   resource_group_name      = module.resource_group.name
   location                 = module.resource_group.location
   tenant_id                = data.azurerm_client_config.current.tenant_id
-  sku_name                 = var.key_vault.sku_name
-  purge_protection_enabled = var.key_vault.purge_protection_enabled
+  sku_name                 = each.value.sku_name
+  purge_protection_enabled = each.value.purge_protection_enabled
   tags                     = local.common_tags
 }
 

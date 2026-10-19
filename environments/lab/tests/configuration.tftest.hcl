@@ -144,7 +144,7 @@ override_module {
   target = module.private_dns
   outputs = {
     zone_ids = {
-      for service in ["azurecr.io", "blob.core.windows.net", "file.core.windows.net", "queue.core.windows.net", "table.core.windows.net", "azurewebsites.net"] :
+      for service in ["vaultcore.azure.net", "azurecr.io", "blob.core.windows.net", "file.core.windows.net", "queue.core.windows.net", "table.core.windows.net", "azurewebsites.net"] :
       "privatelink.${service}" => "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Network/privateDnsZones/privatelink.${service}"
     }
   }
@@ -175,7 +175,6 @@ variables {
   premium_file_accounts = {}
   services = {
     virtual_machine_scale_set = false
-    key_vault                 = false
     container_registry        = false
     azure_sql                 = false
     sql_managed_instance      = false
@@ -203,7 +202,7 @@ variables {
   }
   virtual_machine_scale_set = {}
   nat_gateway               = {}
-  key_vault                 = {}
+  key_vaults                = {}
   azure_sql                 = {}
   cosmos_db                 = {}
   sql_managed_instance      = {}
@@ -348,7 +347,6 @@ run "vmss_only_keeps_shared_network" {
     virtual_machines = {}
     services = {
       virtual_machine_scale_set = true
-      key_vault                 = false
       container_registry        = false
       azure_sql                 = false
       sql_managed_instance      = false
@@ -378,7 +376,6 @@ run "disabled_services" {
     virtual_machines = {}
     services = {
       virtual_machine_scale_set = false
-      key_vault                 = false
       container_registry        = false
       azure_sql                 = false
       sql_managed_instance      = false
@@ -606,6 +603,77 @@ run "multiple_premium_file_accounts" {
     )
     error_message = "Each premium_file_accounts entry must create one distinctly named FileStorage account, its shares, and a file Private Endpoint."
   }
+}
+
+run "multiple_key_vaults" {
+  command = plan
+  variables {
+    key_vaults = {
+      primary = {}
+      secrets = {
+        sku_name                 = "premium"
+        purge_protection_enabled = true
+      }
+    }
+  }
+  assert {
+    condition = (
+      length(module.key_vault) == 2 &&
+      local.resource_names.key_vaults["primary"] == "kv-primae3b7cmetle-test1" &&
+      local.resource_names.key_vaults["secrets"] == "kv-secrefe865metle-test1" &&
+      output.key_vaults["primary"].hostname == "kv-primae3b7cmetle-test1.vault.azure.net" &&
+      module.key_vault["primary"].name == "kv-primae3b7cmetle-test1" &&
+      length([for key in keys(module.private_endpoints) : key if startswith(key, "key_vault/")]) == 2 &&
+      local.resource_names.private_endpoints["key_vault/secrets"].name == "pe-kv-secrets-metlen-lab-test1" &&
+      length(output.private_endpoint_ids.key_vaults) == 2 &&
+      contains(local.private_dns_zones, "privatelink.vaultcore.azure.net") &&
+      local.subnet_enabled.private_endpoints
+    )
+    error_message = "Each key_vaults entry must create one distinctly named Key Vault with its own vault Private Endpoint."
+  }
+}
+
+run "key_vault_name_keeps_full_token_at_limits" {
+  command = plan
+  variables {
+    project_name = "metlen-proj"
+    environment  = "longenv"
+    naming = {
+      unique_suffix = "abcde"
+      prefixes      = { key_vault = "kvaults" }
+    }
+    key_vaults = {
+      longkeyname = {}
+    }
+  }
+  assert {
+    condition = (
+      local.resource_names.key_vaults["longkeyname"] == "kvaults-longk${substr(sha1("longkeyname"), 0, 5)}-abcde" &&
+      length(local.resource_names.key_vaults["longkeyname"]) == 24
+    )
+    error_message = "With the longest allowed prefix and suffix, a Key Vault name must keep its full key token and fit 24 characters."
+  }
+}
+
+run "reject_invalid_key_vault_key" {
+  command = plan
+  variables {
+    key_vaults = {
+      "Bad_Key" = {}
+    }
+  }
+  expect_failures = [var.key_vaults]
+}
+
+run "reject_long_key_vault_prefix" {
+  command = plan
+  variables {
+    naming = {
+      unique_suffix = "test1"
+      prefixes      = { key_vault = "keyvault" }
+    }
+  }
+  expect_failures = [var.naming]
 }
 
 run "reject_invalid_storage_account_key" {

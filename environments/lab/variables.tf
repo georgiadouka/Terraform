@@ -133,6 +133,11 @@ variable "naming" {
     condition     = length(var.naming.prefixes.container_app) <= 4
     error_message = "naming.prefixes.container_app must be no more than four characters so generated Container App names remain within Azure's 32-character limit."
   }
+
+  validation {
+    condition     = length(var.naming.prefixes.key_vault) <= 7
+    error_message = "naming.prefixes.key_vault must be no more than seven characters so every generated Key Vault name keeps its full logical-key token within Azure's 24-character limit."
+  }
 }
 
 variable "address_space" {
@@ -295,13 +300,22 @@ variable "nat_gateway" {
   default = {}
 }
 
-variable "key_vault" {
-  description = "Key Vault cost and recovery settings."
-  type = object({
+variable "key_vaults" {
+  description = "RBAC-enabled Key Vaults keyed by a stable logical name. Defaults to none; add one entry per vault."
+  type = map(object({
     sku_name                 = optional(string, "standard")
     purge_protection_enabled = optional(bool, false)
-  })
+  }))
   default = {}
+
+  validation {
+    condition = alltrue([
+      for key in keys(var.key_vaults) :
+      can(regex("^[a-z][a-z0-9-]{0,11}$", key)) &&
+      !strcontains(key, "--")
+    ])
+    error_message = "key_vaults keys must be 1-12 lowercase alphanumeric or hyphen characters, start with a letter, and not contain consecutive hyphens."
+  }
 }
 
 variable "storage_accounts" {
@@ -531,7 +545,6 @@ variable "services" {
   description = "Single-instance services enabled in this lab composition. Every service is opt-in."
   type = object({
     virtual_machine_scale_set = optional(bool, false)
-    key_vault                 = optional(bool, false)
     container_registry        = optional(bool, false)
     azure_sql                 = optional(bool, false)
     sql_managed_instance      = optional(bool, false)

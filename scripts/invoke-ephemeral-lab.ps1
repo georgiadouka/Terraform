@@ -15,6 +15,9 @@ param(
     [ValidatePattern("^[a-z][a-z0-9-]{0,11}$")]
     [string]$SmokeTestPremiumFileAccountKey = "primary",
 
+    [ValidatePattern("^[a-z][a-z0-9-]{0,11}$")]
+    [string]$SmokeTestKeyVaultKey = "primary",
+
     # Relative paths resolve against environments\lab.
     [ValidateNotNullOrEmpty()]
     [string]$VarFile = "lab.tfvars"
@@ -84,11 +87,16 @@ try {
         throw "The configured smoke-test Premium Files account key '$SmokeTestPremiumFileAccountKey' was not found."
     }
 
+    $smokeTestKeyVault = $outputs.key_vaults.value.PSObject.Properties[$SmokeTestKeyVaultKey].Value
+    if ($null -eq $smokeTestKeyVault) {
+        throw "The configured smoke-test Key Vault key '$SmokeTestKeyVaultKey' was not found."
+    }
+
     $smokeParameters = @(
         "SQL_HOST=$($outputs.azure_sql_fqdn.value)",
         "POSTGRESQL_HOST=$($outputs.postgresql_fqdn.value)",
         "MYSQL_HOST=$($outputs.mysql_fqdn.value)",
-        "KEY_VAULT_HOST=$(([uri]$outputs.key_vault_uri.value).Host)",
+        "KEY_VAULT_HOST=$($smokeTestKeyVault.hostname)",
         "STORAGE_BLOB_HOST=$($smokeTestStorageAccount.blob_hostname)",
         "PREMIUM_FILES_HOST=$($smokeTestPremiumFileAccount.file_hostname)",
         "FUNCTION_STORAGE_BLOB_HOST=$($outputs.function_storage_blob_hostname.value)",
