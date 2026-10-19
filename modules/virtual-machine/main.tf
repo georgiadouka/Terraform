@@ -284,11 +284,6 @@ resource "azurerm_linux_virtual_machine" "this" {
   }
 }
 
-moved {
-  from = azurerm_linux_virtual_machine.this
-  to   = azurerm_linux_virtual_machine.this[0]
-}
-
 resource "azurerm_windows_virtual_machine" "this" {
   count = var.os_type == "Windows" ? 1 : 0
 

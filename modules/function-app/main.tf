@@ -135,11 +135,6 @@ resource "azurerm_service_plan" "this" {
   tags                = var.tags
 }
 
-moved {
-  from = azurerm_linux_function_app.this
-  to   = azurerm_linux_function_app.this[0]
-}
-
 resource "azurerm_linux_function_app" "this" {
   count = var.os_type == "Linux" ? 1 : 0
 

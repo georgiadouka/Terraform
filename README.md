@@ -451,8 +451,7 @@ function_app = {
 ```
 
 Hosting remains Elastic Premium (`EP1`, `EP2`, or `EP3`) on Functions host v4.
-Deploy matching application code separately. An existing Linux app's Terraform
-address is preserved with a `moved` block, but **changing OS recreates the
+Deploy matching application code separately. **Changing OS recreates the
 Function App and service plan**, creates a new managed identity, and requires
 code redeployment plus review of dependent access grants. Private Endpoint and
 outbound VNet integration are retained for either OS. Inspect

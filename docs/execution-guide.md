@@ -168,8 +168,7 @@ Important rules:
   do not add credentials to `terraform.tfvars`.
 - VM OS selection, Function runtime examples, HA prerequisites, and credential
   handling are described in [the configuration reference](../README.md#vm-os-function-runtime-and-database-availability).
-  Changing the VM OS replaces the VM. Existing Linux VM state addresses are
-  migrated automatically by a Terraform `moved` block.
+  Changing the VM OS replaces the VM.
 - Function Apps default to Linux/Python 3.11. Select `function_app.os_type`
   (`Linux` or `Windows`) and set `runtime.name` plus `runtime.version` together.
   For example, Windows with `{ name = "dotnet-isolated", version = "8.0" }`
@@ -177,7 +176,6 @@ Important rules:
   Linux-only, so setting Windows without overriding the Python default is
   rejected. Use plain runtime versions; the module handles OS-specific provider
   version formats. Functions host v4 and private connectivity remain unchanged.
-  Existing Linux state is migrated to the indexed resource address automatically.
   Changing OS recreates the app/plan and its managed identity: review the plan,
   dependent access grants, and code redeployment. Windows Functions are covered
   by mocked Terraform plans only, not live deployment validation.
