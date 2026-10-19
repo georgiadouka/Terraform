@@ -175,7 +175,6 @@ variables {
   premium_file_accounts = {}
   services = {
     virtual_machine_scale_set = false
-    container_registry        = false
     azure_sql                 = false
     sql_managed_instance      = false
     postgresql                = false
@@ -203,6 +202,7 @@ variables {
   virtual_machine_scale_set = {}
   nat_gateway               = {}
   key_vaults                = {}
+  container_registries      = {}
   azure_sql                 = {}
   cosmos_db                 = {}
   sql_managed_instance      = {}
@@ -347,7 +347,6 @@ run "vmss_only_keeps_shared_network" {
     virtual_machines = {}
     services = {
       virtual_machine_scale_set = true
-      container_registry        = false
       azure_sql                 = false
       sql_managed_instance      = false
       postgresql                = false
@@ -376,7 +375,6 @@ run "disabled_services" {
     virtual_machines = {}
     services = {
       virtual_machine_scale_set = false
-      container_registry        = false
       azure_sql                 = false
       sql_managed_instance      = false
       postgresql                = false
@@ -403,7 +401,7 @@ run "disabled_services" {
       length(module.function_app) == 0 &&
       output.function_app_os_type == null &&
       output.function_app_hostname == null &&
-      output.container_registry_id == null &&
+      length(output.container_registries) == 0 &&
       output.web_app_id == null &&
       length(output.container_app_dedicated_workload_profile_names) == 0 &&
       output.container_app_workload_profile_name == null
@@ -466,22 +464,60 @@ run "web_app_container" {
   }
 }
 
-run "container_registry_private_only" {
+run "multiple_container_registries" {
   command = plan
   variables {
-    services = merge(var.services, { container_registry = true })
+    container_registries = {
+      primary = {}
+      images  = {}
+    }
   }
   assert {
     condition = (
-      output.container_registry_name == "crmetlenlabtest1" &&
-      output.container_registry_login_server == "crmetlenlabtest1.azurecr.io" &&
-      output.container_registry_sku == "Premium" &&
-      length(module.container_registry) == 1 &&
-      contains(keys(module.private_endpoints), "container_registry") &&
-      output.private_endpoint_ids.container_registry != null
+      length(module.container_registry) == 2 &&
+      output.container_registries["primary"].name == "crprimae3b7cmetlenlabtest1" &&
+      output.container_registries["images"].name == "crimage${substr(sha1("images"), 0, 5)}metlenlabtest1" &&
+      output.container_registries["primary"].sku == "Premium" &&
+      alltrue([
+        for name in values(local.resource_names.container_registries) :
+        can(regex("^[a-z0-9]{5,50}$", name))
+      ]) &&
+      local.resource_names.private_endpoints["container_registry/images"].name == "pe-cr-images-metlen-lab-test1" &&
+      length([for key in keys(module.private_endpoints) : key if startswith(key, "container_registry/")]) == 2 &&
+      length(output.private_endpoint_ids.container_registries) == 2 &&
+      contains(local.private_dns_zones, "privatelink.azurecr.io")
     )
-    error_message = "The root configuration must create a Premium registry with its mandatory Private Endpoint."
+    error_message = "Each container_registries entry must create one distinctly named Premium registry with its own registry Private Endpoint."
   }
+}
+
+run "container_registry_name_at_maximum_length" {
+  command = plan
+  variables {
+    project_name = "abcdefghijkl"
+    environment  = "abcdefgh"
+    naming = {
+      unique_suffix = "abcde"
+      prefixes      = { container_registry = "abcdefghij" }
+    }
+    container_registries = {
+      longkeyname = {}
+    }
+  }
+  assert {
+    condition     = length(local.resource_names.container_registries["longkeyname"]) == 45
+    error_message = "The longest possible registry name must stay within Azure's 50-character limit."
+  }
+}
+
+run "reject_invalid_container_registry_key" {
+  command = plan
+  variables {
+    container_registries = {
+      "Bad_Key" = {}
+    }
+  }
+  expect_failures = [var.container_registries]
 }
 
 run "storage_entra_only" {

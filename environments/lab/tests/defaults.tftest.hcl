@@ -36,6 +36,7 @@ variables {
   virtual_machine_scale_set = {}
   nat_gateway               = {}
   key_vaults                = {}
+  container_registries      = {}
   azure_sql                 = {}
   container_apps            = {}
   cosmos_db                 = {}

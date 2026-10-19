@@ -239,17 +239,19 @@ both Terraform addresses and generated names.
 
 ### Container Registry
 
-The formula is:
+Registry names are globally unique, alphanumeric only, and 5-50 characters.
+Each `container_registries` entry uses the same logical-key token as storage
+accounts and Key Vaults:
 
 ```text
-cr + metlen + lab + it6hp
+<prefix><key token><project><environment><suffix>
 ```
 
-Result:
+| Logical key | Result |
+|---|---|
+| `primary` | `crprimae3b7cmetlenlabit6hp` |
 
-```text
-crmetlenlabit6hp
-```
+No truncation is needed: the longest possible name is 45 characters.
 
 ### Key Vault
 
@@ -307,7 +309,8 @@ All three share one pattern built from the endpoint's name token:
 
 | Endpoint | Name token |
 |---|---|
-| Single-instance service | Service prefix, such as `cr`, `sql`, `cosmos`, `app`, or `func` |
+| Single-instance service | Service prefix, such as `sql`, `cosmos`, `app`, or `func` |
+| Container Registry | `cr-<registry key>` |
 | Key Vault | `kv-<vault key>` |
 | Standard Storage | `st-<account key>-<blob or file>` |
 | Premium Files | `stpf-<account key>-file` |

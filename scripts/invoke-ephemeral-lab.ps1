@@ -18,6 +18,9 @@ param(
     [ValidatePattern("^[a-z][a-z0-9-]{0,11}$")]
     [string]$SmokeTestKeyVaultKey = "primary",
 
+    [ValidatePattern("^[a-z][a-z0-9-]{0,11}$")]
+    [string]$SmokeTestContainerRegistryKey = "primary",
+
     # Relative paths resolve against environments\lab.
     [ValidateNotNullOrEmpty()]
     [string]$VarFile = "lab.tfvars"
@@ -92,6 +95,11 @@ try {
         throw "The configured smoke-test Key Vault key '$SmokeTestKeyVaultKey' was not found."
     }
 
+    $smokeTestContainerRegistry = $outputs.container_registries.value.PSObject.Properties[$SmokeTestContainerRegistryKey].Value
+    if ($null -eq $smokeTestContainerRegistry) {
+        throw "The configured smoke-test container registry key '$SmokeTestContainerRegistryKey' was not found."
+    }
+
     $smokeParameters = @(
         "SQL_HOST=$($outputs.azure_sql_fqdn.value)",
         "POSTGRESQL_HOST=$($outputs.postgresql_fqdn.value)",
@@ -102,7 +110,7 @@ try {
         "FUNCTION_STORAGE_BLOB_HOST=$($outputs.function_storage_blob_hostname.value)",
         "FUNCTION_APP_HOST=$($outputs.function_app_hostname.value)",
         "WEB_APP_HOST=$($outputs.web_app_hostname.value)",
-        "CONTAINER_REGISTRY_HOST=$($outputs.container_registry_login_server.value)",
+        "CONTAINER_REGISTRY_HOST=$($smokeTestContainerRegistry.login_server)",
         "CONTAINER_APP_HOST=$($outputs.container_app_fqdn.value)"
     )
 

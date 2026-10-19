@@ -75,7 +75,8 @@ locals {
     for key in setunion(
       toset(keys(var.storage_accounts)),
       toset(keys(var.premium_file_accounts)),
-      toset(keys(var.key_vaults))
+      toset(keys(var.key_vaults)),
+      toset(keys(var.container_registries))
     ) : key => "${substr(replace(key, "-", ""), 0, 5)}${substr(sha1(key), 0, 5)}"
   }
 
@@ -135,7 +136,11 @@ locals {
       )
     }
 
-    container_registry = "${local.naming_prefixes.container_registry}${local.compact_project}${local.compact_environment}${local.naming_suffix}"
+    # Alphanumeric only and at most 45 characters, within the 5-50 character limit.
+    container_registries = {
+      for key in keys(var.container_registries) :
+      key => "${local.naming_prefixes.container_registry}${local.logical_key_tokens[key]}${local.compact_project}${local.compact_environment}${local.naming_suffix}"
+    }
 
     storage_accounts = {
       for key in keys(var.storage_accounts) : key => format(
@@ -264,14 +269,6 @@ locals {
   # the Function App must wait for them before it is created.
   private_endpoint_catalog = merge(
     {
-      container_registry = {
-        enabled               = var.services.container_registry
-        function_host_storage = false
-        target                = "container_registry"
-        name_token            = local.naming_prefixes.container_registry
-        subresource           = "registry"
-        dns_zone              = "privatelink.azurecr.io"
-      }
       azure_sql = {
         enabled               = var.services.azure_sql
         function_host_storage = false
@@ -303,6 +300,17 @@ locals {
         name_token            = local.naming_prefixes.function_app
         subresource           = "sites"
         dns_zone              = "privatelink.azurewebsites.net"
+      }
+    },
+    {
+      for registry_key in keys(var.container_registries) :
+      "container_registry/${registry_key}" => {
+        enabled               = true
+        function_host_storage = false
+        target                = "container_registry/${registry_key}"
+        name_token            = "${local.naming_prefixes.container_registry}-${registry_key}"
+        subresource           = "registry"
+        dns_zone              = "privatelink.azurecr.io"
       }
     },
     {
@@ -364,11 +372,11 @@ locals {
   # Private Link resource IDs keyed by catalog target. Function host storage is
   # resolved separately so its endpoints do not wait for the Function App.
   private_endpoint_target_ids = merge(
-    var.services.container_registry ? { container_registry = module.container_registry[0].id } : {},
     var.services.azure_sql ? { azure_sql = module.azure_sql[0].server_id } : {},
     var.services.cosmos_db ? { cosmos_db = module.cosmos_db[0].id } : {},
     var.services.web_app ? { web_app = module.web_app[0].id } : {},
     var.services.function_app ? { function_app = module.function_app[0].id } : {},
+    { for key, registry in module.container_registry : "container_registry/${key}" => registry.id },
     { for key, vault in module.key_vault : "key_vault/${key}" => vault.id },
     { for key, account in module.storage : "storage/${key}" => account.id },
     { for key, account in module.premium_files : "premium_files/${key}" => account.id }
@@ -622,10 +630,10 @@ module "key_vault" {
 }
 
 module "container_registry" {
-  count  = var.services.container_registry ? 1 : 0
-  source = "../../modules/container-registry"
+  for_each = var.container_registries
+  source   = "../../modules/container-registry"
 
-  name                = local.resource_names.container_registry
+  name                = local.resource_names.container_registries[each.key]
   resource_group_name = module.resource_group.name
   location            = module.resource_group.location
   tags                = local.common_tags

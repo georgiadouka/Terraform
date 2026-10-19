@@ -110,24 +110,16 @@ output "key_vaults" {
   }
 }
 
-output "container_registry_id" {
-  description = "Azure Container Registry ID when enabled."
-  value       = try(module.container_registry[0].id, null)
-}
-
-output "container_registry_name" {
-  description = "Azure Container Registry name when enabled."
-  value       = try(module.container_registry[0].name, null)
-}
-
-output "container_registry_login_server" {
-  description = "Private Azure Container Registry login server when enabled."
-  value       = try(module.container_registry[0].login_server, null)
-}
-
-output "container_registry_sku" {
-  description = "Azure Container Registry SKU when enabled."
-  value       = try(module.container_registry[0].sku, null)
+output "container_registries" {
+  description = "Azure Container Registry details keyed by the configured logical registry name."
+  value = {
+    for key, registry in module.container_registry : key => {
+      id           = registry.id
+      name         = registry.name
+      login_server = registry.login_server
+      sku          = registry.sku
+    }
+  }
 }
 
 output "azure_sql_fqdn" {
@@ -261,7 +253,10 @@ output "function_storage_blob_hostname" {
 output "private_endpoint_ids" {
   description = "Private Endpoint IDs grouped by service."
   value = {
-    container_registry = try(module.private_endpoints["container_registry"].id, null)
+    container_registries = {
+      for registry_key in keys(var.container_registries) :
+      registry_key => module.private_endpoints["container_registry/${registry_key}"].id
+    }
     key_vaults = {
       for vault_key in keys(var.key_vaults) :
       vault_key => module.private_endpoints["key_vault/${vault_key}"].id

@@ -54,7 +54,7 @@ override_module {
   outputs = { id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.KeyVault/vaults/kvsecrets", name = "kvsecrets", vault_uri = "https://kvsecrets.vault.azure.net/" }
 }
 override_module {
-  target  = module.container_registry[0]
+  target  = module.container_registry["primary"]
   outputs = { id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.ContainerRegistry/registries/acr", name = "acr", login_server = "acr.azurecr.io", sku = "Premium" }
 }
 override_module {
@@ -115,16 +115,18 @@ variables {
     primary = {}
     secrets = {}
   }
+  container_registries = {
+    primary = {}
+  }
   container_apps = {}
   web_app        = {}
   function_app   = {}
   cosmos_db      = {}
   services = {
-    container_registry = true
-    azure_sql          = true
-    cosmos_db          = true
-    web_app            = true
-    function_app       = true
+    azure_sql    = true
+    cosmos_db    = true
+    web_app      = true
+    function_app = true
   }
   storage_use_azuread = true
   location            = "swedencentral"
@@ -153,7 +155,7 @@ run "all_endpoints" {
 
   assert {
     condition = keys(local.service_private_endpoints) == [
-      "azure_sql", "container_registry", "cosmos_db", "function_app", "key_vault/primary", "key_vault/secrets",
+      "azure_sql", "container_registry/primary", "cosmos_db", "function_app", "key_vault/primary", "key_vault/secrets",
       "premium_files/media/file", "premium_files/primary/file",
       "storage/archive/blob", "storage/archive/file", "storage/primary/blob", "storage/primary/file",
       "web_app"
@@ -180,6 +182,8 @@ run "all_endpoints" {
     condition = (
       local.private_endpoint_target_ids["storage/archive"] == "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Storage/storageAccounts/starchive" &&
       local.private_endpoint_target_ids["premium_files/media"] == "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Storage/storageAccounts/pfmedia" &&
+      local.private_endpoint_target_ids["container_registry/primary"] == "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.ContainerRegistry/registries/acr" &&
+      local.service_private_endpoints["container_registry/primary"].subresource == "registry" &&
       local.private_endpoint_target_ids["key_vault/secrets"] == "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.KeyVault/vaults/kvsecrets" &&
       local.service_private_endpoints["key_vault/secrets"].subresource == "vault" &&
       local.service_private_endpoints["key_vault/secrets"].dns_zone == "privatelink.vaultcore.azure.net" &&
@@ -269,6 +273,7 @@ run "no_endpoints" {
     storage_accounts      = {}
     premium_file_accounts = {}
     key_vaults            = {}
+    container_registries  = {}
   }
 
   assert {

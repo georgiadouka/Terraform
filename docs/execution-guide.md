@@ -145,9 +145,10 @@ Important rules:
   subnet and delegation before creating the resource.
 - Terraform creates only the Private DNS zones and VNet links required by
   enabled services. Shared storage zones remain while any consumer is enabled.
-- Azure Container Registry uses Premium, disables public network access, and
-  creates a mandatory Private Endpoint. Control only whether it is created with
-  `services.container_registry`.
+- `container_registries` is a map keyed by stable logical names and defaults to
+  empty. Each entry creates a Premium Azure Container Registry with public
+  network access disabled and its own mandatory Private Endpoint; there is no
+  `services` switch for Container Registry.
 - `storage_use_azuread = true` makes Terraform use Entra ID for supported Blob
   and Queue operations. Pre-grant the deployment identity the required Storage
   data roles; role assignments declared inside `storage_accounts` entries are
@@ -213,7 +214,7 @@ Subnet creation follows the enabled service graph:
 
 | Subnet | Created when |
 |---|---|
-| `private_endpoints` | Azure Container Registry, Azure SQL, Cosmos DB, Web App, or Function App is enabled, or `key_vaults`/`storage_accounts`/`premium_file_accounts` is nonempty |
+| `private_endpoints` | Azure SQL, Cosmos DB, Web App, or Function App is enabled, or `container_registries`/`key_vaults`/`storage_accounts`/`premium_file_accounts` is nonempty |
 | `virtual_machines` | `virtual_machines` is non-empty or `services.virtual_machine_scale_set` is `true` |
 | `container_apps` | `services.container_apps` is `true` |
 | `web_app_integration` | `services.web_app` is `true` |

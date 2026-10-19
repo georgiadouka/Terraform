@@ -92,7 +92,6 @@ subnet_cidrs = {
 # Enable only the services needed by this environment.
 services = {
   virtual_machine_scale_set = false
-  container_registry        = true
   azure_sql                 = true
   sql_managed_instance      = false
   postgresql                = true
@@ -213,6 +212,12 @@ virtual_machine_scale_set = {
 # associated with whichever of those service subnets are active.
 nat_gateway = {
   idle_timeout_in_minutes = 4
+}
+
+# One entry per private Premium Azure Container Registry. Keys are stable
+# logical names; changing a key renames, and therefore replaces, that registry.
+container_registries = {
+  primary = {}
 }
 
 # One entry per Key Vault. Keys are stable logical names; changing a key

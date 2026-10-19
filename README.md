@@ -137,8 +137,9 @@ Environment owners can override the VNet address spaces and every subnet CIDR
 through `address_space` and `subnet_cidrs` in their `.tfvars` file. Terraform
 validates the complete current and future address plan for VNet containment and
 overlap, but creates only the subnets required by enabled services. The shared
-Private Endpoint subnet is created while at least one of Key Vault, storage,
-Premium Files, Azure Container Registry, Azure SQL, Cosmos DB, Web App, or Function App is enabled. Enabling a
+Private Endpoint subnet is created while at least one Key Vault, storage
+account, Premium Files account, or container registry is configured, or Azure
+SQL, Cosmos DB, Web App, or Function App is enabled. Enabling a
 service later adds its required subnet without changing existing subnet
 addresses. Private DNS zones and VNet links are likewise created only for
 enabled services; zones shared by multiple services remain while any consumer
@@ -193,8 +194,8 @@ understand or override every module input.
 Every service is opt-in. With no service switches or resource maps set, the lab
 deploys only the resource group and virtual network. Enable single-instance
 services with `services.<name> = true` and add entries to `virtual_machines`,
-`storage_accounts`, `premium_file_accounts`, or `key_vaults` for keyed
-resources. Subnets,
+`storage_accounts`, `premium_file_accounts`, `key_vaults`, or
+`container_registries` for keyed resources. Subnets,
 Private DNS zones, Private Endpoints, and the NAT Gateway are created only when
 an enabled service needs them.
 
@@ -291,6 +292,25 @@ Private Endpoint IDs are returned as maps using the same keys. Key Vault names
 are globally unique, so changing a key or the naming inputs replaces the vault;
 enabling purge protection prevents that vault's name from being reused until
 its soft-delete retention ends.
+
+### Container Registries
+
+`container_registries` is keyed by stable logical names. An empty map creates
+no registries, and each entry creates an independent registry:
+
+```hcl
+container_registries = {
+  primary = {}
+  images  = {}
+}
+```
+
+Every registry uses the Premium SKU, which Private Link requires, disables the
+admin account and public network access, and receives its own `registry`
+Private Endpoint. Registry details, including the `login_server`, and Private
+Endpoint IDs are returned as maps using the same keys. Registry names are
+globally unique, so changing a key or the naming inputs replaces the registry
+and its stored images.
 
 ### Virtual Machine Scale Sets
 
@@ -610,7 +630,7 @@ resources, and Function App resources.
 
 Names with stricter Azure rules use the same convention in a valid compact
 form. Storage account names contain no hyphens and stay within 24 characters;
-Azure Container Registry names contain no hyphens, and Key Vault names keep
+Azure Container Registry names contain no hyphens and include a logical-key token, and Key Vault names keep
 the suffix and a logical-key token within 24 characters; Cosmos DB
 database/container names are compact alphanumeric identifiers compatible with
 all supported APIs. Map-based Container Apps workload profile names use
