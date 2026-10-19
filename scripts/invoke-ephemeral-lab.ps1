@@ -7,7 +7,13 @@ param(
     [int]$HoldMinutes = 0,
 
     [ValidatePattern("^[a-z][a-z0-9-]{0,11}$")]
-    [string]$SmokeTestVmKey = "primary"
+    [string]$SmokeTestVmKey = "primary",
+
+    [ValidatePattern("^[a-z][a-z0-9-]{0,11}$")]
+    [string]$SmokeTestStorageAccountKey = "primary",
+
+    [ValidatePattern("^[a-z][a-z0-9-]{0,11}$")]
+    [string]$SmokeTestPremiumFileAccountKey = "primary"
 )
 
 $ErrorActionPreference = "Stop"
@@ -58,13 +64,23 @@ try {
         $smokeScriptPath = Join-Path $PSScriptRoot "private-connectivity-smoke.ps1"
     }
 
+    $smokeTestStorageAccount = $outputs.storage_accounts.value.PSObject.Properties[$SmokeTestStorageAccountKey].Value
+    if ($null -eq $smokeTestStorageAccount) {
+        throw "The configured smoke-test storage account key '$SmokeTestStorageAccountKey' was not found."
+    }
+
+    $smokeTestPremiumFileAccount = $outputs.premium_file_accounts.value.PSObject.Properties[$SmokeTestPremiumFileAccountKey].Value
+    if ($null -eq $smokeTestPremiumFileAccount) {
+        throw "The configured smoke-test Premium Files account key '$SmokeTestPremiumFileAccountKey' was not found."
+    }
+
     $smokeParameters = @(
         "SQL_HOST=$($outputs.azure_sql_fqdn.value)",
         "POSTGRESQL_HOST=$($outputs.postgresql_fqdn.value)",
         "MYSQL_HOST=$($outputs.mysql_fqdn.value)",
         "KEY_VAULT_HOST=$(([uri]$outputs.key_vault_uri.value).Host)",
-        "STORAGE_BLOB_HOST=$($outputs.storage_blob_hostname.value)",
-        "PREMIUM_FILES_HOST=$($outputs.premium_files_hostname.value)",
+        "STORAGE_BLOB_HOST=$($smokeTestStorageAccount.blob_hostname)",
+        "PREMIUM_FILES_HOST=$($smokeTestPremiumFileAccount.file_hostname)",
         "FUNCTION_STORAGE_BLOB_HOST=$($outputs.function_storage_blob_hostname.value)",
         "FUNCTION_APP_HOST=$($outputs.function_app_hostname.value)",
         "WEB_APP_HOST=$($outputs.web_app_hostname.value)",
