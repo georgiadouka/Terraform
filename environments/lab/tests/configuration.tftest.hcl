@@ -400,7 +400,7 @@ run "web_app_linux_default" {
       output.web_app_hostname == "app-linux.azurewebsites.net" &&
       endswith(output.web_app_id, "/sites/app-linux") &&
       length(module.web_app) == 1 &&
-      length(module.web_app_private_endpoint) == 1 &&
+      contains(keys(module.private_endpoints), "web_app") &&
       output.private_endpoint_ids.web_app != null
     )
     error_message = "The root configuration must create the default private Linux Web App and Private Endpoint."
@@ -454,7 +454,7 @@ run "container_registry_private_only" {
       output.container_registry_login_server == "crmetlenlabtest1.azurecr.io" &&
       output.container_registry_sku == "Premium" &&
       length(module.container_registry) == 1 &&
-      length(module.container_registry_private_endpoint) == 1 &&
+      contains(keys(module.private_endpoints), "container_registry") &&
       output.private_endpoint_ids.container_registry != null
     )
     error_message = "The root configuration must create a Premium registry with its mandatory Private Endpoint."
@@ -536,7 +536,7 @@ run "multiple_storage_accounts" {
     condition = (
       length(module.storage) == 2 &&
       length(output.storage_accounts) == 2 &&
-      length(module.storage_private_endpoints) == 4 &&
+      length([for key in keys(module.private_endpoints) : key if startswith(key, "storage/")]) == 4 &&
       length(output.private_endpoint_ids.storage["primary"]) == 2 &&
       length(output.private_endpoint_ids.storage["archive"]) == 2 &&
       output.storage_accounts["primary"].name == "stprimae3b7cmetlenltest1" &&
@@ -569,7 +569,7 @@ run "multiple_premium_file_accounts" {
     condition = (
       length(module.premium_files) == 2 &&
       length(output.premium_file_accounts) == 2 &&
-      length(module.premium_files_private_endpoint) == 2 &&
+      length([for key in keys(module.private_endpoints) : key if startswith(key, "premium_files/")]) == 2 &&
       length(output.private_endpoint_ids.premium_files) == 2 &&
       length(output.premium_file_accounts["primary"].file_share_ids) == 1 &&
       length(output.premium_file_accounts["analytics"].file_share_ids) == 1 &&
@@ -712,7 +712,7 @@ run "windows_function_app" {
       output.function_app_os_type == "Windows" &&
       output.function_app_hostname == "func-windows.azurewebsites.net" &&
       endswith(module.function_app[0].id, "/sites/func-windows") &&
-      length(module.function_app_private_endpoint) == 1 &&
+      contains(keys(module.private_endpoints), "function_app") &&
       output.virtual_machines["primary"].os_type == "Linux"
     )
     error_message = "Root tfvars must select Windows Functions independently of VM OS and preserve the existing app ID/hostname and Private Endpoint wiring."

@@ -282,12 +282,25 @@ Three related resources are generated for each private connection:
 | Private service connection | `psc` |
 | Private DNS zone group | `pdnszg` |
 
-For Standard Storage Blob:
+All three share one pattern built from the endpoint's name token:
 
 ```text
-pe-st-blob-metlen-lab-it6hp
-psc-st-blob-metlen-lab-it6hp
-pdnszg-st-blob-metlen-lab-it6hp
+<prefix>-<name token>-<project>-<environment>-<suffix>
+```
+
+| Endpoint | Name token |
+|---|---|
+| Single-instance service | Service prefix, such as `kv`, `cr`, `sql`, `cosmos`, `app`, or `func` |
+| Standard Storage | `st-<account key>-<blob or file>` |
+| Premium Files | `stpf-<account key>-file` |
+| Function host storage | `stfn-<blob, file, queue, or table>` |
+
+For the `primary` Standard Storage account's blob endpoint:
+
+```text
+pe-st-primary-blob-metlen-lab-it6hp
+psc-st-primary-blob-metlen-lab-it6hp
+pdnszg-st-primary-blob-metlen-lab-it6hp
 ```
 
 For Function Storage File:
@@ -298,7 +311,10 @@ psc-stfn-file-metlen-lab-it6hp
 pdnszg-stfn-file-metlen-lab-it6hp
 ```
 
-This keeps related resources visibly associated.
+This keeps related resources visibly associated. In the
+`generated_resource_names` output, `private_endpoints` is keyed by endpoint
+key, such as `key_vault` or `storage/primary/blob`, and each entry holds all
+three names.
 
 ## 9. Container Apps workload-profile names
 

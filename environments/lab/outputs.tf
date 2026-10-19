@@ -254,22 +254,25 @@ output "function_storage_blob_hostname" {
 output "private_endpoint_ids" {
   description = "Private Endpoint IDs grouped by service."
   value = {
-    key_vault          = try(module.key_vault_private_endpoint[0].id, null)
-    container_registry = try(module.container_registry_private_endpoint[0].id, null)
+    key_vault          = try(module.private_endpoints["key_vault"].id, null)
+    container_registry = try(module.private_endpoints["container_registry"].id, null)
     storage = {
       for account_key in keys(var.storage_accounts) : account_key => {
         for subresource in ["blob", "file"] :
-        subresource => module.storage_private_endpoints["${account_key}/${subresource}"].id
+        subresource => module.private_endpoints["storage/${account_key}/${subresource}"].id
       }
     }
     premium_files = {
-      for key, endpoint in module.premium_files_private_endpoint :
-      key => endpoint.id
+      for account_key in keys(var.premium_file_accounts) :
+      account_key => module.private_endpoints["premium_files/${account_key}/file"].id
     }
-    azure_sql        = try(module.azure_sql_private_endpoint[0].id, null)
-    cosmos_db        = try(module.cosmos_db_private_endpoint[0].id, null)
-    web_app          = try(module.web_app_private_endpoint[0].id, null)
-    function_storage = { for key, endpoint in module.function_storage_private_endpoints : key => endpoint.id }
-    function_app     = try(module.function_app_private_endpoint[0].id, null)
+    azure_sql    = try(module.private_endpoints["azure_sql"].id, null)
+    cosmos_db    = try(module.private_endpoints["cosmos_db"].id, null)
+    web_app      = try(module.private_endpoints["web_app"].id, null)
+    function_app = try(module.private_endpoints["function_app"].id, null)
+    function_storage = {
+      for key, endpoint in module.function_storage_private_endpoints :
+      trimprefix(key, "function_storage/") => endpoint.id
+    }
   }
 }

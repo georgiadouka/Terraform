@@ -115,7 +115,7 @@ and `TransactionOptimized`.
 
 ## Tested topology
 
-The default lab creates:
+The full lab configuration in `terraform.tfvars.example` creates:
 
 - one resource group and one `10.42.0.0/20` VNet;
 - separate subnets for the enabled Private Endpoint consumers, VMs, Container
@@ -143,6 +143,17 @@ service later adds its required subnet without changing existing subnet
 addresses. Private DNS zones and VNet links are likewise created only for
 enabled services; zones shared by multiple services remain while any consumer
 is enabled.
+
+All Private Endpoints are declared in one catalog,
+`local.private_endpoint_catalog` in `environments/lab/main.tf`. Each entry
+records whether it is enabled, its target, Private Link subresource, Private
+DNS zone, and name token. Endpoint names, the Private DNS zone set, and the
+Private Endpoint subnet are all derived from that catalog, and one
+`module.private_endpoints` call deploys every endpoint. To expose a new service
+through Private Link, add its catalog entry and its resource ID to
+`local.private_endpoint_target_ids`. Function host storage endpoints use a
+second call, `module.function_storage_private_endpoints`, because the Function
+App must wait for them before it is created.
 
 Private DNS was validated from the VM for all eleven service hostnames. Every
 hostname resolved to a `10.42.x.x` address, and the internal Container App
@@ -516,8 +527,9 @@ The tests use mocked Azure providers and plan-only runs; they do not deploy
 resources or exercise real database failover. The environment tests override
 network/storage plumbing to focus on configuration, credential selection, Web
 App mode selection, and Container Apps profile naming/placement. Workload
-profile tests cover defaults, multiple profiles, and invalid inputs. A separate
-lab test confirms that every service is opt-in.
+profile tests cover defaults, multiple profiles, and invalid inputs. Separate
+lab tests confirm that every service is opt-in and lock in Private Endpoint
+targets, subresources, DNS zones, and names.
 
 References: [Functions language support](https://learn.microsoft.com/azure/azure-functions/supported-languages),
 [PostgreSQL HA](https://learn.microsoft.com/azure/postgresql/high-availability/how-to-configure-high-availability),

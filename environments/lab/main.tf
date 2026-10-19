@@ -221,71 +221,10 @@ locals {
     app_service_plan     = "${local.naming_prefixes.app_service_plan}-${local.name_stem}"
 
     private_endpoints = {
-      key_vault          = "${local.naming_prefixes.private_endpoint}-${local.naming_prefixes.key_vault}-${local.name_stem}"
-      container_registry = "${local.naming_prefixes.private_endpoint}-${local.naming_prefixes.container_registry}-${local.name_stem}"
-      premium_files = {
-        for account_key in keys(var.premium_file_accounts) :
-        account_key => "${local.naming_prefixes.private_endpoint}-${local.naming_prefixes.premium_files_account}-${account_key}-file-${local.name_stem}"
-      }
-      azure_sql    = "${local.naming_prefixes.private_endpoint}-${local.naming_prefixes.azure_sql_server}-${local.name_stem}"
-      cosmos_db    = "${local.naming_prefixes.private_endpoint}-${local.naming_prefixes.cosmos_db_account}-${local.name_stem}"
-      web_app      = "${local.naming_prefixes.private_endpoint}-${local.naming_prefixes.web_app}-${local.name_stem}"
-      function_app = "${local.naming_prefixes.private_endpoint}-${local.naming_prefixes.function_app}-${local.name_stem}"
-      storage = {
-        for account_key in keys(var.storage_accounts) : account_key => {
-          for subresource in ["blob", "file"] :
-          subresource => "${local.naming_prefixes.private_endpoint}-${local.naming_prefixes.storage_account}-${account_key}-${subresource}-${local.name_stem}"
-        }
-      }
-      function_storage = {
-        for subresource in ["blob", "file", "queue", "table"] :
-        subresource => "${local.naming_prefixes.private_endpoint}-${local.naming_prefixes.function_storage_account}-${subresource}-${local.name_stem}"
-      }
-    }
-
-    private_service_connections = {
-      key_vault          = "${local.naming_prefixes.private_service_connection}-${local.naming_prefixes.key_vault}-${local.name_stem}"
-      container_registry = "${local.naming_prefixes.private_service_connection}-${local.naming_prefixes.container_registry}-${local.name_stem}"
-      premium_files = {
-        for account_key in keys(var.premium_file_accounts) :
-        account_key => "${local.naming_prefixes.private_service_connection}-${local.naming_prefixes.premium_files_account}-${account_key}-file-${local.name_stem}"
-      }
-      azure_sql    = "${local.naming_prefixes.private_service_connection}-${local.naming_prefixes.azure_sql_server}-${local.name_stem}"
-      cosmos_db    = "${local.naming_prefixes.private_service_connection}-${local.naming_prefixes.cosmos_db_account}-${local.name_stem}"
-      web_app      = "${local.naming_prefixes.private_service_connection}-${local.naming_prefixes.web_app}-${local.name_stem}"
-      function_app = "${local.naming_prefixes.private_service_connection}-${local.naming_prefixes.function_app}-${local.name_stem}"
-      storage = {
-        for account_key in keys(var.storage_accounts) : account_key => {
-          for subresource in ["blob", "file"] :
-          subresource => "${local.naming_prefixes.private_service_connection}-${local.naming_prefixes.storage_account}-${account_key}-${subresource}-${local.name_stem}"
-        }
-      }
-      function_storage = {
-        for subresource in ["blob", "file", "queue", "table"] :
-        subresource => "${local.naming_prefixes.private_service_connection}-${local.naming_prefixes.function_storage_account}-${subresource}-${local.name_stem}"
-      }
-    }
-
-    private_dns_zone_groups = {
-      key_vault          = "${local.naming_prefixes.private_dns_zone_group}-${local.naming_prefixes.key_vault}-${local.name_stem}"
-      container_registry = "${local.naming_prefixes.private_dns_zone_group}-${local.naming_prefixes.container_registry}-${local.name_stem}"
-      premium_files = {
-        for account_key in keys(var.premium_file_accounts) :
-        account_key => "${local.naming_prefixes.private_dns_zone_group}-${local.naming_prefixes.premium_files_account}-${account_key}-file-${local.name_stem}"
-      }
-      azure_sql    = "${local.naming_prefixes.private_dns_zone_group}-${local.naming_prefixes.azure_sql_server}-${local.name_stem}"
-      cosmos_db    = "${local.naming_prefixes.private_dns_zone_group}-${local.naming_prefixes.cosmos_db_account}-${local.name_stem}"
-      web_app      = "${local.naming_prefixes.private_dns_zone_group}-${local.naming_prefixes.web_app}-${local.name_stem}"
-      function_app = "${local.naming_prefixes.private_dns_zone_group}-${local.naming_prefixes.function_app}-${local.name_stem}"
-      storage = {
-        for account_key in keys(var.storage_accounts) : account_key => {
-          for subresource in ["blob", "file"] :
-          subresource => "${local.naming_prefixes.private_dns_zone_group}-${local.naming_prefixes.storage_account}-${account_key}-${subresource}-${local.name_stem}"
-        }
-      }
-      function_storage = {
-        for subresource in ["blob", "file", "queue", "table"] :
-        subresource => "${local.naming_prefixes.private_dns_zone_group}-${local.naming_prefixes.function_storage_account}-${subresource}-${local.name_stem}"
+      for key, endpoint in local.private_endpoint_catalog : key => {
+        name                            = "${local.naming_prefixes.private_endpoint}-${endpoint.name_token}-${local.name_stem}"
+        private_service_connection_name = "${local.naming_prefixes.private_service_connection}-${endpoint.name_token}-${local.name_stem}"
+        private_dns_zone_group_name     = "${local.naming_prefixes.private_dns_zone_group}-${endpoint.name_token}-${local.name_stem}"
       }
     }
   }
@@ -306,6 +245,124 @@ locals {
     Table     = "Table"
   }
 
+  # Every Private Endpoint the lab can create, keyed by a stable endpoint key.
+  # Entries hold only plan-time values (no module references) so names and
+  # for_each keys are always known. Names follow <prefix>-<name_token>-<stem>.
+  # function_host_storage entries are deployed by a separate module call because
+  # the Function App must wait for them before it is created.
+  private_endpoint_catalog = merge(
+    {
+      key_vault = {
+        enabled               = var.services.key_vault
+        function_host_storage = false
+        target                = "key_vault"
+        name_token            = local.naming_prefixes.key_vault
+        subresource           = "vault"
+        dns_zone              = "privatelink.vaultcore.azure.net"
+      }
+      container_registry = {
+        enabled               = var.services.container_registry
+        function_host_storage = false
+        target                = "container_registry"
+        name_token            = local.naming_prefixes.container_registry
+        subresource           = "registry"
+        dns_zone              = "privatelink.azurecr.io"
+      }
+      azure_sql = {
+        enabled               = var.services.azure_sql
+        function_host_storage = false
+        target                = "azure_sql"
+        name_token            = local.naming_prefixes.azure_sql_server
+        subresource           = "sqlServer"
+        dns_zone              = "privatelink.database.windows.net"
+      }
+      cosmos_db = {
+        enabled               = var.services.cosmos_db
+        function_host_storage = false
+        target                = "cosmos_db"
+        name_token            = local.naming_prefixes.cosmos_db_account
+        subresource           = lookup(local.cosmos_private_endpoint_subresource_by_api, var.cosmos_db.api_type, null)
+        dns_zone              = lookup(local.cosmos_private_dns_zone_by_api, var.cosmos_db.api_type, null)
+      }
+      web_app = {
+        enabled               = var.services.web_app
+        function_host_storage = false
+        target                = "web_app"
+        name_token            = local.naming_prefixes.web_app
+        subresource           = "sites"
+        dns_zone              = "privatelink.azurewebsites.net"
+      }
+      function_app = {
+        enabled               = var.services.function_app
+        function_host_storage = false
+        target                = "function_app"
+        name_token            = local.naming_prefixes.function_app
+        subresource           = "sites"
+        dns_zone              = "privatelink.azurewebsites.net"
+      }
+    },
+    {
+      for pair in setproduct(keys(var.storage_accounts), ["blob", "file"]) :
+      "storage/${pair[0]}/${pair[1]}" => {
+        enabled               = true
+        function_host_storage = false
+        target                = "storage/${pair[0]}"
+        name_token            = "${local.naming_prefixes.storage_account}-${pair[0]}-${pair[1]}"
+        subresource           = pair[1]
+        dns_zone              = "privatelink.${pair[1]}.core.windows.net"
+      }
+    },
+    {
+      for account_key in keys(var.premium_file_accounts) :
+      "premium_files/${account_key}/file" => {
+        enabled               = true
+        function_host_storage = false
+        target                = "premium_files/${account_key}"
+        name_token            = "${local.naming_prefixes.premium_files_account}-${account_key}-file"
+        subresource           = "file"
+        dns_zone              = "privatelink.file.core.windows.net"
+      }
+    },
+    {
+      for subresource in ["blob", "file", "queue", "table"] :
+      "function_storage/${subresource}" => {
+        enabled               = var.services.function_app
+        function_host_storage = true
+        target                = "function_storage"
+        name_token            = "${local.naming_prefixes.function_storage_account}-${subresource}"
+        subresource           = subresource
+        dns_zone              = "privatelink.${subresource}.core.windows.net"
+      }
+    }
+  )
+
+  service_private_endpoints = {
+    for key, endpoint in local.private_endpoint_catalog : key => endpoint
+    if endpoint.enabled && !endpoint.function_host_storage
+  }
+
+  function_storage_private_endpoints = {
+    for key, endpoint in local.private_endpoint_catalog : key => endpoint
+    if endpoint.enabled && endpoint.function_host_storage
+  }
+
+  # Private Link resource IDs keyed by catalog target. Function host storage is
+  # resolved separately so its endpoints do not wait for the Function App.
+  private_endpoint_target_ids = merge(
+    var.services.key_vault ? { key_vault = module.key_vault[0].id } : {},
+    var.services.container_registry ? { container_registry = module.container_registry[0].id } : {},
+    var.services.azure_sql ? { azure_sql = module.azure_sql[0].server_id } : {},
+    var.services.cosmos_db ? { cosmos_db = module.cosmos_db[0].id } : {},
+    var.services.web_app ? { web_app = module.web_app[0].id } : {},
+    var.services.function_app ? { function_app = module.function_app[0].id } : {},
+    { for key, account in module.storage : "storage/${key}" => account.id },
+    { for key, account in module.premium_files : "premium_files/${key}" => account.id }
+  )
+
+  function_storage_target_ids = var.services.function_app ? {
+    function_storage = module.function_storage[0].id
+  } : {}
+
   common_tags = merge(
     {
       environment = var.environment
@@ -317,14 +374,7 @@ locals {
   )
 
   private_endpoints_required = anytrue([
-    var.services.key_vault,
-    var.services.container_registry,
-    length(var.storage_accounts) > 0,
-    length(var.premium_file_accounts) > 0,
-    var.services.azure_sql,
-    var.services.cosmos_db,
-    var.services.web_app,
-    var.services.function_app
+    for endpoint in values(local.private_endpoint_catalog) : endpoint.enabled
   ])
 
   nat_gateway_required = anytrue([
@@ -332,14 +382,6 @@ locals {
     var.services.virtual_machine_scale_set,
     var.services.container_apps
   ])
-
-  storage_private_endpoint_instances = {
-    for pair in setproduct(keys(var.storage_accounts), ["blob", "file"]) :
-    "${pair[0]}/${pair[1]}" => {
-      account_key = pair[0]
-      subresource = pair[1]
-    }
-  }
 
   subnet_enabled = {
     private_endpoints    = local.private_endpoints_required
@@ -430,25 +472,12 @@ locals {
   }
 
   private_dns_zones = setunion(
-    var.services.key_vault ? toset(["privatelink.vaultcore.azure.net"]) : toset([]),
-    var.services.container_registry ? toset(["privatelink.azurecr.io"]) : toset([]),
-    length(var.storage_accounts) > 0 ? toset([
-      "privatelink.blob.core.windows.net",
-      "privatelink.file.core.windows.net"
-    ]) : toset([]),
-    length(var.premium_file_accounts) > 0 ? toset(["privatelink.file.core.windows.net"]) : toset([]),
-    var.services.azure_sql ? toset(["privatelink.database.windows.net"]) : toset([]),
+    toset([
+      for endpoint in values(local.private_endpoint_catalog) : endpoint.dns_zone
+      if endpoint.enabled
+    ]),
     var.services.postgresql ? toset(["privatelink.postgres.database.azure.com"]) : toset([]),
-    var.services.mysql ? toset(["privatelink.mysql.database.azure.com"]) : toset([]),
-    var.services.web_app ? toset(["privatelink.azurewebsites.net"]) : toset([]),
-    var.services.function_app ? toset([
-      "privatelink.azurewebsites.net",
-      "privatelink.blob.core.windows.net",
-      "privatelink.file.core.windows.net",
-      "privatelink.queue.core.windows.net",
-      "privatelink.table.core.windows.net"
-    ]) : toset([]),
-    var.services.cosmos_db ? toset([local.cosmos_private_dns_zone_by_api[var.cosmos_db.api_type]]) : toset([])
+    var.services.mysql ? toset(["privatelink.mysql.database.azure.com"]) : toset([])
   )
 
   private_dns_link_names = {
@@ -577,22 +606,6 @@ module "key_vault" {
   tags                     = local.common_tags
 }
 
-module "key_vault_private_endpoint" {
-  count  = var.services.key_vault ? 1 : 0
-  source = "../../modules/private-endpoint"
-
-  name                            = local.resource_names.private_endpoints.key_vault
-  private_service_connection_name = local.resource_names.private_service_connections.key_vault
-  private_dns_zone_group_name     = local.resource_names.private_dns_zone_groups.key_vault
-  resource_group_name             = module.resource_group.name
-  location                        = module.resource_group.location
-  subnet_id                       = module.network.subnet_ids["private_endpoints"]
-  private_connection_resource_id  = module.key_vault[0].id
-  subresource_names               = ["vault"]
-  private_dns_zone_ids            = [module.private_dns.zone_ids["privatelink.vaultcore.azure.net"]]
-  tags                            = local.common_tags
-}
-
 module "container_registry" {
   count  = var.services.container_registry ? 1 : 0
   source = "../../modules/container-registry"
@@ -601,22 +614,6 @@ module "container_registry" {
   resource_group_name = module.resource_group.name
   location            = module.resource_group.location
   tags                = local.common_tags
-}
-
-module "container_registry_private_endpoint" {
-  count  = var.services.container_registry ? 1 : 0
-  source = "../../modules/private-endpoint"
-
-  name                            = local.resource_names.private_endpoints.container_registry
-  private_service_connection_name = local.resource_names.private_service_connections.container_registry
-  private_dns_zone_group_name     = local.resource_names.private_dns_zone_groups.container_registry
-  resource_group_name             = module.resource_group.name
-  location                        = module.resource_group.location
-  subnet_id                       = module.network.subnet_ids["private_endpoints"]
-  private_connection_resource_id  = module.container_registry[0].id
-  subresource_names               = ["registry"]
-  private_dns_zone_ids            = [module.private_dns.zone_ids["privatelink.azurecr.io"]]
-  tags                            = local.common_tags
 }
 
 module "storage" {
@@ -635,22 +632,6 @@ module "storage" {
   tags                        = local.common_tags
 }
 
-module "storage_private_endpoints" {
-  for_each = local.storage_private_endpoint_instances
-  source   = "../../modules/private-endpoint"
-
-  name                            = local.resource_names.private_endpoints.storage[each.value.account_key][each.value.subresource]
-  private_service_connection_name = local.resource_names.private_service_connections.storage[each.value.account_key][each.value.subresource]
-  private_dns_zone_group_name     = local.resource_names.private_dns_zone_groups.storage[each.value.account_key][each.value.subresource]
-  resource_group_name             = module.resource_group.name
-  location                        = module.resource_group.location
-  subnet_id                       = module.network.subnet_ids["private_endpoints"]
-  private_connection_resource_id  = module.storage[each.value.account_key].id
-  subresource_names               = [each.value.subresource]
-  private_dns_zone_ids            = [module.private_dns.zone_ids["privatelink.${each.value.subresource}.core.windows.net"]]
-  tags                            = local.common_tags
-}
-
 module "premium_files" {
   for_each = var.premium_file_accounts
   source   = "../../modules/premium-files"
@@ -662,22 +643,6 @@ module "premium_files" {
   file_share_names    = local.resource_names.premium_file_shares[each.key]
   file_shares         = each.value.file_shares
   tags                = local.common_tags
-}
-
-module "premium_files_private_endpoint" {
-  for_each = var.premium_file_accounts
-  source   = "../../modules/private-endpoint"
-
-  name                            = local.resource_names.private_endpoints.premium_files[each.key]
-  private_service_connection_name = local.resource_names.private_service_connections.premium_files[each.key]
-  private_dns_zone_group_name     = local.resource_names.private_dns_zone_groups.premium_files[each.key]
-  resource_group_name             = module.resource_group.name
-  location                        = module.resource_group.location
-  subnet_id                       = module.network.subnet_ids["private_endpoints"]
-  private_connection_resource_id  = module.premium_files[each.key].id
-  subresource_names               = ["file"]
-  private_dns_zone_ids            = [module.private_dns.zone_ids["privatelink.file.core.windows.net"]]
-  tags                            = local.common_tags
 }
 
 module "azure_sql" {
@@ -700,22 +665,6 @@ module "azure_sql" {
     tenant_id      = data.azurerm_client_config.current.tenant_id
   }
   tags = local.common_tags
-}
-
-module "azure_sql_private_endpoint" {
-  count  = var.services.azure_sql ? 1 : 0
-  source = "../../modules/private-endpoint"
-
-  name                            = local.resource_names.private_endpoints.azure_sql
-  private_service_connection_name = local.resource_names.private_service_connections.azure_sql
-  private_dns_zone_group_name     = local.resource_names.private_dns_zone_groups.azure_sql
-  resource_group_name             = module.resource_group.name
-  location                        = module.resource_group.location
-  subnet_id                       = module.network.subnet_ids["private_endpoints"]
-  private_connection_resource_id  = module.azure_sql[0].server_id
-  subresource_names               = ["sqlServer"]
-  private_dns_zone_ids            = [module.private_dns.zone_ids["privatelink.database.windows.net"]]
-  tags                            = local.common_tags
 }
 
 module "sql_managed_instance" {
@@ -805,22 +754,6 @@ module "cosmos_db" {
   tags                          = local.common_tags
 }
 
-module "cosmos_db_private_endpoint" {
-  count  = var.services.cosmos_db ? 1 : 0
-  source = "../../modules/private-endpoint"
-
-  name                            = local.resource_names.private_endpoints.cosmos_db
-  private_service_connection_name = local.resource_names.private_service_connections.cosmos_db
-  private_dns_zone_group_name     = local.resource_names.private_dns_zone_groups.cosmos_db
-  resource_group_name             = module.resource_group.name
-  location                        = module.resource_group.location
-  subnet_id                       = module.network.subnet_ids["private_endpoints"]
-  private_connection_resource_id  = module.cosmos_db[0].id
-  subresource_names               = [local.cosmos_private_endpoint_subresource_by_api[var.cosmos_db.api_type]]
-  private_dns_zone_ids            = [module.private_dns.zone_ids[local.cosmos_private_dns_zone_by_api[var.cosmos_db.api_type]]]
-  tags                            = local.common_tags
-}
-
 module "container_apps" {
   count  = var.services.container_apps ? 1 : 0
   source = "../../modules/container-apps"
@@ -865,22 +798,6 @@ module "web_app" {
   tags                      = local.common_tags
 }
 
-module "web_app_private_endpoint" {
-  count  = var.services.web_app ? 1 : 0
-  source = "../../modules/private-endpoint"
-
-  name                            = local.resource_names.private_endpoints.web_app
-  private_service_connection_name = local.resource_names.private_service_connections.web_app
-  private_dns_zone_group_name     = local.resource_names.private_dns_zone_groups.web_app
-  resource_group_name             = module.resource_group.name
-  location                        = module.resource_group.location
-  subnet_id                       = module.network.subnet_ids["private_endpoints"]
-  private_connection_resource_id  = module.web_app[0].id
-  subresource_names               = ["sites"]
-  private_dns_zone_ids            = [module.private_dns.zone_ids["privatelink.azurewebsites.net"]]
-  tags                            = local.common_tags
-}
-
 module "function_storage" {
   count  = var.services.function_app ? 1 : 0
   source = "../../modules/storage-account"
@@ -901,18 +818,18 @@ module "function_storage" {
 }
 
 module "function_storage_private_endpoints" {
-  for_each = var.services.function_app ? toset(["blob", "file", "queue", "table"]) : toset([])
+  for_each = local.function_storage_private_endpoints
   source   = "../../modules/private-endpoint"
 
-  name                            = local.resource_names.private_endpoints.function_storage[each.value]
-  private_service_connection_name = local.resource_names.private_service_connections.function_storage[each.value]
-  private_dns_zone_group_name     = local.resource_names.private_dns_zone_groups.function_storage[each.value]
+  name                            = local.resource_names.private_endpoints[each.key].name
+  private_service_connection_name = local.resource_names.private_endpoints[each.key].private_service_connection_name
+  private_dns_zone_group_name     = local.resource_names.private_endpoints[each.key].private_dns_zone_group_name
   resource_group_name             = module.resource_group.name
   location                        = module.resource_group.location
   subnet_id                       = module.network.subnet_ids["private_endpoints"]
-  private_connection_resource_id  = module.function_storage[0].id
-  subresource_names               = [each.value]
-  private_dns_zone_ids            = [module.private_dns.zone_ids["privatelink.${each.value}.core.windows.net"]]
+  private_connection_resource_id  = local.function_storage_target_ids[each.value.target]
+  subresource_names               = [each.value.subresource]
+  private_dns_zone_ids            = [module.private_dns.zone_ids[each.value.dns_zone]]
   tags                            = local.common_tags
 }
 
@@ -936,18 +853,18 @@ module "function_app" {
   depends_on = [module.function_storage_private_endpoints]
 }
 
-module "function_app_private_endpoint" {
-  count  = var.services.function_app ? 1 : 0
-  source = "../../modules/private-endpoint"
+module "private_endpoints" {
+  for_each = local.service_private_endpoints
+  source   = "../../modules/private-endpoint"
 
-  name                            = local.resource_names.private_endpoints.function_app
-  private_service_connection_name = local.resource_names.private_service_connections.function_app
-  private_dns_zone_group_name     = local.resource_names.private_dns_zone_groups.function_app
+  name                            = local.resource_names.private_endpoints[each.key].name
+  private_service_connection_name = local.resource_names.private_endpoints[each.key].private_service_connection_name
+  private_dns_zone_group_name     = local.resource_names.private_endpoints[each.key].private_dns_zone_group_name
   resource_group_name             = module.resource_group.name
   location                        = module.resource_group.location
   subnet_id                       = module.network.subnet_ids["private_endpoints"]
-  private_connection_resource_id  = module.function_app[0].id
-  subresource_names               = ["sites"]
-  private_dns_zone_ids            = [module.private_dns.zone_ids["privatelink.azurewebsites.net"]]
+  private_connection_resource_id  = local.private_endpoint_target_ids[each.value.target]
+  subresource_names               = [each.value.subresource]
+  private_dns_zone_ids            = [module.private_dns.zone_ids[each.value.dns_zone]]
   tags                            = local.common_tags
 }
