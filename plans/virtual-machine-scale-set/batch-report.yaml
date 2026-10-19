@@ -1,0 +1,125 @@
+batch_id: "B01"
+completed_tasks:
+  - "T001"
+  - "T002"
+  - "T003"
+  - "T004"
+  - "T005"
+  - "T006"
+  - "T007"
+  - "T008"
+  - "T009"
+  - "T010"
+  - "T011"
+  - "T012"
+  - "T013"
+  - "T014"
+  - "T015"
+  - "T016"
+blocked_tasks: []
+
+files_changed:
+  T001:
+    - { file: "modules/virtual-machine-scale-set/main.tf", change_type: "created", description: "Typed and validated VMSS contract." }
+  T002:
+    - { file: "modules/virtual-machine-scale-set/main.tf", change_type: "created", description: "Linux and Windows VMSS resources." }
+  T003:
+    - { file: "modules/virtual-machine-scale-set/main.tf", change_type: "created", description: "Configurable OS disks." }
+  T004:
+    - { file: "modules/virtual-machine-scale-set/main.tf", change_type: "created", description: "Map-driven per-instance data disks." }
+  T005:
+    - { file: "modules/virtual-machine-scale-set/main.tf", change_type: "created", description: "Private networking, identity, and Trusted Launch." }
+  T006:
+    - { file: "modules/virtual-machine-scale-set/main.tf", change_type: "created", description: "Azure Monitor fixed/autoscale capacity." }
+    - { file: "plans/virtual-machine-scale-set/plan.md", change_type: "modified", description: "Approved scaling ownership incorporated." }
+    - { file: "plans/virtual-machine-scale-set/research.md", change_type: "modified", description: "Capacity decision updated." }
+  T007:
+    - { file: "modules/virtual-machine-scale-set/main.tf", change_type: "created", description: "Stable module outputs." }
+  T008:
+    - { file: "environments/lab/variables.tf", change_type: "modified", description: "Lab VMSS variables, naming, toggle, and validation." }
+  T009:
+    - { file: "environments/lab/main.tf", change_type: "modified", description: "Credentials, module call, subnet, and NAT wiring." }
+  T010:
+    - { file: "environments/lab/outputs.tf", change_type: "modified", description: "Lab VMSS outputs." }
+  T011:
+    - { file: "environments/lab/terraform.tfvars.example", change_type: "modified", description: "Reusable VMSS example." }
+    - { file: "environments/lab/terraform.tfvars", change_type: "modified", description: "Local disabled-by-default VMSS configuration." }
+  T012:
+    - { file: "modules/virtual-machine-scale-set/tests/operating-system-and-disks.tftest.hcl", change_type: "created", description: "Module contract tests." }
+  T013:
+    - { file: "environments/lab/tests/configuration.tftest.hcl", change_type: "modified", description: "Lab composition tests." }
+  T014:
+    - { file: "README.md", change_type: "modified", description: "VMSS module and configuration documentation." }
+  T015:
+    - { file: "docs/execution-guide.md", change_type: "modified", description: "VMSS operations and capacity ownership guidance." }
+  T016: []
+
+upstream_artifacts_consumed:
+  T001:
+    - { artifact: "plans/virtual-machine-scale-set/plan.md", used_for: "Typed module contract and validation requirements." }
+    - { artifact: "plans/virtual-machine-scale-set/research.md", used_for: "OS image and disk modeling decisions." }
+  T006:
+    - { artifact: "plans/virtual-machine-scale-set/plan.md", used_for: "Single-owner scaling contract." }
+    - { artifact: "plans/virtual-machine-scale-set/research.md", used_for: "Azure Monitor capacity ownership rationale." }
+  T008:
+    - { artifact: "plans/virtual-machine-scale-set/plan.md", used_for: "Lab composition and naming integration." }
+
+evidence_mapping:
+  T001:
+    - { upstream: "plan.md#Step 1", output: "modules/virtual-machine-scale-set/main.tf", evidence: "Module validation and nine passing tests." }
+  T006:
+    - { upstream: "research.md#Decision 4", output: "azurerm_monitor_autoscale_setting.this", evidence: "Fixed and autoscale test runs pass." }
+  T009:
+    - { upstream: "plan.md#Step 4", output: "environments/lab/main.tf", evidence: "VMSS-only network and NAT test passes." }
+  T013:
+    - { upstream: "plan.md#Step 5", output: "environments/lab/tests/configuration.tftest.hcl", evidence: "Twenty-six lab tests pass." }
+
+traceability:
+  - { requirement: "REQ-001", plan_item: "1.1,1.2,2.1,4.1,4.5,5.1", task: "T001,T002,T008,T011,T012", files: ["modules/virtual-machine-scale-set/main.tf"], status: "completed" }
+  - { requirement: "REQ-002", plan_item: "1.2,2.1,4.5,5.1", task: "T001,T002,T011,T012", files: ["modules/virtual-machine-scale-set/main.tf", "environments/lab/terraform.tfvars.example"], status: "completed" }
+  - { requirement: "REQ-003", plan_item: "1.1,2.2,4.5,5.1", task: "T001,T003,T011,T012", files: ["modules/virtual-machine-scale-set/main.tf"], status: "completed" }
+  - { requirement: "REQ-004", plan_item: "1.1,2.3,4.5,5.1", task: "T001,T004,T011,T012", files: ["modules/virtual-machine-scale-set/main.tf"], status: "completed" }
+  - { requirement: "REQ-005", plan_item: "1.1,3.1,3.3,3.4,4.1,5.1", task: "T001,T006,T008,T011,T012,T013", files: ["modules/virtual-machine-scale-set/main.tf"], status: "completed" }
+  - { requirement: "REQ-006", plan_item: "1.1,2.4,4.3,5.1,5.2", task: "T001,T005,T009,T012", files: ["modules/virtual-machine-scale-set/main.tf", "environments/lab/main.tf"], status: "completed" }
+  - { requirement: "REQ-007", plan_item: "1.4,2.1,2.4,4.2,5.1,5.2", task: "T002,T005,T009,T012,T013", files: ["modules/virtual-machine-scale-set/main.tf", "environments/lab/main.tf"], status: "completed" }
+  - { requirement: "REQ-008", plan_item: "4.1,4.2,4.3,4.5,5.2", task: "T008,T009,T011,T013", files: ["environments/lab/variables.tf", "environments/lab/main.tf"], status: "completed" }
+  - { requirement: "REQ-009", plan_item: "3.2,4.4,5.1,5.2", task: "T007,T010,T012,T013", files: ["modules/virtual-machine-scale-set/main.tf", "environments/lab/outputs.tf"], status: "completed" }
+  - { requirement: "REQ-010", plan_item: "5.1,5.2,5.3,5.4", task: "T012,T013,T014,T015,T016", files: ["README.md", "docs/execution-guide.md"], status: "completed" }
+
+protocol_violation: false
+errors: []
+warnings:
+  - severity: "LOW"
+    message: "No Azure apply was performed; the new feature is schema-validated and covered by mocked Terraform plans."
+
+test_results:
+  module_format:
+    command: "terraform fmt -check -recursive"
+    passed: 1
+    failed: 0
+    skipped: 0
+    failures: []
+  module_validate:
+    command: "terraform -chdir=modules/virtual-machine-scale-set validate -no-color"
+    passed: 1
+    failed: 0
+    skipped: 0
+    failures: []
+  module_tests:
+    command: "terraform -chdir=modules/virtual-machine-scale-set test -no-color"
+    passed: 9
+    failed: 0
+    skipped: 0
+    failures: []
+  lab_validate:
+    command: "terraform -chdir=environments/lab validate -no-color"
+    passed: 1
+    failed: 0
+    skipped: 0
+    failures: []
+  lab_tests:
+    command: "terraform -chdir=environments/lab test -no-color"
+    passed: 26
+    failed: 0
+    skipped: 0
+    failures: []

@@ -1,0 +1,102 @@
+# Spec-to-Plan Traceability Checkpoint
+
+metadata:
+  generated: "2026-10-18"
+  source_spec: "conversation:user-request-2026-10-18"
+  target_plan: "plans/virtual-machine-scale-set/plan.md"
+
+summary:
+  total_requirements: 10
+  covered_requirements: 10
+  missing_requirements: 0
+  coverage_percentage: 100.0
+
+requirements:
+  - req_id: "REQ-001"
+    req_description: "Select Linux or Windows VMSS"
+    priority: "P1"
+    plan_mapping:
+      phase: "Step-1/Step-2/Step-4/Step-5"
+      phase_name: "Contract, implementation, integration, validation"
+      items: ["1.1", "1.2", "2.1", "4.1", "4.5", "5.1"]
+    notes: ""
+  - req_id: "REQ-002"
+    req_description: "Select OS release and image build"
+    priority: "P1"
+    plan_mapping:
+      phase: "Step-1/Step-2/Step-4/Step-5"
+      phase_name: "Image contract and integration"
+      items: ["1.1", "1.2", "1.3", "2.1", "4.5", "5.1"]
+    notes: ""
+  - req_id: "REQ-003"
+    req_description: "Configure OS disk"
+    priority: "P1"
+    plan_mapping:
+      phase: "Step-1/Step-2/Step-4/Step-5"
+      phase_name: "OS disk contract and implementation"
+      items: ["1.1", "1.3", "2.2", "4.5", "5.1"]
+    notes: ""
+  - req_id: "REQ-004"
+    req_description: "Configure zero-to-many data disks"
+    priority: "P1"
+    plan_mapping:
+      phase: "Step-1/Step-2/Step-4/Step-5"
+      phase_name: "Data disk contract and implementation"
+      items: ["1.1", "1.3", "2.3", "4.5", "5.1"]
+    notes: ""
+  - req_id: "REQ-005"
+    req_description: "Configure fixed or CPU-autoscaled capacity, SKU, zones, and upgrades"
+    priority: "P1"
+    plan_mapping:
+      phase: "Step-1/Step-3/Step-4/Step-5"
+      phase_name: "Capacity lifecycle"
+      items: ["1.1", "1.3", "3.1", "3.3", "3.4", "4.1", "5.1"]
+    notes: ""
+  - req_id: "REQ-006"
+    req_description: "Use private networking and optional backend pools"
+    priority: "P1"
+    plan_mapping:
+      phase: "Step-1/Step-2/Step-4/Step-5"
+      phase_name: "Private networking"
+      items: ["1.1", "2.4", "4.3", "5.1", "5.2"]
+    notes: ""
+  - req_id: "REQ-007"
+    req_description: "Apply secure OS-specific authentication and identity"
+    priority: "P1"
+    plan_mapping:
+      phase: "Step-1/Step-2/Step-4/Step-5"
+      phase_name: "Authentication and identity"
+      items: ["1.4", "2.1", "2.4", "4.2", "5.1", "5.2"]
+    notes: ""
+  - req_id: "REQ-008"
+    req_description: "Integrate independently with the lab"
+    priority: "P1"
+    plan_mapping:
+      phase: "Step-4/Step-5"
+      phase_name: "Lab integration"
+      items: ["4.1", "4.2", "4.3", "4.5", "5.2"]
+    notes: ""
+  - req_id: "REQ-009"
+    req_description: "Expose stable outputs and protect credentials"
+    priority: "P1"
+    plan_mapping:
+      phase: "Step-3/Step-4/Step-5"
+      phase_name: "Outputs"
+      items: ["3.2", "4.4", "5.1", "5.2"]
+    notes: ""
+  - req_id: "REQ-010"
+    req_description: "Validate and document the feature"
+    priority: "P1"
+    plan_mapping:
+      phase: "Step-5"
+      phase_name: "Validation and documentation"
+      items: ["5.1", "5.2", "5.3", "5.4"]
+    notes: ""
+
+missing_requirements: []
+orphan_plan_items: []
+
+validation:
+  passed: true
+  errors: []
+  warnings: []

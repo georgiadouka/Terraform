@@ -1,0 +1,299 @@
+# Tasks-to-Implementation Traceability Checkpoint
+
+metadata:
+  generated: "2026-10-18"
+  source_tasks: "plans/virtual-machine-scale-set/plan.md#task-breakdown"
+  last_updated: "2026-10-18"
+
+summary:
+  total_tasks: 16
+  completed_tasks: 16
+  in_progress_tasks: 0
+  pending_tasks: 0
+  completion_percentage: 100.0
+
+tasks:
+  - task_id: "T001"
+    description: "Create typed VMSS input contract and validation"
+    status: "completed"
+    implementation:
+      files_changed:
+        - file: "modules/virtual-machine-scale-set/main.tf"
+          change_type: "added"
+          description: "Added typed image, disk, scaling, network, and security inputs with validation."
+    verification:
+      build_passed: true
+      test_results: { command: "terraform -chdir=modules/virtual-machine-scale-set test -no-color", passed: 9, failed: 0, skipped: 0, failures: [] }
+      notes: "Validated with AzureRM 4.81.0."
+    upstream_trace:
+      plan_item: "1.1,1.3"
+      requirements: ["REQ-001", "REQ-002", "REQ-003", "REQ-004", "REQ-005", "REQ-006"]
+      full_trace: "REQ-001..REQ-006 -> 1.1,1.3 -> T001 -> modules/virtual-machine-scale-set/main.tf"
+  - task_id: "T002"
+    description: "Implement Linux and Windows VMSS resources"
+    status: "completed"
+    implementation:
+      files_changed:
+        - file: "modules/virtual-machine-scale-set/main.tf"
+          change_type: "added"
+          description: "Added OS-specific resources, default images, and SSH/password authentication."
+    verification:
+      build_passed: true
+      test_results: { command: "terraform -chdir=modules/virtual-machine-scale-set test -no-color", passed: 9, failed: 0, skipped: 0, failures: [] }
+      notes: ""
+    upstream_trace:
+      plan_item: "1.2,1.4,2.1"
+      requirements: ["REQ-001", "REQ-002", "REQ-007"]
+      full_trace: "REQ-001,REQ-002,REQ-007 -> 1.2,1.4,2.1 -> T002 -> modules/virtual-machine-scale-set/main.tf"
+  - task_id: "T003"
+    description: "Implement configurable OS disks"
+    status: "completed"
+    implementation:
+      files_changed:
+        - file: "modules/virtual-machine-scale-set/main.tf"
+          change_type: "added"
+          description: "Added OS-specific defaults and validated inline OS disk sizing."
+    verification:
+      build_passed: true
+      test_results: { command: "terraform -chdir=modules/virtual-machine-scale-set test -no-color", passed: 9, failed: 0, skipped: 0, failures: [] }
+      notes: ""
+    upstream_trace:
+      plan_item: "2.2"
+      requirements: ["REQ-003"]
+      full_trace: "REQ-003 -> 2.2 -> T003 -> modules/virtual-machine-scale-set/main.tf"
+  - task_id: "T004"
+    description: "Implement multiple inline data disks"
+    status: "completed"
+    implementation:
+      files_changed:
+        - file: "modules/virtual-machine-scale-set/main.tf"
+          change_type: "added"
+          description: "Added map-driven per-instance data disk blocks with unique LUN validation."
+    verification:
+      build_passed: true
+      test_results: { command: "terraform -chdir=modules/virtual-machine-scale-set test -no-color", passed: 9, failed: 0, skipped: 0, failures: [] }
+      notes: ""
+    upstream_trace:
+      plan_item: "2.3"
+      requirements: ["REQ-004"]
+      full_trace: "REQ-004 -> 2.3 -> T004 -> modules/virtual-machine-scale-set/main.tf"
+  - task_id: "T005"
+    description: "Implement private networking and identity"
+    status: "completed"
+    implementation:
+      files_changed:
+        - file: "modules/virtual-machine-scale-set/main.tf"
+          change_type: "added"
+          description: "Added private NIC configuration, optional backend pools, managed identity, Secure Boot, and vTPM."
+    verification:
+      build_passed: true
+      test_results: { command: "terraform -chdir=modules/virtual-machine-scale-set test -no-color", passed: 9, failed: 0, skipped: 0, failures: [] }
+      notes: ""
+    upstream_trace:
+      plan_item: "2.4"
+      requirements: ["REQ-006", "REQ-007"]
+      full_trace: "REQ-006,REQ-007 -> 2.4 -> T005 -> modules/virtual-machine-scale-set/main.tf"
+  - task_id: "T006"
+    description: "Implement Azure Monitor-owned fixed and autoscale capacity"
+    status: "completed"
+    implementation:
+      files_changed:
+        - file: "modules/virtual-machine-scale-set/main.tf"
+          change_type: "added"
+          description: "Added fixed profiles, CPU rules, bounded capacity, instance drift suppression, zones, and upgrade modes."
+        - file: "plans/virtual-machine-scale-set/plan.md"
+          change_type: "modified"
+          description: "Recorded the approved Azure Monitor capacity ownership model."
+        - file: "plans/virtual-machine-scale-set/research.md"
+          change_type: "modified"
+          description: "Replaced deferred autoscaling with the approved single-owner decision."
+    verification:
+      build_passed: true
+      test_results: { command: "terraform -chdir=modules/virtual-machine-scale-set test -no-color", passed: 9, failed: 0, skipped: 0, failures: [] }
+      notes: ""
+    upstream_trace:
+      plan_item: "3.1,3.3,3.4"
+      requirements: ["REQ-005"]
+      full_trace: "REQ-005 -> 3.1,3.3,3.4 -> T006 -> modules/virtual-machine-scale-set/main.tf"
+  - task_id: "T007"
+    description: "Add OS-neutral module outputs"
+    status: "completed"
+    implementation:
+      files_changed:
+        - file: "modules/virtual-machine-scale-set/main.tf"
+          change_type: "added"
+          description: "Added VMSS metadata, identity, autoscale setting, and scaling-mode outputs."
+    verification:
+      build_passed: true
+      test_results: { command: "terraform -chdir=modules/virtual-machine-scale-set test -no-color", passed: 9, failed: 0, skipped: 0, failures: [] }
+      notes: ""
+    upstream_trace:
+      plan_item: "3.2"
+      requirements: ["REQ-009"]
+      full_trace: "REQ-009 -> 3.2 -> T007 -> modules/virtual-machine-scale-set/main.tf"
+  - task_id: "T008"
+    description: "Add lab naming, service toggle, and configuration"
+    status: "completed"
+    implementation:
+      files_changed:
+        - file: "environments/lab/variables.tf"
+          change_type: "modified"
+          description: "Added VMSS naming prefixes, disabled service toggle, typed settings, and validation."
+    verification:
+      build_passed: true
+      test_results: { command: "terraform -chdir=environments/lab test -no-color", passed: 26, failed: 0, skipped: 0, failures: [] }
+      notes: ""
+    upstream_trace:
+      plan_item: "4.1"
+      requirements: ["REQ-001", "REQ-002", "REQ-003", "REQ-004", "REQ-005", "REQ-008"]
+      full_trace: "REQ-001..REQ-005,REQ-008 -> 4.1 -> T008 -> environments/lab/variables.tf"
+  - task_id: "T009"
+    description: "Wire VMSS credentials, module, subnet, and NAT"
+    status: "completed"
+    implementation:
+      files_changed:
+        - file: "environments/lab/main.tf"
+          change_type: "modified"
+          description: "Added VMSS credentials, names, module call, shared subnet gating, and NAT association."
+    verification:
+      build_passed: true
+      test_results: { command: "terraform -chdir=environments/lab test -no-color", passed: 26, failed: 0, skipped: 0, failures: [] }
+      notes: ""
+    upstream_trace:
+      plan_item: "4.2,4.3"
+      requirements: ["REQ-006", "REQ-007", "REQ-008"]
+      full_trace: "REQ-006,REQ-007,REQ-008 -> 4.2,4.3 -> T009 -> environments/lab/main.tf"
+  - task_id: "T010"
+    description: "Add lab VMSS outputs"
+    status: "completed"
+    implementation:
+      files_changed:
+        - file: "environments/lab/outputs.tf"
+          change_type: "modified"
+          description: "Added VMSS metadata, managed identity, autoscale, scaling mode, and sensitive credential outputs."
+    verification:
+      build_passed: true
+      test_results: { command: "terraform -chdir=environments/lab test -no-color", passed: 26, failed: 0, skipped: 0, failures: [] }
+      notes: ""
+    upstream_trace:
+      plan_item: "4.4"
+      requirements: ["REQ-009"]
+      full_trace: "REQ-009 -> 4.4 -> T010 -> environments/lab/outputs.tf"
+  - task_id: "T011"
+    description: "Add environment VMSS examples"
+    status: "completed"
+    implementation:
+      files_changed:
+        - file: "environments/lab/terraform.tfvars.example"
+          change_type: "modified"
+          description: "Added disabled-by-default VMSS image, OS disk, multiple data disks, and autoscaling example."
+        - file: "environments/lab/terraform.tfvars"
+          change_type: "modified"
+          description: "Added the requested local VMSS settings while retaining a disabled service toggle."
+    verification:
+      build_passed: true
+      test_results: { command: "terraform -chdir=environments/lab validate -no-color", passed: 1, failed: 0, skipped: 0, failures: [] }
+      notes: ""
+    upstream_trace:
+      plan_item: "4.5"
+      requirements: ["REQ-001", "REQ-002", "REQ-003", "REQ-004", "REQ-005", "REQ-008"]
+      full_trace: "REQ-001..REQ-005,REQ-008 -> 4.5 -> T011 -> environments/lab/terraform.tfvars.example"
+  - task_id: "T012"
+    description: "Add VMSS module tests"
+    status: "completed"
+    implementation:
+      files_changed:
+        - file: "modules/virtual-machine-scale-set/tests/operating-system-and-disks.tftest.hcl"
+          change_type: "added"
+          description: "Added Linux, Windows, image, disk, fixed/autoscale, security, output, and validation plans."
+    verification:
+      build_passed: true
+      test_results: { command: "terraform -chdir=modules/virtual-machine-scale-set test -no-color", passed: 9, failed: 0, skipped: 0, failures: [] }
+      notes: ""
+    upstream_trace:
+      plan_item: "5.1"
+      requirements: ["REQ-001", "REQ-002", "REQ-003", "REQ-004", "REQ-005", "REQ-006", "REQ-007", "REQ-009"]
+      full_trace: "REQ-001..REQ-007,REQ-009 -> 5.1 -> T012 -> module Terraform tests"
+  - task_id: "T013"
+    description: "Extend lab composition tests"
+    status: "completed"
+    implementation:
+      files_changed:
+        - file: "environments/lab/tests/configuration.tftest.hcl"
+          change_type: "modified"
+          description: "Added Linux autoscale, Windows fixed, VMSS-only network, disabled, and invalid-capacity plans."
+    verification:
+      build_passed: true
+      test_results: { command: "terraform -chdir=environments/lab test -no-color", passed: 26, failed: 0, skipped: 0, failures: [] }
+      notes: ""
+    upstream_trace:
+      plan_item: "5.2"
+      requirements: ["REQ-005", "REQ-007", "REQ-008", "REQ-009"]
+      full_trace: "REQ-005,REQ-007,REQ-008,REQ-009 -> 5.2 -> T013 -> lab Terraform tests"
+  - task_id: "T014"
+    description: "Document the VMSS module"
+    status: "completed"
+    implementation:
+      files_changed:
+        - file: "README.md"
+          change_type: "modified"
+          description: "Documented module capabilities, examples, disk replication, scaling ownership, quota, and cost."
+    verification:
+      build_passed: true
+      test_results: { command: "Documentation review", passed: 1, failed: 0, skipped: 0, failures: [] }
+      notes: ""
+    upstream_trace:
+      plan_item: "5.3"
+      requirements: ["REQ-010"]
+      full_trace: "REQ-010 -> 5.3 -> T014 -> README.md"
+  - task_id: "T015"
+    description: "Document VMSS operation"
+    status: "completed"
+    implementation:
+      files_changed:
+        - file: "docs/execution-guide.md"
+          change_type: "modified"
+          description: "Documented enablement, capacity ownership, prerequisites, and upgrade limitations."
+    verification:
+      build_passed: true
+      test_results: { command: "Documentation review", passed: 1, failed: 0, skipped: 0, failures: [] }
+      notes: ""
+    upstream_trace:
+      plan_item: "5.3"
+      requirements: ["REQ-010"]
+      full_trace: "REQ-010 -> 5.3 -> T015 -> docs/execution-guide.md"
+  - task_id: "T016"
+    description: "Run final Terraform quality gates"
+    status: "completed"
+    implementation:
+      files_changed: []
+    verification:
+      build_passed: true
+      test_results: { command: "terraform fmt -check -recursive; terraform validate; terraform test", passed: 37, failed: 0, skipped: 0, failures: [] }
+      notes: "Formatting and two validation commands passed; 9 module and 26 lab tests passed."
+    upstream_trace:
+      plan_item: "5.4"
+      requirements: ["REQ-010"]
+      full_trace: "REQ-010 -> 5.4 -> T016 -> formatting, validation, and test evidence"
+
+pending_tasks: []
+untracked_changes: []
+
+traceability_chain:
+  - { chain_id: "TRACE-001", requirement: "REQ-001", plan_phase: "Steps 1,2,4,5", plan_item: "1.1,1.2,2.1,4.1,4.5,5.1", tasks: ["T001", "T002", "T008", "T011", "T012"], files: ["modules/virtual-machine-scale-set/main.tf", "environments/lab/variables.tf"], status: "complete" }
+  - { chain_id: "TRACE-002", requirement: "REQ-002", plan_phase: "Steps 1,2,4,5", plan_item: "1.2,2.1,4.5,5.1", tasks: ["T001", "T002", "T011", "T012"], files: ["modules/virtual-machine-scale-set/main.tf", "environments/lab/terraform.tfvars.example"], status: "complete" }
+  - { chain_id: "TRACE-003", requirement: "REQ-003", plan_phase: "Steps 1,2,4,5", plan_item: "1.1,2.2,4.5,5.1", tasks: ["T001", "T003", "T011", "T012"], files: ["modules/virtual-machine-scale-set/main.tf"], status: "complete" }
+  - { chain_id: "TRACE-004", requirement: "REQ-004", plan_phase: "Steps 1,2,4,5", plan_item: "1.1,2.3,4.5,5.1", tasks: ["T001", "T004", "T011", "T012"], files: ["modules/virtual-machine-scale-set/main.tf"], status: "complete" }
+  - { chain_id: "TRACE-005", requirement: "REQ-005", plan_phase: "Steps 1,3,4,5", plan_item: "1.1,3.1,3.3,3.4,4.1,5.1", tasks: ["T001", "T006", "T008", "T011", "T012", "T013"], files: ["modules/virtual-machine-scale-set/main.tf", "environments/lab/variables.tf"], status: "complete" }
+  - { chain_id: "TRACE-006", requirement: "REQ-006", plan_phase: "Steps 1,2,4,5", plan_item: "1.1,2.4,4.3,5.1,5.2", tasks: ["T001", "T005", "T009", "T012"], files: ["modules/virtual-machine-scale-set/main.tf", "environments/lab/main.tf"], status: "complete" }
+  - { chain_id: "TRACE-007", requirement: "REQ-007", plan_phase: "Steps 1,2,4,5", plan_item: "1.4,2.1,2.4,4.2,5.1,5.2", tasks: ["T002", "T005", "T009", "T012", "T013"], files: ["modules/virtual-machine-scale-set/main.tf", "environments/lab/main.tf"], status: "complete" }
+  - { chain_id: "TRACE-008", requirement: "REQ-008", plan_phase: "Steps 4,5", plan_item: "4.1,4.2,4.3,4.5,5.2", tasks: ["T008", "T009", "T011", "T013"], files: ["environments/lab/variables.tf", "environments/lab/main.tf"], status: "complete" }
+  - { chain_id: "TRACE-009", requirement: "REQ-009", plan_phase: "Steps 3,4,5", plan_item: "3.2,4.4,5.1,5.2", tasks: ["T007", "T010", "T012", "T013"], files: ["modules/virtual-machine-scale-set/main.tf", "environments/lab/outputs.tf"], status: "complete" }
+  - { chain_id: "TRACE-010", requirement: "REQ-010", plan_phase: "Step 5", plan_item: "5.1,5.2,5.3,5.4", tasks: ["T012", "T013", "T014", "T015", "T016"], files: ["README.md", "docs/execution-guide.md"], status: "complete" }
+
+validation:
+  passed: true
+  errors: []
+  warnings:
+    - "No Azure apply was performed; deployment behavior is validated through provider schema validation and mocked Terraform plans."
+  blocking_issues: []

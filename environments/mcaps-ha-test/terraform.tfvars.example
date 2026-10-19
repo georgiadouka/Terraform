@@ -1,0 +1,46 @@
+subscription_id = "00000000-0000-0000-0000-000000000000"
+tenant_id       = "00000000-0000-0000-0000-000000000000"
+location        = "swedencentral"
+
+virtual_machine = {
+  os_type = "Windows"
+  size    = "Standard_B2s_v2"
+  source_image_reference = {
+    publisher = "MicrosoftWindowsServer"
+    offer     = "WindowsServer"
+    sku       = "2022-datacenter-azure-edition"
+    version   = "latest"
+  }
+  os_disk = {
+    storage_account_type = "StandardSSD_LRS"
+    disk_size_gb         = 127
+  }
+}
+
+postgresql = {
+  sku_name       = "GP_Standard_D2ds_v5"
+  version_number = "16"
+  storage_mb     = 32768
+  zone           = "1"
+  high_availability = {
+    enabled                   = true
+    mode                      = "ZoneRedundant"
+    standby_availability_zone = "2"
+  }
+}
+
+mysql = {
+  sku_name       = "GP_Standard_D2ds_v4"
+  version_number = "8.0.21"
+  zone           = "1"
+  high_availability = {
+    enabled                   = true
+    mode                      = "ZoneRedundant"
+    standby_availability_zone = "2"
+  }
+}
+
+tags = {
+  owner   = "platform-team"
+  purpose = "windows-database-ha-validation"
+}

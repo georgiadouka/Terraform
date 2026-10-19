@@ -1,0 +1,379 @@
+# Copy this file to terraform.tfvars and keep all environment-specific values
+# there. The copied file is ignored by Git.
+
+# Required Azure context
+subscription_id = "00000000-0000-0000-0000-000000000000"
+tenant_id       = "00000000-0000-0000-0000-000000000000"
+
+# true: Terraform uses Entra ID for supported Blob/Queue operations. Pre-grant
+# its identity Storage Blob/Queue data roles. false: Terraform uses account
+# keys, so storage.shared_access_key_enabled must also be true.
+storage_use_azuread = true
+
+# Environment identity
+location     = "swedencentral"
+project_name = "metlen"
+environment  = "lab"
+
+# Central naming convention:
+# <resource-prefix>-<project_name>-<environment>-<unique_suffix>
+# Leave unique_suffix null to generate and persist a five-character suffix.
+naming = {
+  unique_suffix = null
+
+  prefixes = {
+    resource_group             = "rg"
+    virtual_network            = "vnet"
+    subnet                     = "snet"
+    subnet_delegation          = "dlg"
+    virtual_machine            = "vm"
+    virtual_machine_scale_set  = "vmss"
+    network_interface          = "nic"
+    os_disk                    = "osdisk"
+    data_disk                  = "disk"
+    autoscale_setting          = "autoscale"
+    nat_gateway                = "nat"
+    public_ip                  = "pip"
+    key_vault                  = "kv"
+    container_registry         = "cr"
+    storage_account            = "st"
+    premium_files_account      = "stpf"
+    function_storage_account   = "stfn"
+    storage_container          = "blob"
+    file_share                 = "share"
+    private_endpoint           = "pe"
+    private_service_connection = "psc"
+    private_dns_zone_group     = "pdnszg"
+    private_dns_link           = "pdnslink"
+    azure_sql_server           = "sql"
+    azure_sql_database         = "sqldb"
+    azure_sql_elastic_pool     = "sqlep"
+    sql_managed_instance       = "sqlmi"
+    network_security_group     = "nsg"
+    route_table                = "rt"
+    postgresql_server          = "psql"
+    postgresql_database        = "psqldb"
+    mysql_server               = "mysql"
+    mysql_database             = "mysqldb"
+    cosmos_db_account          = "cosmos"
+    cosmos_db_database         = "cosmosdb"
+    cosmos_db_container        = "cosmosct"
+    container_apps_environment = "cae"
+    container_app              = "ca"
+    container_app_container    = "ctr"
+    container_apps_profile     = "wp"
+    log_analytics_workspace    = "log"
+    web_app                    = "app"
+    web_app_service_plan       = "aspweb"
+    function_app               = "func"
+    app_service_plan           = "asp"
+  }
+}
+
+# Complete network address plan. Terraform validates every CIDR but creates only
+# the subnets required by the enabled services. Keeping future allocations here
+# gives later deployments stable, non-overlapping ranges; an undeployed CIDR is
+# not reserved in Azure until its subnet is created.
+address_space = ["10.42.0.0/20"]
+
+subnet_cidrs = {
+  private_endpoints    = "10.42.0.0/24"
+  virtual_machines     = "10.42.1.0/24"
+  container_apps       = "10.42.2.0/23"
+  web_app_integration  = "10.42.8.0/26"
+  function_integration = "10.42.4.0/24"
+  postgresql           = "10.42.5.0/24"
+  mysql                = "10.42.6.0/24"
+  sql_managed_instance = "10.42.7.0/27"
+}
+
+# Enable only the services needed by this environment.
+services = {
+  virtual_machine           = true
+  virtual_machine_scale_set = false
+  key_vault                 = true
+  container_registry        = true
+  storage                   = true
+
+  # Premium Files and the current Function content share still require Shared
+  # Key with AzureRM 4.x. Disable them where tenant policy prohibits keys.
+  premium_files             = true
+  azure_sql                 = true
+  sql_managed_instance      = false
+  postgresql                = true
+  mysql                     = true
+  container_apps            = true
+  cosmos_db                 = false
+  web_app                   = true
+  function_app              = true
+}
+
+virtual_machine = {
+  # Linux or Windows. Changing OS replaces the VM.
+  os_type        = "Linux"
+  size           = "Standard_B2s_v2"
+  admin_username = "azureadmin"
+
+  # Choose an image compatible with os_type and the VM's secure boot/vTPM.
+  # Set this entire object to null to use the selected OS's default image.
+  source_image_reference = {
+    publisher = "Canonical"
+    offer     = "0001-com-ubuntu-server-jammy"
+    sku       = "22_04-lts-gen2"
+    version   = "latest"
+  }
+
+  # For Windows, set os_type = "Windows" and replace the image above with:
+  # source_image_reference = {
+  #   publisher = "MicrosoftWindowsServer"
+  #   offer     = "WindowsServer"
+  #   sku       = "2022-datacenter-azure-edition"
+  #   version   = "latest"
+  # }
+
+  # null disk_size_gb selects 32 GiB for Linux or 127 GiB for Windows.
+  os_disk = {
+    storage_account_type = "StandardSSD_LRS"
+    disk_size_gb         = null
+    caching              = "ReadWrite"
+  }
+
+  data_disks = {
+    data = {
+      lun                  = 0
+      storage_account_type = "StandardSSD_LRS"
+      disk_size_gb         = 32
+      caching              = "ReadWrite"
+    }
+  }
+}
+
+# Enable services.virtual_machine_scale_set to deploy this private scale set.
+# Every data disk below is created for every VMSS instance.
+virtual_machine_scale_set = {
+  os_type        = "Linux"
+  size           = "Standard_B2s_v2"
+  admin_username = "azureadmin"
+  zones          = []
+  upgrade_mode   = "Manual"
+
+  source_image_reference = {
+    publisher = "Canonical"
+    offer     = "ubuntu-24_04-lts"
+    sku       = "server"
+    version   = "latest"
+  }
+
+  os_disk = {
+    storage_account_type = "StandardSSD_LRS"
+    disk_size_gb         = 64
+    caching              = "ReadWrite"
+  }
+
+  data_disks = {
+    app = {
+      lun                  = 0
+      storage_account_type = "Premium_LRS"
+      disk_size_gb         = 128
+      caching              = "ReadOnly"
+    }
+    logs = {
+      lun                  = 1
+      storage_account_type = "StandardSSD_LRS"
+      disk_size_gb         = 256
+      caching              = "ReadWrite"
+    }
+  }
+
+  scaling = {
+    mode              = "autoscale"
+    minimum_instances = 2
+    default_instances = 2
+    maximum_instances = 6
+
+    cpu = {
+      scale_out_threshold = 75
+      scale_in_threshold  = 25
+      scale_out_count     = 1
+      scale_in_count      = 1
+      time_window_minutes = 5
+      cooldown_minutes    = 5
+    }
+  }
+}
+
+# One shared gateway is created when VM, VMSS, or Container Apps is enabled and is
+# associated with whichever of those service subnets are active.
+nat_gateway = {
+  idle_timeout_in_minutes = 4
+}
+
+key_vault = {
+  sku_name = "standard"
+
+  # Keep false for an environment that must be destroyed automatically.
+  purge_protection_enabled = false
+}
+
+storage = {
+  replication_type = "LRS"
+  containers       = ["appdata"]
+
+  # AzureRM 4.x provisions Azure Files with Shared Key. Keep this empty for
+  # Entra-only accounts. Where policy permits keys, set
+  # shared_access_key_enabled = true and add shares such as:
+  # file_shares = {
+  #   shared = {
+  #     quota_gb    = 100
+  #     access_tier = "TransactionOptimized"
+  #   }
+  # }
+  file_shares = {}
+
+  # This controls whether clients may use account keys. It is separate from
+  # storage_use_azuread, which controls only Terraform's Blob/Queue client.
+  shared_access_key_enabled = false
+
+  # These account-scoped assignments are for workloads. The identity running
+  # Terraform needs its own data roles granted before this deployment starts.
+  data_plane_role_assignments = {
+    # app_blob_reader = {
+    #   principal_id         = "00000000-0000-0000-0000-000000000000"
+    #   role_definition_name = "Storage Blob Data Reader"
+    #   principal_type       = "ServicePrincipal"
+    # }
+  }
+}
+
+premium_files = {
+  replication_type = "LRS"
+
+  file_shares = {
+    premium = {
+      quota_gb = 100
+    }
+  }
+}
+
+azure_sql = {
+  database_sku_name = "Basic"
+  max_size_gb       = 2
+
+  # Set enabled to true to use the module defaults for a small Basic pool.
+  elastic_pool = {
+    enabled = false
+  }
+}
+
+sql_managed_instance = {
+  sku_name           = "GP_Gen5"
+  vcores             = 4
+  storage_size_in_gb = 32
+  license_type       = "LicenseIncluded"
+}
+
+postgresql = {
+  administrator_login = "pgadminuser"
+  sku_name            = "GP_Standard_D2ds_v5"
+  version_number      = "16"
+  storage_mb          = 32768
+  zone                = null
+
+  # HA needs General Purpose or Memory Optimized compute and regional capacity.
+  high_availability = {
+    enabled                   = false
+    mode                      = "ZoneRedundant" # Or SameZone.
+    standby_availability_zone = null
+  }
+}
+
+mysql = {
+  administrator_login = "mysqladminuser"
+  sku_name            = "B_Standard_B1ms"
+  version_number      = "8.0.21"
+  zone                = null
+
+  # Before enabling HA, change sku_name from B_ to GP_ or MO_.
+  # Plan zone-redundant HA at server creation; review existing-server limitations.
+  high_availability = {
+    enabled                   = false
+    mode                      = "ZoneRedundant" # Or SameZone.
+    standby_availability_zone = null
+  }
+}
+
+container_apps = {
+  image       = "mcr.microsoft.com/azuredocs/containerapps-helloworld:latest"
+  target_port = 80
+
+  # Empty means Consumption-only. Uncomment one or more profiles as needed.
+  # Keys are stable logical labels; Azure profile names are generated centrally.
+  dedicated_workload_profiles = {
+    # general = {
+    #   workload_profile_type = "D4"
+    #   minimum_count         = 0
+    #   maximum_count         = 3
+    # }
+    # memory = {
+    #   workload_profile_type = "E4"
+    #   minimum_count         = 0
+    #   maximum_count         = 2
+    # }
+  }
+  # Use "general" or "memory" after enabling that profile above.
+  app_workload_profile = "Consumption"
+  # Counts above are dedicated NODES, not app replicas; review billing/region support.
+}
+
+cosmos_db = {
+  api_type          = "NoSQL"
+  consistency_level = "Session"
+
+  throughput = {
+    mode  = "serverless"
+    scope = "container"
+  }
+
+  nosql_partition_key_paths = ["/partitionKey"]
+}
+
+web_app = {
+  # Select one mode: linux, windows, or container.
+  mode                  = "linux"
+  service_plan_sku_name = "B1"
+
+  # Linux supports node, python, and dotnet. Windows supports node and dotnet.
+  runtime = {
+    name    = "node"
+    version = "22"
+  }
+
+  # Used only by container mode. This public sample requires no credentials.
+  container = {
+    registry_url = "https://mcr.microsoft.com"
+    image_name   = "appsvc/staticsite:latest"
+    port         = 80
+  }
+
+  app_settings = {}
+}
+
+function_app = {
+  os_type               = "Linux"
+  service_plan_sku_name = "EP1"
+
+  # Set both runtime fields when changing language. Python requires Linux.
+  # Examples: node / 22, dotnet-isolated / 8.0, java / 21, powershell / 7.4.
+  # For Windows, set os_type = "Windows" and select a compatible runtime,
+  # for example name = "dotnet-isolated", version = "8.0".
+  # OS changes recreate the app/plan; redeploy matching application code.
+  runtime = {
+    name    = "python"
+    version = "3.11"
+  }
+}
+
+tags = {
+  owner      = "platform-team"
+  costCenter = "customer-project"
+}

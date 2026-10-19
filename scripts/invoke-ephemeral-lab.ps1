@@ -1,0 +1,92 @@
+[CmdletBinding()]
+param(
+    [ValidateSet("Plan", "ApplyDestroy")]
+    [string]$Action = "Plan",
+
+    [ValidateRange(0, 60)]
+    [int]$HoldMinutes = 0
+)
+
+$ErrorActionPreference = "Stop"
+$workspacePath = Split-Path -Parent $PSScriptRoot
+$environmentPath = Join-Path $workspacePath "environments\lab"
+$smokeScriptPath = Join-Path $PSScriptRoot "private-connectivity-smoke.sh"
+
+function Invoke-Terraform {
+    param([Parameter(Mandatory)][string[]]$Arguments)
+
+    & terraform "-chdir=$environmentPath" @Arguments
+    if ($LASTEXITCODE -ne 0) {
+        throw "terraform $($Arguments -join ' ') failed with exit code $LASTEXITCODE."
+    }
+}
+
+& terraform fmt -check -recursive $workspacePath
+if ($LASTEXITCODE -ne 0) {
+    throw "terraform fmt check failed."
+}
+
+Invoke-Terraform -Arguments @("init", "-input=false")
+Invoke-Terraform -Arguments @("validate", "-no-color")
+Invoke-Terraform -Arguments @("plan", "-input=false", "-out=ephemeral.tfplan", "-no-color")
+
+if ($Action -eq "Plan") {
+    Write-Host "Plan completed. No Azure resources were created."
+    exit 0
+}
+
+try {
+    Invoke-Terraform -Arguments @("apply", "-input=false", "-auto-approve", "ephemeral.tfplan", "-no-color")
+
+    $outputsJson = & terraform "-chdir=$environmentPath" output -json
+    if ($LASTEXITCODE -ne 0) {
+        throw "terraform output failed with exit code $LASTEXITCODE."
+    }
+    $outputs = $outputsJson | ConvertFrom-Json
+
+    $runCommandId = "RunShellScript"
+    if ($outputs.vm_os_type.value -eq "Windows") {
+        $runCommandId = "RunPowerShellScript"
+        $smokeScriptPath = Join-Path $PSScriptRoot "private-connectivity-smoke.ps1"
+    }
+
+    $smokeParameters = @(
+        "SQL_HOST=$($outputs.azure_sql_fqdn.value)",
+        "POSTGRESQL_HOST=$($outputs.postgresql_fqdn.value)",
+        "MYSQL_HOST=$($outputs.mysql_fqdn.value)",
+        "KEY_VAULT_HOST=$(([uri]$outputs.key_vault_uri.value).Host)",
+        "STORAGE_BLOB_HOST=$($outputs.storage_blob_hostname.value)",
+        "PREMIUM_FILES_HOST=$($outputs.premium_files_hostname.value)",
+        "FUNCTION_STORAGE_BLOB_HOST=$($outputs.function_storage_blob_hostname.value)",
+        "FUNCTION_APP_HOST=$($outputs.function_app_hostname.value)",
+        "WEB_APP_HOST=$($outputs.web_app_hostname.value)",
+        "CONTAINER_REGISTRY_HOST=$($outputs.container_registry_login_server.value)",
+        "CONTAINER_APP_HOST=$($outputs.container_app_fqdn.value)"
+    )
+
+    $smokeParameters += "SQL_MANAGED_INSTANCE_HOST=$($outputs.sql_managed_instance_fqdn.value)"
+    $smokeParameters += "COSMOS_DB_HOST=$($outputs.cosmos_db_hostname.value)"
+    $smokeParameters += "NAT_GATEWAY_PUBLIC_IP=$($outputs.nat_gateway_public_ip_address.value)"
+
+    & az vm run-command invoke `
+        --resource-group $outputs.resource_group_name.value `
+        --name $outputs.vm_name.value `
+        --command-id $runCommandId `
+        --scripts "@$smokeScriptPath" `
+        --parameters $smokeParameters `
+        --query "value[0].message" `
+        --output tsv
+    if ($LASTEXITCODE -ne 0) {
+        throw "Private connectivity smoke test failed with exit code $LASTEXITCODE."
+    }
+
+    if ($HoldMinutes -gt 0) {
+        Write-Host "Holding the lab for $HoldMinutes minute(s)."
+        Start-Sleep -Seconds ($HoldMinutes * 60)
+    }
+}
+finally {
+    Write-Host "Destroying the ephemeral lab."
+    Invoke-Terraform -Arguments @("plan", "-destroy", "-input=false", "-out=destroy.tfplan", "-no-color")
+    Invoke-Terraform -Arguments @("apply", "-input=false", "-auto-approve", "destroy.tfplan", "-no-color")
+}
