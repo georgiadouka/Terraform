@@ -333,15 +333,13 @@ resource "azurerm_cosmosdb_sql_container" "this" {
     }
   }
 
+  # Cosmos DB excludes the system "/\"_etag\"/?" path by default. AzureRM omits
+  # it when reading the policy, so declaring it causes a perpetual diff.
   indexing_policy {
     indexing_mode = "consistent"
 
     included_path {
       path = "/*"
-    }
-
-    excluded_path {
-      path = "/\"_etag\"/?"
     }
   }
 }
