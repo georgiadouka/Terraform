@@ -134,8 +134,9 @@ Important rules:
   outside the VNet or overlapping prefixes.
 - The Container Apps allocation must be `/23` or larger. The planned SQL
   Managed Instance allocation must be `/27` or larger.
-- Terraform creates only the subnets required by `services`. Enabling a service
-  later creates its subnet and delegation before creating the service.
+- Terraform creates only the subnets required by enabled services and nonempty
+  resource collections. Adding a service or collection entry later creates its
+  subnet and delegation before creating the resource.
 - Terraform creates only the Private DNS zones and VNet links required by
   enabled services. Shared storage zones remain while any consumer is enabled.
 - Azure Container Registry uses Premium, disables public network access, and
@@ -143,13 +144,17 @@ Important rules:
   `services.container_registry`.
 - `storage_use_azuread = true` makes Terraform use Entra ID for supported Blob
   and Queue operations. Pre-grant the deployment identity the required Storage
-  data roles; role assignments declared inside the storage object are for
-  workloads and are created too late to bootstrap Terraform itself.
-- Keep `storage.file_shares = {}` when
-  `storage.shared_access_key_enabled = false`. AzureRM 4.x still manages Azure
-  Files with Shared Key; Premium Files and Function content storage have the
+  data roles; role assignments declared inside `storage_accounts` entries are
+  for workloads and are created too late to bootstrap Terraform itself.
+- Keep an Entra-only `storage_accounts` entry's `file_shares` map empty when
+  `shared_access_key_enabled = false`. AzureRM 4.x still manages Azure Files
+  with Shared Key; Premium FileStorage and Function content storage have the
   same limitation until their provisioning is migrated to the ARM control
   plane.
+- `storage_accounts` and `premium_file_accounts` are maps keyed by stable
+  logical names. Empty maps disable those resource families; adding entries
+  creates independent accounts and Private Endpoints. The storage families are
+  not controlled by `services` switches.
 - App Service Web App creates one app selected by `web_app.mode`: `linux`,
   `windows`, or `container`. All modes disable public access, use a Private
   Endpoint, integrate with the dedicated Web App subnet, and enable a
@@ -201,7 +206,7 @@ Subnet creation follows the enabled service graph:
 
 | Subnet | Created when |
 |---|---|
-| `private_endpoints` | Key Vault, Azure Container Registry, standard storage, Premium Files, Azure SQL, Cosmos DB, Web App, or Function App is enabled |
+| `private_endpoints` | Key Vault, Azure Container Registry, Azure SQL, Cosmos DB, Web App, or Function App is enabled, or `storage_accounts`/`premium_file_accounts` is nonempty |
 | `virtual_machines` | `virtual_machines` is non-empty or `services.virtual_machine_scale_set` is `true` |
 | `container_apps` | `services.container_apps` is `true` |
 | `web_app_integration` | `services.web_app` is `true` |
@@ -858,15 +863,17 @@ VNet integration, and content share enabled together.
 ### Storage reports `KeyBasedAuthenticationNotPermitted`
 
 The account rejects Shared Key authentication. Set `storage_use_azuread = true`
-so AzureRM uses Entra ID for supported Blob and Queue operations, set
-`storage.shared_access_key_enabled = false`, and pre-grant the Terraform
-identity the required Storage Blob/Queue data roles. Owner or Contributor
-management-plane access does not guarantee data-plane access.
+so AzureRM uses Entra ID for supported Blob and Queue operations, set the
+affected `storage_accounts` entry's `shared_access_key_enabled = false`, and
+pre-grant the Terraform identity the required Storage Blob/Queue data roles.
+Owner or Contributor management-plane access does not guarantee data-plane
+access.
 
-For Entra-only standard storage, keep `storage.file_shares = {}` because
-AzureRM 4.x still provisions `azurerm_storage_share` with Shared Key. The
-Terraform runner must also have private network and DNS connectivity because
-the module disables public storage access.
+For Entra-only general-purpose v2 storage, keep that account entry's
+`file_shares = {}` because AzureRM 4.x still provisions
+`azurerm_storage_share` with Shared Key. The Terraform runner must also have
+private network and DNS connectivity because the module disables public
+storage access.
 
 ### Partial apply
 

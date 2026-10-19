@@ -7,7 +7,7 @@ tenant_id       = "00000000-0000-0000-0000-000000000000"
 
 # true: Terraform uses Entra ID for supported Blob/Queue operations. Pre-grant
 # its identity Storage Blob/Queue data roles. false: Terraform uses account
-# keys, so storage.shared_access_key_enabled must also be true.
+# keys, so every storage_accounts entry must enable Shared Key.
 storage_use_azuread = true
 
 # Environment identity
@@ -92,11 +92,6 @@ services = {
   virtual_machine_scale_set = false
   key_vault                 = true
   container_registry        = true
-  storage                   = true
-
-  # Premium Files and the current Function content share still require Shared
-  # Key with AzureRM 4.x. Disable them where tenant policy prohibits keys.
-  premium_files             = true
   azure_sql                 = true
   sql_managed_instance      = false
   postgresql                = true
@@ -226,44 +221,60 @@ key_vault = {
   purge_protection_enabled = false
 }
 
-storage = {
-  replication_type = "LRS"
-  containers       = ["appdata"]
+storage_accounts = {
+  primary = {
+    replication_type = "LRS"
+    containers       = ["appdata"]
 
-  # AzureRM 4.x provisions Azure Files with Shared Key. Keep this empty for
-  # Entra-only accounts. Where policy permits keys, set
-  # shared_access_key_enabled = true and add shares such as:
-  # file_shares = {
-  #   shared = {
-  #     quota_gb    = 100
-  #     access_tier = "TransactionOptimized"
-  #   }
-  # }
-  file_shares = {}
+    # AzureRM 4.x provisions Azure Files with Shared Key. Keep this empty for
+    # Entra-only accounts. Where policy permits keys, enable Shared Key and add
+    # standard shares to the account.
+    file_shares = {}
 
-  # This controls whether clients may use account keys. It is separate from
-  # storage_use_azuread, which controls only Terraform's Blob/Queue client.
-  shared_access_key_enabled = false
+    # This controls whether clients may use account keys. It is separate from
+    # storage_use_azuread, which controls only Terraform's Blob/Queue client.
+    shared_access_key_enabled = false
 
-  # These account-scoped assignments are for workloads. The identity running
-  # Terraform needs its own data roles granted before this deployment starts.
-  data_plane_role_assignments = {
-    # app_blob_reader = {
-    #   principal_id         = "00000000-0000-0000-0000-000000000000"
-    #   role_definition_name = "Storage Blob Data Reader"
-    #   principal_type       = "ServicePrincipal"
-    # }
-  }
-}
-
-premium_files = {
-  replication_type = "LRS"
-
-  file_shares = {
-    premium = {
-      quota_gb = 100
+    # These account-scoped assignments are for workloads. The identity running
+    # Terraform needs its own data roles granted before this deployment starts.
+    data_plane_role_assignments = {
+      # app_blob_reader = {
+      #   principal_id         = "00000000-0000-0000-0000-000000000000"
+      #   role_definition_name = "Storage Blob Data Reader"
+      #   principal_type       = "ServicePrincipal"
+      # }
     }
   }
+
+  # Add more independently configured StorageV2 accounts with stable keys:
+  # archive = {
+  #   replication_type = "ZRS"
+  #   containers       = ["audit"]
+  #   file_shares      = {}
+  # }
+}
+
+premium_file_accounts = {
+  # Premium Files and the current Function content share still require Shared
+  # Key with AzureRM 4.x. Use premium_file_accounts = {} where policy prohibits
+  # keys.
+  primary = {
+    replication_type = "LRS"
+
+    file_shares = {
+      premium = {
+        quota_gb = 100
+      }
+    }
+  }
+
+  # Add more independently configured FileStorage accounts with stable keys:
+  # analytics = {
+  #   replication_type = "ZRS"
+  #   file_shares = {
+  #     models = { quota_gb = 200 }
+  #   }
+  # }
 }
 
 azure_sql = {

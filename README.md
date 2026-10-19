@@ -94,18 +94,18 @@ mocked Terraform plan coverage but have not been applied to Azure.
 
 Storage authentication has two independent controls. `storage_use_azuread`
 selects whether Terraform uses Entra ID for supported Blob and Queue data-plane
-operations; `storage.shared_access_key_enabled` controls whether the account
-accepts access keys from any client. The secure default is Entra-only. The
-Terraform identity must receive its Blob/Queue data roles before the storage
-module runs. Optional `storage.data_plane_role_assignments` create
-account-scoped roles for workload identities, not bootstrap access for the
-Terraform runner.
+operations; each `storage_accounts` entry's `shared_access_key_enabled` setting
+controls whether that account accepts access keys from any client. The secure
+default is Entra-only. The Terraform identity must receive its Blob/Queue data
+roles before the storage modules run. Optional per-account
+`data_plane_role_assignments` create account-scoped roles for workload
+identities, not bootstrap access for the Terraform runner.
 
 AzureRM 4.x still provisions `azurerm_storage_share` with Shared Key. Until
 file-share provisioning is migrated to the ARM control plane, keep
-`storage.file_shares` empty for Entra-only accounts or enable Shared Key where
-tenant policy permits it. Premium Files and the current Function App content
-share retain the same Shared Key limitation.
+each Entra-only account's `file_shares` map empty or enable Shared Key where
+tenant policy permits it. Premium FileStorage accounts and the current Function
+App content share retain the same Shared Key limitation.
 
 The standard storage module accepts LRS, GRS, RAGRS, ZRS, GZRS, and RAGZRS
 replication. Container and file-share map keys must use stable lowercase
@@ -200,6 +200,51 @@ Each key has its own module instance, NIC, OS disk, data disks, and generated
 credentials. VM results and credentials are returned as maps using the same
 keys. Keep keys stable because they are part of the Terraform resource
 addresses and generated Azure names.
+
+### Storage Accounts
+
+`storage_accounts` and `premium_file_accounts` are keyed by stable logical
+names. An empty map creates no accounts, one entry creates one account, and
+multiple entries create independent accounts:
+
+```hcl
+storage_accounts = {
+  application = {
+    replication_type = "LRS"
+    containers       = ["appdata"]
+    file_shares      = {}
+  }
+  archive = {
+    replication_type = "ZRS"
+    containers       = ["audit"]
+    file_shares      = {}
+  }
+}
+
+premium_file_accounts = {
+  content = {
+    replication_type = "LRS"
+    file_shares = {
+      media = { quota_gb = 100 }
+    }
+  }
+  analytics = {
+    replication_type = "ZRS"
+    file_shares = {
+      models = { quota_gb = 200 }
+    }
+  }
+}
+```
+
+Each general-purpose v2 account receives independent blob and file Private
+Endpoints. Each premium FileStorage account receives an independent file
+Private Endpoint. Account details, child resource IDs, and Private Endpoint IDs
+are returned as maps using the same keys. Keep keys stable because they are part
+of Terraform resource addresses and generated Azure names. All keys follow the
+same naming and lifecycle rules. Remove the storage fields from `services`; map
+membership now controls account creation, just as it does for
+`virtual_machines`.
 
 ### Virtual Machine Scale Sets
 

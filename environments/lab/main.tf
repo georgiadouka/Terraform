@@ -68,6 +68,12 @@ locals {
   compact_project     = replace(var.project_name, "-", "")
   compact_environment = replace(var.environment, "-", "")
   naming_prefixes     = var.naming.prefixes
+  storage_account_key_tokens = {
+    for key in setunion(
+      toset(keys(var.storage_accounts)),
+      toset(keys(var.premium_file_accounts))
+    ) : key => "${substr(replace(key, "-", ""), 0, 5)}${substr(sha1(key), 0, 5)}"
+  }
 
   resource_names = {
     resource_group  = "${local.naming_prefixes.resource_group}-${local.name_stem}"
@@ -119,16 +125,28 @@ locals {
 
     container_registry = "${local.naming_prefixes.container_registry}${local.compact_project}${local.compact_environment}${local.naming_suffix}"
 
-    storage_account = format(
-      "%s%s",
-      substr("${local.naming_prefixes.storage_account}${local.compact_project}${local.compact_environment}", 0, 24 - length(local.naming_suffix)),
-      local.naming_suffix
-    )
-    premium_files_account = format(
-      "%s%s",
-      substr("${local.naming_prefixes.premium_files_account}${local.compact_project}${local.compact_environment}", 0, 24 - length(local.naming_suffix)),
-      local.naming_suffix
-    )
+    storage_accounts = {
+      for key in keys(var.storage_accounts) : key => format(
+        "%s%s",
+        substr(
+          "${local.naming_prefixes.storage_account}${local.storage_account_key_tokens[key]}${local.compact_project}${local.compact_environment}",
+          0,
+          24 - length(local.naming_suffix)
+        ),
+        local.naming_suffix
+      )
+    }
+    premium_file_accounts = {
+      for key in keys(var.premium_file_accounts) : key => format(
+        "%s%s",
+        substr(
+          "${local.naming_prefixes.premium_files_account}${local.storage_account_key_tokens[key]}${local.compact_project}${local.compact_environment}",
+          0,
+          24 - length(local.naming_suffix)
+        ),
+        local.naming_suffix
+      )
+    }
     function_storage_account = format(
       "%s%s",
       substr("${local.naming_prefixes.function_storage_account}${local.compact_project}${local.compact_environment}", 0, 24 - length(local.naming_suffix)),
@@ -136,16 +154,22 @@ locals {
     )
 
     storage_containers = {
-      for label in var.storage.containers :
-      label => "${local.naming_prefixes.storage_container}-${label}-${local.name_stem}"
+      for account_key, account in var.storage_accounts : account_key => {
+        for label in account.containers :
+        label => "${local.naming_prefixes.storage_container}-${label}-${local.name_stem}"
+      }
     }
     storage_file_shares = {
-      for label in keys(var.storage.file_shares) :
-      label => "${local.naming_prefixes.file_share}-${label}-${local.name_stem}"
+      for account_key, account in var.storage_accounts : account_key => {
+        for label in keys(account.file_shares) :
+        label => "${local.naming_prefixes.file_share}-${label}-${local.name_stem}"
+      }
     }
     premium_file_shares = {
-      for label in keys(var.premium_files.file_shares) :
-      label => "${local.naming_prefixes.file_share}-${label}-${local.name_stem}"
+      for account_key, account in var.premium_file_accounts : account_key => {
+        for label in keys(account.file_shares) :
+        label => "${local.naming_prefixes.file_share}-${label}-${local.name_stem}"
+      }
     }
     function_content_share = "${local.naming_prefixes.file_share}-function-content-${local.name_stem}"
 
@@ -204,14 +228,19 @@ locals {
     private_endpoints = {
       key_vault          = "${local.naming_prefixes.private_endpoint}-${local.naming_prefixes.key_vault}-${local.name_stem}"
       container_registry = "${local.naming_prefixes.private_endpoint}-${local.naming_prefixes.container_registry}-${local.name_stem}"
-      premium_files      = "${local.naming_prefixes.private_endpoint}-${local.naming_prefixes.premium_files_account}-file-${local.name_stem}"
-      azure_sql          = "${local.naming_prefixes.private_endpoint}-${local.naming_prefixes.azure_sql_server}-${local.name_stem}"
-      cosmos_db          = "${local.naming_prefixes.private_endpoint}-${local.naming_prefixes.cosmos_db_account}-${local.name_stem}"
-      web_app            = "${local.naming_prefixes.private_endpoint}-${local.naming_prefixes.web_app}-${local.name_stem}"
-      function_app       = "${local.naming_prefixes.private_endpoint}-${local.naming_prefixes.function_app}-${local.name_stem}"
+      premium_files = {
+        for account_key in keys(var.premium_file_accounts) :
+        account_key => "${local.naming_prefixes.private_endpoint}-${local.naming_prefixes.premium_files_account}-${account_key}-file-${local.name_stem}"
+      }
+      azure_sql    = "${local.naming_prefixes.private_endpoint}-${local.naming_prefixes.azure_sql_server}-${local.name_stem}"
+      cosmos_db    = "${local.naming_prefixes.private_endpoint}-${local.naming_prefixes.cosmos_db_account}-${local.name_stem}"
+      web_app      = "${local.naming_prefixes.private_endpoint}-${local.naming_prefixes.web_app}-${local.name_stem}"
+      function_app = "${local.naming_prefixes.private_endpoint}-${local.naming_prefixes.function_app}-${local.name_stem}"
       storage = {
-        for subresource in ["blob", "file"] :
-        subresource => "${local.naming_prefixes.private_endpoint}-${local.naming_prefixes.storage_account}-${subresource}-${local.name_stem}"
+        for account_key in keys(var.storage_accounts) : account_key => {
+          for subresource in ["blob", "file"] :
+          subresource => "${local.naming_prefixes.private_endpoint}-${local.naming_prefixes.storage_account}-${account_key}-${subresource}-${local.name_stem}"
+        }
       }
       function_storage = {
         for subresource in ["blob", "file", "queue", "table"] :
@@ -222,14 +251,19 @@ locals {
     private_service_connections = {
       key_vault          = "${local.naming_prefixes.private_service_connection}-${local.naming_prefixes.key_vault}-${local.name_stem}"
       container_registry = "${local.naming_prefixes.private_service_connection}-${local.naming_prefixes.container_registry}-${local.name_stem}"
-      premium_files      = "${local.naming_prefixes.private_service_connection}-${local.naming_prefixes.premium_files_account}-file-${local.name_stem}"
-      azure_sql          = "${local.naming_prefixes.private_service_connection}-${local.naming_prefixes.azure_sql_server}-${local.name_stem}"
-      cosmos_db          = "${local.naming_prefixes.private_service_connection}-${local.naming_prefixes.cosmos_db_account}-${local.name_stem}"
-      web_app            = "${local.naming_prefixes.private_service_connection}-${local.naming_prefixes.web_app}-${local.name_stem}"
-      function_app       = "${local.naming_prefixes.private_service_connection}-${local.naming_prefixes.function_app}-${local.name_stem}"
+      premium_files = {
+        for account_key in keys(var.premium_file_accounts) :
+        account_key => "${local.naming_prefixes.private_service_connection}-${local.naming_prefixes.premium_files_account}-${account_key}-file-${local.name_stem}"
+      }
+      azure_sql    = "${local.naming_prefixes.private_service_connection}-${local.naming_prefixes.azure_sql_server}-${local.name_stem}"
+      cosmos_db    = "${local.naming_prefixes.private_service_connection}-${local.naming_prefixes.cosmos_db_account}-${local.name_stem}"
+      web_app      = "${local.naming_prefixes.private_service_connection}-${local.naming_prefixes.web_app}-${local.name_stem}"
+      function_app = "${local.naming_prefixes.private_service_connection}-${local.naming_prefixes.function_app}-${local.name_stem}"
       storage = {
-        for subresource in ["blob", "file"] :
-        subresource => "${local.naming_prefixes.private_service_connection}-${local.naming_prefixes.storage_account}-${subresource}-${local.name_stem}"
+        for account_key in keys(var.storage_accounts) : account_key => {
+          for subresource in ["blob", "file"] :
+          subresource => "${local.naming_prefixes.private_service_connection}-${local.naming_prefixes.storage_account}-${account_key}-${subresource}-${local.name_stem}"
+        }
       }
       function_storage = {
         for subresource in ["blob", "file", "queue", "table"] :
@@ -240,14 +274,19 @@ locals {
     private_dns_zone_groups = {
       key_vault          = "${local.naming_prefixes.private_dns_zone_group}-${local.naming_prefixes.key_vault}-${local.name_stem}"
       container_registry = "${local.naming_prefixes.private_dns_zone_group}-${local.naming_prefixes.container_registry}-${local.name_stem}"
-      premium_files      = "${local.naming_prefixes.private_dns_zone_group}-${local.naming_prefixes.premium_files_account}-file-${local.name_stem}"
-      azure_sql          = "${local.naming_prefixes.private_dns_zone_group}-${local.naming_prefixes.azure_sql_server}-${local.name_stem}"
-      cosmos_db          = "${local.naming_prefixes.private_dns_zone_group}-${local.naming_prefixes.cosmos_db_account}-${local.name_stem}"
-      web_app            = "${local.naming_prefixes.private_dns_zone_group}-${local.naming_prefixes.web_app}-${local.name_stem}"
-      function_app       = "${local.naming_prefixes.private_dns_zone_group}-${local.naming_prefixes.function_app}-${local.name_stem}"
+      premium_files = {
+        for account_key in keys(var.premium_file_accounts) :
+        account_key => "${local.naming_prefixes.private_dns_zone_group}-${local.naming_prefixes.premium_files_account}-${account_key}-file-${local.name_stem}"
+      }
+      azure_sql    = "${local.naming_prefixes.private_dns_zone_group}-${local.naming_prefixes.azure_sql_server}-${local.name_stem}"
+      cosmos_db    = "${local.naming_prefixes.private_dns_zone_group}-${local.naming_prefixes.cosmos_db_account}-${local.name_stem}"
+      web_app      = "${local.naming_prefixes.private_dns_zone_group}-${local.naming_prefixes.web_app}-${local.name_stem}"
+      function_app = "${local.naming_prefixes.private_dns_zone_group}-${local.naming_prefixes.function_app}-${local.name_stem}"
       storage = {
-        for subresource in ["blob", "file"] :
-        subresource => "${local.naming_prefixes.private_dns_zone_group}-${local.naming_prefixes.storage_account}-${subresource}-${local.name_stem}"
+        for account_key in keys(var.storage_accounts) : account_key => {
+          for subresource in ["blob", "file"] :
+          subresource => "${local.naming_prefixes.private_dns_zone_group}-${local.naming_prefixes.storage_account}-${account_key}-${subresource}-${local.name_stem}"
+        }
       }
       function_storage = {
         for subresource in ["blob", "file", "queue", "table"] :
@@ -285,8 +324,8 @@ locals {
   private_endpoints_required = anytrue([
     var.services.key_vault,
     var.services.container_registry,
-    var.services.storage,
-    var.services.premium_files,
+    length(var.storage_accounts) > 0,
+    length(var.premium_file_accounts) > 0,
     var.services.azure_sql,
     var.services.cosmos_db,
     var.services.web_app,
@@ -298,6 +337,14 @@ locals {
     var.services.virtual_machine_scale_set,
     var.services.container_apps
   ])
+
+  storage_private_endpoint_instances = {
+    for pair in setproduct(keys(var.storage_accounts), ["blob", "file"]) :
+    "${pair[0]}/${pair[1]}" => {
+      account_key = pair[0]
+      subresource = pair[1]
+    }
+  }
 
   subnet_enabled = {
     private_endpoints    = local.private_endpoints_required
@@ -390,11 +437,11 @@ locals {
   private_dns_zones = setunion(
     var.services.key_vault ? toset(["privatelink.vaultcore.azure.net"]) : toset([]),
     var.services.container_registry ? toset(["privatelink.azurecr.io"]) : toset([]),
-    var.services.storage ? toset([
+    length(var.storage_accounts) > 0 ? toset([
       "privatelink.blob.core.windows.net",
       "privatelink.file.core.windows.net"
     ]) : toset([]),
-    var.services.premium_files ? toset(["privatelink.file.core.windows.net"]) : toset([]),
+    length(var.premium_file_accounts) > 0 ? toset(["privatelink.file.core.windows.net"]) : toset([]),
     var.services.azure_sql ? toset(["privatelink.database.windows.net"]) : toset([]),
     var.services.postgresql ? toset(["privatelink.postgres.database.azure.com"]) : toset([]),
     var.services.mysql ? toset(["privatelink.mysql.database.azure.com"]) : toset([]),
@@ -578,61 +625,61 @@ module "container_registry_private_endpoint" {
 }
 
 module "storage" {
-  count  = var.services.storage ? 1 : 0
-  source = "../../modules/storage-account"
+  for_each = var.storage_accounts
+  source   = "../../modules/storage-account"
 
-  name                        = local.resource_names.storage_account
+  name                        = local.resource_names.storage_accounts[each.key]
   resource_group_name         = module.resource_group.name
   location                    = module.resource_group.location
-  replication_type            = var.storage.replication_type
-  shared_access_key_enabled   = var.storage.shared_access_key_enabled
-  containers                  = local.resource_names.storage_containers
-  file_share_names            = local.resource_names.storage_file_shares
-  file_shares                 = var.storage.file_shares
-  data_plane_role_assignments = var.storage.data_plane_role_assignments
+  replication_type            = each.value.replication_type
+  shared_access_key_enabled   = each.value.shared_access_key_enabled
+  containers                  = local.resource_names.storage_containers[each.key]
+  file_share_names            = local.resource_names.storage_file_shares[each.key]
+  file_shares                 = each.value.file_shares
+  data_plane_role_assignments = each.value.data_plane_role_assignments
   tags                        = local.common_tags
 }
 
 module "storage_private_endpoints" {
-  for_each = var.services.storage ? toset(["blob", "file"]) : toset([])
+  for_each = local.storage_private_endpoint_instances
   source   = "../../modules/private-endpoint"
 
-  name                            = local.resource_names.private_endpoints.storage[each.value]
-  private_service_connection_name = local.resource_names.private_service_connections.storage[each.value]
-  private_dns_zone_group_name     = local.resource_names.private_dns_zone_groups.storage[each.value]
+  name                            = local.resource_names.private_endpoints.storage[each.value.account_key][each.value.subresource]
+  private_service_connection_name = local.resource_names.private_service_connections.storage[each.value.account_key][each.value.subresource]
+  private_dns_zone_group_name     = local.resource_names.private_dns_zone_groups.storage[each.value.account_key][each.value.subresource]
   resource_group_name             = module.resource_group.name
   location                        = module.resource_group.location
   subnet_id                       = module.network.subnet_ids["private_endpoints"]
-  private_connection_resource_id  = module.storage[0].id
-  subresource_names               = [each.value]
-  private_dns_zone_ids            = [module.private_dns.zone_ids["privatelink.${each.value}.core.windows.net"]]
+  private_connection_resource_id  = module.storage[each.value.account_key].id
+  subresource_names               = [each.value.subresource]
+  private_dns_zone_ids            = [module.private_dns.zone_ids["privatelink.${each.value.subresource}.core.windows.net"]]
   tags                            = local.common_tags
 }
 
 module "premium_files" {
-  count  = var.services.premium_files ? 1 : 0
-  source = "../../modules/premium-files"
+  for_each = var.premium_file_accounts
+  source   = "../../modules/premium-files"
 
-  name                = local.resource_names.premium_files_account
+  name                = local.resource_names.premium_file_accounts[each.key]
   resource_group_name = module.resource_group.name
   location            = module.resource_group.location
-  replication_type    = var.premium_files.replication_type
-  file_share_names    = local.resource_names.premium_file_shares
-  file_shares         = var.premium_files.file_shares
+  replication_type    = each.value.replication_type
+  file_share_names    = local.resource_names.premium_file_shares[each.key]
+  file_shares         = each.value.file_shares
   tags                = local.common_tags
 }
 
 module "premium_files_private_endpoint" {
-  count  = var.services.premium_files ? 1 : 0
-  source = "../../modules/private-endpoint"
+  for_each = var.premium_file_accounts
+  source   = "../../modules/private-endpoint"
 
-  name                            = local.resource_names.private_endpoints.premium_files
-  private_service_connection_name = local.resource_names.private_service_connections.premium_files
-  private_dns_zone_group_name     = local.resource_names.private_dns_zone_groups.premium_files
+  name                            = local.resource_names.private_endpoints.premium_files[each.key]
+  private_service_connection_name = local.resource_names.private_service_connections.premium_files[each.key]
+  private_dns_zone_group_name     = local.resource_names.private_dns_zone_groups.premium_files[each.key]
   resource_group_name             = module.resource_group.name
   location                        = module.resource_group.location
   subnet_id                       = module.network.subnet_ids["private_endpoints"]
-  private_connection_resource_id  = module.premium_files[0].id
+  private_connection_resource_id  = module.premium_files[each.key].id
   subresource_names               = ["file"]
   private_dns_zone_ids            = [module.private_dns.zone_ids["privatelink.file.core.windows.net"]]
   tags                            = local.common_tags

@@ -117,7 +117,8 @@ Examples using the example suffix:
 
 Standalone VM, NIC, OS disk, and data disk names include the stable key from
 the `virtual_machines` map so that multiple independently configured VMs have
-distinct Azure names.
+distinct Azure names. Storage account and storage Private Endpoint names also
+derive from the stable keys in `storage_accounts` and `premium_file_accounts`.
 
 For example, the Container Apps Environment name is calculated as:
 
@@ -208,22 +209,28 @@ compact_environment = lab
 
 ### Storage accounts
 
-The formula is:
+Every account uses a deterministic logical-key token before the project. The
+token combines the first five alphanumeric key characters with the first five
+characters of the key's SHA-1 digest, preventing collisions when names are
+truncated:
 
 ```text
-<prefix><project><environment><suffix>
+<prefix><key-token><project><environment><suffix>
 ```
 
-Examples:
+Examples for an account keyed `primary`:
 
 | Resource | Result |
 |---|---|
-| Standard Storage | `stmetlenlabit6hp` |
-| Premium Files | `stpfmetlenlabit6hp` |
+| Standard Storage | `stprimae3b7cmetlenlit6hp` |
+| Premium Files | `stpfprimae3b7cmetleit6hp` |
 | Function Storage | `stfnmetlenlabit6hp` |
 
-The expression is truncated if necessary to remain within Azure's
-24-character storage-account limit.
+The expression is truncated before the suffix if necessary to remain within
+Azure's 24-character storage-account limit. Stable logical keys are also used
+in additional accounts' Private Endpoint, private service connection, and DNS
+zone group names. Keep keys unchanged after deployment because they are part of
+both Terraform addresses and generated names.
 
 ### Container Registry
 

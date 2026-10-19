@@ -16,10 +16,12 @@ variable "storage_use_azuread" {
   validation {
     condition = (
       var.storage_use_azuread ||
-      !var.services.storage ||
-      var.storage.shared_access_key_enabled
+      alltrue([
+        for account in values(var.storage_accounts) :
+        account.shared_access_key_enabled
+      ])
     )
-    error_message = "storage.shared_access_key_enabled must be true when storage_use_azuread is false and the standard storage service is enabled."
+    error_message = "Every storage_accounts entry must set shared_access_key_enabled to true when storage_use_azuread is false."
   }
 }
 
@@ -304,9 +306,9 @@ variable "key_vault" {
   default = {}
 }
 
-variable "storage" {
-  description = "Standard storage account data services, authorization, workload RBAC, and redundancy settings."
-  type = object({
+variable "storage_accounts" {
+  description = "General-purpose v2 storage accounts keyed by a stable logical name. Use an empty map to create none."
+  type = map(object({
     replication_type = optional(string, "LRS")
     containers       = optional(set(string), ["appdata", "archive"])
     file_shares = optional(map(object({
@@ -321,13 +323,24 @@ variable "storage" {
       description                      = optional(string)
       skip_service_principal_aad_check = optional(bool, false)
     })), {})
-  })
-  default = {}
+  }))
+  default = {
+    primary = {}
+  }
+
+  validation {
+    condition = alltrue([
+      for key in keys(var.storage_accounts) :
+      can(regex("^[a-z][a-z0-9-]{0,11}$", key)) &&
+      !strcontains(key, "--")
+    ])
+    error_message = "storage_accounts keys must be 1-12 lowercase alphanumeric or hyphen characters, start with a letter, and not contain consecutive hyphens."
+  }
 }
 
-variable "premium_files" {
-  description = "Premium Azure Files redundancy and share sizing."
-  type = object({
+variable "premium_file_accounts" {
+  description = "Premium FileStorage accounts and SMB shares keyed by a stable logical account name. Use an empty map to create none."
+  type = map(object({
     replication_type = optional(string, "LRS")
     file_shares = optional(map(object({
       quota_gb = optional(number, 100)
@@ -336,8 +349,19 @@ variable "premium_files" {
         quota_gb = 100
       }
     })
-  })
-  default = {}
+  }))
+  default = {
+    primary = {}
+  }
+
+  validation {
+    condition = alltrue([
+      for key in keys(var.premium_file_accounts) :
+      can(regex("^[a-z][a-z0-9-]{0,11}$", key)) &&
+      !strcontains(key, "--")
+    ])
+    error_message = "premium_file_accounts keys must be 1-12 lowercase alphanumeric or hyphen characters, start with a letter, and not contain consecutive hyphens."
+  }
 }
 
 variable "azure_sql" {
@@ -523,8 +547,6 @@ variable "services" {
     virtual_machine_scale_set = optional(bool, false)
     key_vault                 = optional(bool, true)
     container_registry        = optional(bool, true)
-    storage                   = optional(bool, true)
-    premium_files             = optional(bool, true)
     azure_sql                 = optional(bool, true)
     sql_managed_instance      = optional(bool, false)
     postgresql                = optional(bool, true)

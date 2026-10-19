@@ -223,14 +223,32 @@ output "function_app_os_type" {
   value       = try(module.function_app[0].os_type, null)
 }
 
-output "storage_blob_hostname" {
-  description = "Private standard storage blob hostname when enabled."
-  value       = try("${module.storage[0].name}.blob.core.windows.net", null)
+output "storage_accounts" {
+  description = "General-purpose v2 storage account details keyed by the configured logical account name."
+  value = {
+    for key, account in module.storage : key => {
+      id                             = account.id
+      name                           = account.name
+      blob_hostname                  = "${account.name}.blob.core.windows.net"
+      file_hostname                  = "${account.name}.file.core.windows.net"
+      shared_access_key_enabled      = account.shared_access_key_enabled
+      container_ids                  = account.container_ids
+      file_share_ids                 = account.file_share_ids
+      data_plane_role_assignment_ids = account.data_plane_role_assignment_ids
+    }
+  }
 }
 
-output "premium_files_hostname" {
-  description = "Private premium Azure Files hostname when enabled."
-  value       = try("${module.premium_files[0].name}.file.core.windows.net", null)
+output "premium_file_accounts" {
+  description = "Premium FileStorage account details keyed by the configured logical account name."
+  value = {
+    for key, account in module.premium_files : key => {
+      id             = account.id
+      name           = account.name
+      file_hostname  = "${account.name}.file.core.windows.net"
+      file_share_ids = account.file_share_ids
+    }
+  }
 }
 
 output "function_storage_blob_hostname" {
@@ -243,12 +261,20 @@ output "private_endpoint_ids" {
   value = {
     key_vault          = try(module.key_vault_private_endpoint[0].id, null)
     container_registry = try(module.container_registry_private_endpoint[0].id, null)
-    storage            = { for key, endpoint in module.storage_private_endpoints : key => endpoint.id }
-    premium_files      = try(module.premium_files_private_endpoint[0].id, null)
-    azure_sql          = try(module.azure_sql_private_endpoint[0].id, null)
-    cosmos_db          = try(module.cosmos_db_private_endpoint[0].id, null)
-    web_app            = try(module.web_app_private_endpoint[0].id, null)
-    function_storage   = { for key, endpoint in module.function_storage_private_endpoints : key => endpoint.id }
-    function_app       = try(module.function_app_private_endpoint[0].id, null)
+    storage = {
+      for account_key in keys(var.storage_accounts) : account_key => {
+        for subresource in ["blob", "file"] :
+        subresource => module.storage_private_endpoints["${account_key}/${subresource}"].id
+      }
+    }
+    premium_files = {
+      for key, endpoint in module.premium_files_private_endpoint :
+      key => endpoint.id
+    }
+    azure_sql        = try(module.azure_sql_private_endpoint[0].id, null)
+    cosmos_db        = try(module.cosmos_db_private_endpoint[0].id, null)
+    web_app          = try(module.web_app_private_endpoint[0].id, null)
+    function_storage = { for key, endpoint in module.function_storage_private_endpoints : key => endpoint.id }
+    function_app     = try(module.function_app_private_endpoint[0].id, null)
   }
 }

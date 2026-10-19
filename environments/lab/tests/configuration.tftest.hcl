@@ -169,12 +169,12 @@ variables {
   virtual_machines = {
     primary = {}
   }
+  storage_accounts      = {}
+  premium_file_accounts = {}
   services = {
     virtual_machine_scale_set = false
     key_vault                 = false
     container_registry        = false
-    storage                   = false
-    premium_files             = false
     azure_sql                 = false
     sql_managed_instance      = false
     postgresql                = false
@@ -324,8 +324,6 @@ run "vmss_only_keeps_shared_network" {
       virtual_machine_scale_set = true
       key_vault                 = false
       container_registry        = false
-      storage                   = false
-      premium_files             = false
       azure_sql                 = false
       sql_managed_instance      = false
       postgresql                = false
@@ -356,8 +354,6 @@ run "disabled_services" {
       virtual_machine_scale_set = false
       key_vault                 = false
       container_registry        = false
-      storage                   = false
-      premium_files             = false
       azure_sql                 = false
       sql_managed_instance      = false
       postgresql                = false
@@ -468,26 +464,28 @@ run "container_registry_private_only" {
 run "storage_entra_only" {
   command = plan
   variables {
-    services = merge(var.services, { storage = true })
-    storage = {
-      containers                = ["appdata"]
-      file_shares               = {}
-      shared_access_key_enabled = false
-      data_plane_role_assignments = {
-        app_blob_reader = {
-          principal_id         = "77777777-7777-7777-7777-777777777777"
-          role_definition_name = "Storage Blob Data Reader"
-          principal_type       = "ServicePrincipal"
+    storage_accounts = {
+      primary = {
+        containers                = ["appdata"]
+        file_shares               = {}
+        shared_access_key_enabled = false
+        data_plane_role_assignments = {
+          app_blob_reader = {
+            principal_id         = "77777777-7777-7777-7777-777777777777"
+            role_definition_name = "Storage Blob Data Reader"
+            principal_type       = "ServicePrincipal"
+          }
         }
       }
     }
   }
   assert {
     condition = (
-      module.storage[0].shared_access_key_enabled == false &&
-      module.storage[0].primary_access_key == null &&
-      length(module.storage[0].file_share_ids) == 0 &&
-      contains(keys(module.storage[0].data_plane_role_assignment_ids), "app_blob_reader")
+      module.storage["primary"].shared_access_key_enabled == false &&
+      module.storage["primary"].primary_access_key == null &&
+      length(module.storage["primary"].file_share_ids) == 0 &&
+      contains(keys(module.storage["primary"].data_plane_role_assignment_ids), "app_blob_reader") &&
+      output.storage_accounts["primary"].name == "stprimae3b7cmetlenltest1"
     )
     error_message = "Entra-only storage must disable key outputs, omit key-dependent file shares, and create requested workload RBAC."
   }
@@ -497,35 +495,122 @@ run "storage_shared_key" {
   command = plan
   variables {
     storage_use_azuread = false
-    services            = merge(var.services, { storage = true })
-    storage = {
-      containers                = []
-      shared_access_key_enabled = true
-      file_shares = {
-        shared = {
-          quota_gb    = 100
-          access_tier = "TransactionOptimized"
+    storage_accounts = {
+      primary = {
+        containers                = []
+        shared_access_key_enabled = true
+        file_shares = {
+          shared = {
+            quota_gb    = 100
+            access_tier = "TransactionOptimized"
+          }
         }
       }
     }
   }
   assert {
     condition = (
-      module.storage[0].shared_access_key_enabled &&
-      length(module.storage[0].file_share_ids) == 1
+      module.storage["primary"].shared_access_key_enabled &&
+      length(module.storage["primary"].file_share_ids) == 1
     )
     error_message = "Shared Key mode must remain available for tenants that permit it and must support AzureRM-managed file shares."
   }
+}
+
+run "multiple_storage_accounts" {
+  command = plan
+  variables {
+    storage_accounts = {
+      primary = {
+        containers  = ["appdata"]
+        file_shares = {}
+      }
+      archive = {
+        replication_type = "ZRS"
+        containers       = ["audit"]
+        file_shares      = {}
+      }
+    }
+  }
+  assert {
+    condition = (
+      length(module.storage) == 2 &&
+      length(output.storage_accounts) == 2 &&
+      length(module.storage_private_endpoints) == 4 &&
+      length(output.private_endpoint_ids.storage["primary"]) == 2 &&
+      length(output.private_endpoint_ids.storage["archive"]) == 2 &&
+      output.storage_accounts["primary"].name == "stprimae3b7cmetlenltest1" &&
+      output.storage_accounts["archive"].name != output.storage_accounts["primary"].name &&
+      length(output.storage_accounts["archive"].name) <= 24 &&
+      output.storage_accounts["primary"].blob_hostname == "stprimae3b7cmetlenltest1.blob.core.windows.net"
+    )
+    error_message = "Each storage_accounts entry must create one distinctly named StorageV2 account with blob and file Private Endpoints."
+  }
+}
+
+run "multiple_premium_file_accounts" {
+  command = plan
+  variables {
+    premium_file_accounts = {
+      primary = {
+        file_shares = {
+          premium = { quota_gb = 100 }
+        }
+      }
+      analytics = {
+        replication_type = "ZRS"
+        file_shares = {
+          models = { quota_gb = 200 }
+        }
+      }
+    }
+  }
+  assert {
+    condition = (
+      length(module.premium_files) == 2 &&
+      length(output.premium_file_accounts) == 2 &&
+      length(module.premium_files_private_endpoint) == 2 &&
+      length(output.private_endpoint_ids.premium_files) == 2 &&
+      length(output.premium_file_accounts["primary"].file_share_ids) == 1 &&
+      length(output.premium_file_accounts["analytics"].file_share_ids) == 1 &&
+      output.premium_file_accounts["primary"].name == "stpfprimae3b7cmetletest1" &&
+      output.premium_file_accounts["analytics"].name != output.premium_file_accounts["primary"].name &&
+      length(output.premium_file_accounts["analytics"].name) <= 24 &&
+      output.premium_file_accounts["primary"].file_hostname == "stpfprimae3b7cmetletest1.file.core.windows.net"
+    )
+    error_message = "Each premium_file_accounts entry must create one distinctly named FileStorage account, its shares, and a file Private Endpoint."
+  }
+}
+
+run "reject_invalid_storage_account_key" {
+  command = plan
+  variables {
+    storage_accounts = {
+      Invalid = {}
+    }
+  }
+  expect_failures = [var.storage_accounts]
+}
+
+run "reject_invalid_premium_file_account_key" {
+  command = plan
+  variables {
+    premium_file_accounts = {
+      "bad--key" = {}
+    }
+  }
+  expect_failures = [var.premium_file_accounts]
 }
 
 run "reject_shared_key_provider_with_keyless_account" {
   command = plan
   variables {
     storage_use_azuread = false
-    services            = merge(var.services, { storage = true })
-    storage = {
-      file_shares               = {}
-      shared_access_key_enabled = false
+    storage_accounts = {
+      primary = {
+        file_shares               = {}
+        shared_access_key_enabled = false
+      }
     }
   }
   expect_failures = [var.storage_use_azuread]
