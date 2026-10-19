@@ -174,6 +174,33 @@ the region, naming convention, network ranges, service switches, SKUs, sizes,
 and database settings. Optional values have defaults, so users do not need to
 understand or override every module input.
 
+### Virtual Machines
+
+`virtual_machines` is keyed by stable logical names. An empty map creates no
+VMs, one entry creates one VM, and multiple entries create multiple VMs:
+
+```hcl
+virtual_machines = {
+  primary = {
+    os_type = "Linux"
+    size    = "Standard_B2s_v2"
+  }
+  worker = {
+    os_type = "Linux"
+    size    = "Standard_D2s_v5"
+  }
+  admin = {
+    os_type = "Windows"
+    size    = "Standard_D2s_v5"
+  }
+}
+```
+
+Each key has its own module instance, NIC, OS disk, data disks, and generated
+credentials. VM results and credentials are returned as maps using the same
+keys. Keep keys stable because they are part of the Terraform resource
+addresses and generated Azure names.
+
 ### Virtual Machine Scale Sets
 
 Set `services.virtual_machine_scale_set = true` to add a private Linux or
@@ -311,15 +338,17 @@ responsibility.
 
 ### VM OS, Function runtime, and database availability
 
-- `virtual_machine.os_type` selects `Linux` (default) or `Windows`. A null
+- Each `virtual_machines` entry's `os_type` selects `Linux` (default) or
+  `Windows`. A null
   `source_image_reference` selects Ubuntu 22.04 Gen2 or Windows Server 2022
   Azure Edition respectively; provide publisher, offer, SKU, and version to
   select another compatible Marketplace image. A null OS disk size selects
   32 GiB for Linux or 127 GiB for Windows. Custom images can require larger disks.
   Switching OS replaces the VM; data disks remain managed separately.
 - Windows administrator passwords are generated, not placed in the variables
-  file. Retrieve with `terraform output -raw vm_windows_admin_password` from the
-  environment directory. This is sensitive and is stored in Terraform state;
+  file. Retrieve the sensitive `vm_windows_admin_passwords` output map from the
+  environment directory and select the required VM key. Passwords are stored in
+  Terraform state;
   protect state and avoid printing credentials in shared logs. Windows uses a
   separate computer name of at most 15 characters, derived from environment
   and suffix. No public IP or public RDP access is added.

@@ -202,7 +202,7 @@ Subnet creation follows the enabled service graph:
 | Subnet | Created when |
 |---|---|
 | `private_endpoints` | Key Vault, Azure Container Registry, standard storage, Premium Files, Azure SQL, Cosmos DB, Web App, or Function App is enabled |
-| `virtual_machines` | `services.virtual_machine` or `services.virtual_machine_scale_set` is `true` |
+| `virtual_machines` | `virtual_machines` is non-empty or `services.virtual_machine_scale_set` is `true` |
 | `container_apps` | `services.container_apps` is `true` |
 | `web_app_integration` | `services.web_app` is `true` |
 | `function_integration` | `services.function_app` is `true` |
@@ -223,10 +223,11 @@ The VMSS is disabled by default. Enable it independently of the standalone VM:
 
 ```hcl
 services = {
-  virtual_machine           = false
   virtual_machine_scale_set = true
   # Keep the other service switches required by this environment.
 }
+
+virtual_machines = {}
 ```
 
 The example `virtual_machine_scale_set` object demonstrates a Marketplace
@@ -267,8 +268,8 @@ connectivity for operating system updates, image pulls, package retrieval,
 Azure platform dependencies, and application calls to public APIs. An internal Container Apps environment
 restricts inbound access; it does not remove the need for outbound traffic.
 
-When `services.virtual_machine`, `services.virtual_machine_scale_set`, or
-`services.container_apps` is `true`,
+When `virtual_machines` is non-empty, or
+`services.virtual_machine_scale_set`/`services.container_apps` is `true`,
 Terraform creates one shared Standard NAT Gateway and one Standard static
 public IPv4 address. It associates that gateway with whichever of the
 `virtual_machines` and `container_apps` subnets are active. When both services
@@ -367,34 +368,36 @@ LUN. For a 256 GiB OS disk and three 512 GiB Premium SSD data disks, set the
 following in `terraform.tfvars`:
 
 ```hcl
-virtual_machine = {
-  size           = "Standard_D4s_v5"
-  admin_username = "azureadmin"
+virtual_machines = {
+  primary = {
+    size           = "Standard_D4s_v5"
+    admin_username = "azureadmin"
 
-  os_disk = {
-    storage_account_type = "StandardSSD_LRS"
-    disk_size_gb         = 256
-    caching              = "ReadWrite"
-  }
-
-  data_disks = {
-    application = {
-      lun                  = 0
-      storage_account_type = "Premium_LRS"
-      disk_size_gb         = 512
+    os_disk = {
+      storage_account_type = "StandardSSD_LRS"
+      disk_size_gb         = 256
       caching              = "ReadWrite"
     }
-    data = {
-      lun                  = 1
-      storage_account_type = "Premium_LRS"
-      disk_size_gb         = 512
-      caching              = "ReadWrite"
-    }
-    logs = {
-      lun                  = 2
-      storage_account_type = "Premium_LRS"
-      disk_size_gb         = 512
-      caching              = "ReadWrite"
+
+    data_disks = {
+      application = {
+        lun                  = 0
+        storage_account_type = "Premium_LRS"
+        disk_size_gb         = 512
+        caching              = "ReadWrite"
+      }
+      data = {
+        lun                  = 1
+        storage_account_type = "Premium_LRS"
+        disk_size_gb         = 512
+        caching              = "ReadWrite"
+      }
+      logs = {
+        lun                  = 2
+        storage_account_type = "Premium_LRS"
+        disk_size_gb         = 512
+        caching              = "ReadWrite"
+      }
     }
   }
 }

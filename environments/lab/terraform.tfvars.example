@@ -89,7 +89,6 @@ subnet_cidrs = {
 
 # Enable only the services needed by this environment.
 services = {
-  virtual_machine           = true
   virtual_machine_scale_set = false
   key_vault                 = true
   container_registry        = true
@@ -108,20 +107,21 @@ services = {
   function_app              = true
 }
 
-virtual_machine = {
-  # Linux or Windows. Changing OS replaces the VM.
-  os_type        = "Linux"
-  size           = "Standard_B2s_v2"
-  admin_username = "azureadmin"
+virtual_machines = {
+  primary = {
+    # Linux or Windows. Changing OS replaces this VM.
+    os_type        = "Linux"
+    size           = "Standard_B2s_v2"
+    admin_username = "azureadmin"
 
   # Choose an image compatible with os_type and the VM's secure boot/vTPM.
   # Set this entire object to null to use the selected OS's default image.
-  source_image_reference = {
-    publisher = "Canonical"
-    offer     = "0001-com-ubuntu-server-jammy"
-    sku       = "22_04-lts-gen2"
-    version   = "latest"
-  }
+    source_image_reference = {
+      publisher = "Canonical"
+      offer     = "0001-com-ubuntu-server-jammy"
+      sku       = "22_04-lts-gen2"
+      version   = "latest"
+    }
 
   # For Windows, set os_type = "Windows" and replace the image above with:
   # source_image_reference = {
@@ -132,20 +132,31 @@ virtual_machine = {
   # }
 
   # null disk_size_gb selects 32 GiB for Linux or 127 GiB for Windows.
-  os_disk = {
-    storage_account_type = "StandardSSD_LRS"
-    disk_size_gb         = null
-    caching              = "ReadWrite"
-  }
-
-  data_disks = {
-    data = {
-      lun                  = 0
+    os_disk = {
       storage_account_type = "StandardSSD_LRS"
-      disk_size_gb         = 32
+      disk_size_gb         = null
       caching              = "ReadWrite"
     }
+
+    data_disks = {
+      data = {
+        lun                  = 0
+        storage_account_type = "StandardSSD_LRS"
+        disk_size_gb         = 32
+        caching              = "ReadWrite"
+      }
+    }
   }
+
+  # Add more independently configured VMs with stable logical keys:
+  # worker = {
+  #   os_type = "Linux"
+  #   size    = "Standard_D2s_v5"
+  # }
+  # admin = {
+  #   os_type = "Windows"
+  #   size    = "Standard_D2s_v5"
+  # }
 }
 
 # Enable services.virtual_machine_scale_set to deploy this private scale set.

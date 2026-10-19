@@ -23,29 +23,27 @@ output "generated_resource_names" {
   value       = local.resource_names
 }
 
-output "vm_private_ip_address" {
-  description = "VM private IP address when enabled."
-  value       = try(module.virtual_machine[0].private_ip_address, null)
+output "virtual_machines" {
+  description = "Virtual machine details keyed by the configured logical VM name."
+  value = {
+    for key, vm in module.virtual_machine : key => {
+      id                 = vm.id
+      name               = vm.name
+      private_ip_address = vm.private_ip_address
+      os_type            = var.virtual_machines[key].os_type
+      data_disk_ids      = vm.data_disk_ids
+    }
+  }
 }
 
-output "vm_name" {
-  description = "VM name when enabled."
-  value       = try(module.virtual_machine[0].name, null)
+output "vm_ssh_public_keys" {
+  description = "Generated SSH public keys keyed by Linux VM name."
+  value       = { for key, private_key in tls_private_key.vm : key => private_key.public_key_openssh }
 }
 
-output "vm_ssh_public_key" {
-  description = "Ephemeral lab VM SSH public key when a Linux VM is enabled."
-  value       = try(tls_private_key.vm[0].public_key_openssh, null)
-}
-
-output "vm_os_type" {
-  description = "Operating system of the enabled VM."
-  value       = var.services.virtual_machine ? var.virtual_machine.os_type : null
-}
-
-output "vm_windows_admin_password" {
-  description = "Generated Windows VM administrator password. Stored in Terraform state; retrieve only when needed."
-  value       = try(random_password.vm_windows[0].result, null)
+output "vm_windows_admin_passwords" {
+  description = "Generated administrator passwords keyed by Windows VM name. Stored in Terraform state; retrieve only when needed."
+  value       = { for key, password in random_password.vm_windows : key => password.result }
   sensitive   = true
 }
 

@@ -4,7 +4,10 @@ param(
     [string]$Action = "Plan",
 
     [ValidateRange(0, 60)]
-    [int]$HoldMinutes = 0
+    [int]$HoldMinutes = 0,
+
+    [ValidatePattern("^[a-z][a-z0-9-]{0,11}$")]
+    [string]$SmokeTestVmKey = "primary"
 )
 
 $ErrorActionPreference = "Stop"
@@ -44,8 +47,13 @@ try {
     }
     $outputs = $outputsJson | ConvertFrom-Json
 
+    $smokeTestVm = $outputs.virtual_machines.value.PSObject.Properties[$SmokeTestVmKey].Value
+    if ($null -eq $smokeTestVm) {
+        throw "The configured smoke-test VM key '$SmokeTestVmKey' was not found."
+    }
+
     $runCommandId = "RunShellScript"
-    if ($outputs.vm_os_type.value -eq "Windows") {
+    if ($smokeTestVm.os_type -eq "Windows") {
         $runCommandId = "RunPowerShellScript"
         $smokeScriptPath = Join-Path $PSScriptRoot "private-connectivity-smoke.ps1"
     }
@@ -70,7 +78,7 @@ try {
 
     & az vm run-command invoke `
         --resource-group $outputs.resource_group_name.value `
-        --name $outputs.vm_name.value `
+        --name $smokeTestVm.name `
         --command-id $runCommandId `
         --scripts "@$smokeScriptPath" `
         --parameters $smokeParameters `

@@ -196,16 +196,9 @@ variable "subnet_cidrs" {
   }
 }
 
-variable "vm_size" {
-  description = "Deprecated VM size override. Use virtual_machine.size for new configurations."
-  type        = string
-  default     = null
-  nullable    = true
-}
-
-variable "virtual_machine" {
-  description = "Primary Linux or Windows VM image, sizing, administrator, and disk settings."
-  type = object({
+variable "virtual_machines" {
+  description = "Linux or Windows virtual machines keyed by a stable logical name. Use one entry for one VM, multiple entries for multiple VMs, or an empty map for none."
+  type = map(object({
     size           = optional(string, "Standard_B2s_v2")
     admin_username = optional(string, "azureadmin")
     os_type        = optional(string, "Linux")
@@ -233,8 +226,19 @@ variable "virtual_machine" {
         caching              = "ReadWrite"
       }
     })
-  })
-  default = {}
+  }))
+  default = {
+    primary = {}
+  }
+
+  validation {
+    condition = alltrue([
+      for key in keys(var.virtual_machines) :
+      can(regex("^[a-z][a-z0-9-]{0,11}$", key)) &&
+      !strcontains(key, "--")
+    ])
+    error_message = "virtual_machines keys must be 1-12 lowercase alphanumeric or hyphen characters, start with a letter, and not contain consecutive hyphens."
+  }
 }
 
 variable "virtual_machine_scale_set" {
@@ -516,7 +520,6 @@ variable "web_app" {
 variable "services" {
   description = "Services enabled in this lab composition."
   type = object({
-    virtual_machine           = optional(bool, true)
     virtual_machine_scale_set = optional(bool, false)
     key_vault                 = optional(bool, true)
     container_registry        = optional(bool, true)

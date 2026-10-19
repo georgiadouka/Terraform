@@ -40,7 +40,6 @@ module "lab" {
   }
 
   services = {
-    virtual_machine      = true
     key_vault            = false
     container_registry   = false
     storage              = false
@@ -55,8 +54,10 @@ module "lab" {
     function_app         = false
   }
 
-  virtual_machine = var.virtual_machine
-  postgresql      = var.postgresql
-  mysql           = var.mysql
-  tags            = var.tags
+  virtual_machines = {
+    primary = var.virtual_machine
+  }
+  postgresql = var.postgresql
+  mysql      = var.mysql
+  tags       = var.tags
 }

@@ -23,13 +23,19 @@ resource "random_password" "mysql" {
 }
 
 resource "tls_private_key" "vm" {
-  count = var.services.virtual_machine && var.virtual_machine.os_type == "Linux" ? 1 : 0
+  for_each = {
+    for key, vm in var.virtual_machines : key => vm
+    if vm.os_type == "Linux"
+  }
 
   algorithm = "ED25519"
 }
 
 resource "random_password" "vm_windows" {
-  count = var.services.virtual_machine && var.virtual_machine.os_type == "Windows" ? 1 : 0
+  for_each = {
+    for key, vm in var.virtual_machines : key => vm
+    if vm.os_type == "Windows"
+  }
 
   length           = 24
   min_lower        = 1
@@ -87,17 +93,22 @@ locals {
       sql_managed_instance = "${local.naming_prefixes.subnet_delegation}-sql-managed-instance-${local.name_stem}"
     }
 
-    virtual_machine           = "${local.naming_prefixes.virtual_machine}-${local.name_stem}"
     virtual_machine_scale_set = "${local.naming_prefixes.virtual_machine_scale_set}-${local.name_stem}"
-    network_interface         = "${local.naming_prefixes.network_interface}-${local.name_stem}"
     vmss_network_interface    = "${local.naming_prefixes.network_interface}-vmss-${local.name_stem}"
     vmss_autoscale_setting    = "${local.naming_prefixes.autoscale_setting}-${local.name_stem}"
-    os_disk                   = "${local.naming_prefixes.os_disk}-${local.name_stem}"
     nat_gateway               = "${local.naming_prefixes.nat_gateway}-${local.name_stem}"
     nat_public_ip             = "${local.naming_prefixes.public_ip}-nat-${local.name_stem}"
-    data_disks = {
-      for label in keys(var.virtual_machine.data_disks) :
-      label => "${local.naming_prefixes.data_disk}-${label}-${local.name_stem}"
+    virtual_machines = {
+      for key, vm in var.virtual_machines : key => {
+        name                   = "${local.naming_prefixes.virtual_machine}-${key}-${local.name_stem}"
+        network_interface_name = "${local.naming_prefixes.network_interface}-${key}-${local.name_stem}"
+        os_disk_name           = "${local.naming_prefixes.os_disk}-${key}-${local.name_stem}"
+        computer_name          = "vm-${substr(sha1(key), 0, 6)}-${local.naming_suffix}"
+        data_disk_names = {
+          for label in keys(vm.data_disks) :
+          label => "${local.naming_prefixes.data_disk}-${label}-${key}-${local.name_stem}"
+        }
+      }
     }
 
     key_vault = format(
@@ -283,14 +294,14 @@ locals {
   ])
 
   nat_gateway_required = anytrue([
-    var.services.virtual_machine,
+    length(var.virtual_machines) > 0,
     var.services.virtual_machine_scale_set,
     var.services.container_apps
   ])
 
   subnet_enabled = {
     private_endpoints    = local.private_endpoints_required
-    virtual_machines     = var.services.virtual_machine || var.services.virtual_machine_scale_set
+    virtual_machines     = length(var.virtual_machines) > 0 || var.services.virtual_machine_scale_set
     container_apps       = var.services.container_apps
     web_app_integration  = var.services.web_app
     function_integration = var.services.function_app
@@ -438,25 +449,25 @@ module "private_dns" {
 }
 
 module "virtual_machine" {
-  count  = var.services.virtual_machine ? 1 : 0
-  source = "../../modules/virtual-machine"
+  for_each = var.virtual_machines
+  source   = "../../modules/virtual-machine"
 
-  name                   = local.resource_names.virtual_machine
-  network_interface_name = local.resource_names.network_interface
-  os_disk_name           = local.resource_names.os_disk
-  data_disk_names        = local.resource_names.data_disks
+  name                   = local.resource_names.virtual_machines[each.key].name
+  network_interface_name = local.resource_names.virtual_machines[each.key].network_interface_name
+  os_disk_name           = local.resource_names.virtual_machines[each.key].os_disk_name
+  data_disk_names        = local.resource_names.virtual_machines[each.key].data_disk_names
   resource_group_name    = module.resource_group.name
   location               = module.resource_group.location
   subnet_id              = module.network.subnet_ids["virtual_machines"]
-  size                   = coalesce(var.vm_size, var.virtual_machine.size)
-  admin_username         = var.virtual_machine.admin_username
-  os_type                = var.virtual_machine.os_type
-  source_image_reference = var.virtual_machine.source_image_reference
-  computer_name          = "vm-${substr(local.compact_environment, 0, 6)}-${local.naming_suffix}"
-  admin_ssh_public_key   = var.virtual_machine.os_type == "Linux" ? tls_private_key.vm[0].public_key_openssh : null
-  admin_password         = var.virtual_machine.os_type == "Windows" ? random_password.vm_windows[0].result : null
-  os_disk                = var.virtual_machine.os_disk
-  data_disks             = var.virtual_machine.data_disks
+  size                   = each.value.size
+  admin_username         = each.value.admin_username
+  os_type                = each.value.os_type
+  source_image_reference = each.value.source_image_reference
+  computer_name          = local.resource_names.virtual_machines[each.key].computer_name
+  admin_ssh_public_key   = each.value.os_type == "Linux" ? tls_private_key.vm[each.key].public_key_openssh : null
+  admin_password         = each.value.os_type == "Windows" ? random_password.vm_windows[each.key].result : null
+  os_disk                = each.value.os_disk
+  data_disks             = each.value.data_disks
   tags                   = local.common_tags
 
   depends_on = [module.nat_gateway]
@@ -500,7 +511,7 @@ module "nat_gateway" {
   resource_group_name = module.resource_group.name
   location            = module.resource_group.location
   subnet_ids = merge(
-    var.services.virtual_machine || var.services.virtual_machine_scale_set ? {
+    length(var.virtual_machines) > 0 || var.services.virtual_machine_scale_set ? {
       virtual_machines = module.network.subnet_ids["virtual_machines"]
     } : {},
     var.services.container_apps ? {

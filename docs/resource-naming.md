@@ -106,7 +106,7 @@ Examples using the example suffix:
 |---|---|---|
 | Resource group | `rg` + stem | `rg-metlen-lab-it6hp` |
 | Virtual network | `vnet` + stem | `vnet-metlen-lab-it6hp` |
-| Virtual machine | `vm` + stem | `vm-metlen-lab-it6hp` |
+| Virtual machine | `vm` + logical key + stem | `vm-primary-metlen-lab-it6hp` |
 | VM scale set | `vmss` + stem | `vmss-metlen-lab-it6hp` |
 | NAT Gateway | `nat` + stem | `nat-metlen-lab-it6hp` |
 | Container Apps Environment | `cae` + stem | `cae-metlen-lab-it6hp` |
@@ -114,6 +114,10 @@ Examples using the example suffix:
 | Log Analytics workspace | `log` + stem | `log-metlen-lab-it6hp` |
 | Function App | `func` + stem | `func-metlen-lab-it6hp` |
 | Web App | `app` + stem | `app-metlen-lab-it6hp` |
+
+Standalone VM, NIC, OS disk, and data disk names include the stable key from
+the `virtual_machines` map so that multiple independently configured VMs have
+distinct Azure names.
 
 For example, the Container Apps Environment name is calculated as:
 

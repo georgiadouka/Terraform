@@ -166,8 +166,10 @@ variables {
   container_apps  = {}
   web_app         = {}
   function_app    = {}
+  virtual_machines = {
+    primary = {}
+  }
   services = {
-    virtual_machine           = true
     virtual_machine_scale_set = false
     key_vault                 = false
     container_registry        = false
@@ -188,10 +190,12 @@ run "linux_defaults" {
   command = plan
   assert {
     condition = (
-      output.vm_os_type == "Linux" &&
+      output.virtual_machines["primary"].os_type == "Linux" &&
+      output.virtual_machines["primary"].name == "vm-primary-metlen-lab-test1" &&
       length(tls_private_key.vm) == 1 &&
+      contains(keys(output.vm_ssh_public_keys), "primary") &&
       length(random_password.vm_windows) == 0 &&
-      output.vm_windows_admin_password == null &&
+      length(output.vm_windows_admin_passwords) == 0 &&
       output.function_app_os_type == "Linux" &&
       output.function_app_hostname == "func-linux.azurewebsites.net" &&
       output.generated_resource_names.subnets == {
@@ -212,18 +216,53 @@ run "linux_defaults" {
 run "windows_and_node" {
   command = plan
   variables {
-    environment     = "long-env"
-    virtual_machine = { os_type = "Windows" }
-    function_app    = { runtime = { name = "node", version = "22" } }
+    environment      = "long-env"
+    virtual_machines = { primary = { os_type = "Windows" } }
+    function_app     = { runtime = { name = "node", version = "22" } }
   }
   assert {
     condition = (
-      output.vm_os_type == "Windows" &&
-      output.vm_ssh_public_key == null &&
+      output.virtual_machines["primary"].os_type == "Windows" &&
       length(tls_private_key.vm) == 0 &&
-      length(random_password.vm_windows) == 1
+      length(output.vm_ssh_public_keys) == 0 &&
+      length(random_password.vm_windows) == 1 &&
+      contains(keys(output.vm_windows_admin_passwords), "primary")
     )
     error_message = "Windows must generate password credentials instead of an SSH key."
+  }
+}
+
+run "multiple_virtual_machines" {
+  command = plan
+  variables {
+    virtual_machines = {
+      api = {
+        size       = "Standard_B2s_v2"
+        data_disks = {}
+      }
+      worker = {
+        size       = "Standard_D2s_v5"
+        data_disks = {}
+      }
+      admin = {
+        os_type    = "Windows"
+        size       = "Standard_D2s_v5"
+        data_disks = {}
+      }
+    }
+  }
+  assert {
+    condition = (
+      length(module.virtual_machine) == 3 &&
+      length(output.virtual_machines) == 3 &&
+      length(output.vm_ssh_public_keys) == 2 &&
+      length(output.vm_windows_admin_passwords) == 1 &&
+      output.virtual_machines["api"].name == "vm-api-metlen-lab-test1" &&
+      output.virtual_machines["worker"].name == "vm-worker-metlen-lab-test1" &&
+      output.virtual_machines["admin"].name == "vm-admin-metlen-lab-test1" &&
+      output.virtual_machines["admin"].os_type == "Windows"
+    )
+    error_message = "Each virtual_machines entry must create one independently named VM with credentials matching its operating system."
   }
 }
 
@@ -280,8 +319,8 @@ run "vmss_windows_fixed" {
 run "vmss_only_keeps_shared_network" {
   command = plan
   variables {
+    virtual_machines = {}
     services = {
-      virtual_machine           = false
       virtual_machine_scale_set = true
       key_vault                 = false
       container_registry        = false
@@ -312,8 +351,8 @@ run "vmss_only_keeps_shared_network" {
 run "disabled_services" {
   command = plan
   variables {
+    virtual_machines = {}
     services = {
-      virtual_machine           = false
       virtual_machine_scale_set = false
       key_vault                 = false
       container_registry        = false
@@ -331,9 +370,9 @@ run "disabled_services" {
   }
   assert {
     condition = (
-      output.vm_os_type == null &&
-      output.vm_ssh_public_key == null &&
-      output.vm_windows_admin_password == null &&
+      length(output.virtual_machines) == 0 &&
+      length(output.vm_ssh_public_keys) == 0 &&
+      length(output.vm_windows_admin_passwords) == 0 &&
       length(tls_private_key.vm) == 0 &&
       length(random_password.vm_windows) == 0 &&
       output.vmss_id == null &&
@@ -615,7 +654,7 @@ run "windows_function_app" {
       output.function_app_hostname == "func-windows.azurewebsites.net" &&
       endswith(module.function_app[0].id, "/sites/func-windows") &&
       length(module.function_app_private_endpoint) == 1 &&
-      output.vm_os_type == "Linux"
+      output.virtual_machines["primary"].os_type == "Linux"
     )
     error_message = "Root tfvars must select Windows Functions independently of VM OS and preserve the existing app ID/hostname and Private Endpoint wiring."
   }
