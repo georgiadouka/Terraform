@@ -278,17 +278,15 @@ one entry creates one vault, and multiple entries create independent vaults:
 ```hcl
 key_vaults = {
   primary = {}
-  secrets = {
-    sku_name                 = "premium"
-    purge_protection_enabled = true
-  }
+  secrets = {}
 }
 ```
 
 Every vault uses RBAC authorization, disables public network access, and
-receives its own `vault` Private Endpoint. `sku_name` defaults to `standard`
-and `purge_protection_enabled` to `false` so the lab can be destroyed and
-purged automatically. Vault details, including the private `hostname`, and
+receives its own `vault` Private Endpoint. Each entry can set `sku_name`
+(default `standard`; `premium` is needed only for HSM-backed keys) and
+`purge_protection_enabled` (default `false`, so the lab can be destroyed and
+purged automatically). Vault details, including the private `hostname`, and
 Private Endpoint IDs are returned as maps using the same keys. Key Vault names
 are globally unique, so changing a key or the naming inputs replaces the vault;
 enabling purge protection prevents that vault's name from being reused until
