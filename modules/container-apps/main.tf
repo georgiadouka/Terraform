@@ -69,38 +69,6 @@ variable "target_port" {
   }
 }
 
-variable "dedicated_workload_profile" {
-  description = "Deprecated single-profile configuration. Retained to preserve existing profile names and use_for_app behavior; do not combine with the new map or selector."
-  type = object({
-    enabled               = optional(bool, false)
-    name                  = optional(string)
-    workload_profile_type = optional(string, "D4")
-    minimum_count         = optional(number, 0)
-    maximum_count         = optional(number, 3)
-    use_for_app           = optional(bool, true)
-  })
-  default = {}
-
-  validation {
-    condition = (
-      !var.dedicated_workload_profile.enabled ||
-      (
-        try(trimspace(var.dedicated_workload_profile.name), "") != "" &&
-        try(length(trimspace(var.dedicated_workload_profile.name)), 16) <= 15 &&
-        try(lower(trimspace(var.dedicated_workload_profile.name)), "") != "consumption" &&
-        trimspace(var.dedicated_workload_profile.workload_profile_type) != "" &&
-        lower(trimspace(var.dedicated_workload_profile.workload_profile_type)) != "consumption" &&
-        var.dedicated_workload_profile.minimum_count >= 0 &&
-        var.dedicated_workload_profile.minimum_count == floor(var.dedicated_workload_profile.minimum_count) &&
-        var.dedicated_workload_profile.maximum_count >= 1 &&
-        var.dedicated_workload_profile.maximum_count == floor(var.dedicated_workload_profile.maximum_count) &&
-        var.dedicated_workload_profile.maximum_count >= var.dedicated_workload_profile.minimum_count
-      )
-    )
-    error_message = "An enabled dedicated workload profile requires a non-Consumption name of 1-15 characters and integer node counts where minimum_count is at least zero and maximum_count is at least one and not less than minimum_count."
-  }
-}
-
 variable "dedicated_workload_profiles" {
   description = "Dedicated workload profiles keyed by stable logical labels. Names are Azure profile names; node counts are not app replica counts."
   type = map(object({
@@ -138,24 +106,18 @@ variable "dedicated_workload_profiles" {
     ])) == length(var.dedicated_workload_profiles)
     error_message = "Dedicated workload profile Azure names must be unique, ignoring case."
   }
-
-  validation {
-    condition     = !var.dedicated_workload_profile.enabled || length(var.dedicated_workload_profiles) == 0
-    error_message = "Do not combine an enabled legacy dedicated_workload_profile with dedicated_workload_profiles."
-  }
 }
 
 variable "app_workload_profile" {
-  description = "Consumption or a key in dedicated_workload_profiles. Null defaults to Consumption, except for legacy use_for_app placement."
+  description = "Consumption or a key in dedicated_workload_profiles. Null defaults to Consumption."
   type        = string
   default     = null
 
   validation {
     condition = var.app_workload_profile == null ? true : (
-      !var.dedicated_workload_profile.enabled &&
-      (var.app_workload_profile == "Consumption" || contains(keys(var.dedicated_workload_profiles), var.app_workload_profile))
+      var.app_workload_profile == "Consumption" || contains(keys(var.dedicated_workload_profiles), var.app_workload_profile)
     )
-    error_message = "app_workload_profile must be Consumption or a configured dedicated_workload_profiles key, and cannot be combined with an enabled legacy dedicated_workload_profile."
+    error_message = "app_workload_profile must be Consumption or a configured dedicated_workload_profiles key."
   }
 }
 
@@ -166,20 +128,10 @@ variable "tags" {
 }
 
 locals {
-  dedicated_workload_profiles = merge(var.dedicated_workload_profiles, var.dedicated_workload_profile.enabled ? {
-    legacy = {
-      name                  = var.dedicated_workload_profile.name
-      workload_profile_type = var.dedicated_workload_profile.workload_profile_type
-      minimum_count         = var.dedicated_workload_profile.minimum_count
-      maximum_count         = var.dedicated_workload_profile.maximum_count
-    }
-  } : {})
   dedicated_workload_profile_names = {
-    for key, profile in local.dedicated_workload_profiles : key => profile.name
+    for key, profile in var.dedicated_workload_profiles : key => profile.name
   }
-  app_workload_profile = var.app_workload_profile != null ? var.app_workload_profile : (
-    var.dedicated_workload_profile.enabled && var.dedicated_workload_profile.use_for_app ? "legacy" : "Consumption"
-  )
+  app_workload_profile = coalesce(var.app_workload_profile, "Consumption")
 }
 
 resource "azurerm_log_analytics_workspace" "this" {
@@ -211,7 +163,7 @@ resource "azurerm_container_app_environment" "this" {
   }
 
   dynamic "workload_profile" {
-    for_each = local.dedicated_workload_profiles
+    for_each = var.dedicated_workload_profiles
 
     content {
       name                  = workload_profile.value.name
@@ -322,13 +274,8 @@ output "static_ip_address" {
   value       = azurerm_container_app_environment.this.static_ip_address
 }
 
-output "dedicated_workload_profile_name" {
-  description = "Deprecated: dedicated profile name when exactly one is configured, otherwise null. Use dedicated_workload_profile_names."
-  value       = length(local.dedicated_workload_profile_names) == 1 ? one(values(local.dedicated_workload_profile_names)) : null
-}
-
 output "dedicated_workload_profile_names" {
-  description = "Azure profile names keyed by logical label; the legacy single profile uses the key legacy."
+  description = "Azure profile names keyed by logical label."
   value       = local.dedicated_workload_profile_names
 }
 

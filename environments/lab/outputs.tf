@@ -178,13 +178,8 @@ output "container_app_fqdn" {
   value       = try(module.container_apps[0].fqdn, null)
 }
 
-output "container_app_dedicated_workload_profile_name" {
-  description = "Deprecated: dedicated profile name when exactly one is configured, otherwise null. Use container_app_dedicated_workload_profile_names."
-  value       = try(module.container_apps[0].dedicated_workload_profile_name, null)
-}
-
 output "container_app_dedicated_workload_profile_names" {
-  description = "Dedicated Azure profile names keyed by logical label (legacy for the deprecated single profile), or an empty map when disabled."
+  description = "Dedicated Azure profile names keyed by logical label, or an empty map when disabled."
   value       = try(module.container_apps[0].dedicated_workload_profile_names, {})
 }
 

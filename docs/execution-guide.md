@@ -152,9 +152,9 @@ Important rules:
   same limitation until their provisioning is migrated to the ARM control
   plane.
 - `storage_accounts` and `premium_file_accounts` are maps keyed by stable
-  logical names. Empty maps disable those resource families; adding entries
-  creates independent accounts and Private Endpoints. The storage families are
-  not controlled by `services` switches.
+  logical names. Both default to empty maps, so no accounts are created until
+  entries are added; each entry creates an independent account and its Private
+  Endpoints. The storage families are not controlled by `services` switches.
 - App Service Web App creates one app selected by `web_app.mode`: `linux`,
   `windows`, or `container`. All modes disable public access, use a Private
   Endpoint, integrate with the dedicated Web App subnet, and enable a
@@ -183,7 +183,8 @@ Important rules:
   by mocked Terraform plans only, not live deployment validation.
 - The automated workflow selects Bash Run Command for Linux or PowerShell
   Run Command for Windows. Both check private DNS, NAT egress, and Container
-  App HTTPS. It still expects the default set of service hostnames.
+  App HTTPS. It expects the full set of service hostnames, so enable those
+  services explicitly in `terraform.tfvars`; nothing is enabled by default.
 - keep `key_vault.purge_protection_enabled = false` for the automated
   apply/destroy workflow. Enable it only for a persistent environment with an
   appropriate retention and recovery process.
@@ -193,8 +194,7 @@ Important rules:
 - Container Apps always retains Consumption. Add dedicated profiles under
   `container_apps.dedicated_workload_profiles` and select `"Consumption"` or a
   configured key with `container_apps.app_workload_profile`. An empty map is
-  Consumption-only. The legacy single-profile input still works but cannot be
-  combined with the new inputs when enabled.
+  Consumption-only.
 - Cosmos DB is disabled by default. Set `services.cosmos_db = true` and select
   one classic RU-based API with `cosmos_db.api_type`. The module creates one
   API-specific database/container pair, or one table for the Table API.
@@ -352,7 +352,7 @@ compact alphanumeric values for compatibility with all five supported APIs.
 With the default prefix, map-based Container Apps workload profiles use
 `<prefix>-<logical key>01`, such as `wp-general01`. A deterministic hash form
 is used only when a custom prefix or key would exceed Azure's 15-character
-limit. The legacy single profile uses `wp-legacy01`.
+limit.
 
 Only Azure-owned or protocol-defined names are exempt: service Private DNS zone
 FQDNs, the `@` and `*` DNS records, and the required Container Apps
@@ -478,12 +478,8 @@ name map and `container_app_workload_profile_name` for the selected Azure name.
 Keys must start with a lowercase letter, contain only lowercase letters, digits,
 and hyphens, and be at most 20 characters; `consumption` is reserved.
 
-Existing `dedicated_workload_profile` configurations retain their original
-Azure names and `use_for_app` placement. An enabled legacy object cannot be
-combined with the new map or selector. The plural output labels a legacy profile
-`legacy`; the singular output is null unless exactly one dedicated profile
-exists. Migration to the map or renaming a key changes Azure profile names:
-review removal/addition and app placement before applying.
+Renaming a key changes its Azure profile name: review removal/addition and app
+placement before applying.
 
 Multi-profile behavior is covered by mocked Terraform plans, not a live Azure
 deployment. Review expected charges before applying. See
@@ -611,9 +607,9 @@ terraform -chdir=environments\lab plan `
   -no-color
 ```
 
-The planned resource count depends on the enabled services. SQL Managed
-Instance and Cosmos DB remain disabled by default, and the unused SQL MI subnet
-is not created. Private DNS zones and links are included only for enabled
+The planned resource count depends on the enabled services. Every service is
+opt-in, and subnets such as the SQL MI subnet are created only for enabled
+services. Private DNS zones and links are included only for enabled
 services. Review the plan before applying:
 
 ```powershell

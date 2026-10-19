@@ -11,19 +11,7 @@ naming = {
   unique_suffix = "mvm01"
 }
 
-services = {
-  virtual_machine_scale_set = false
-  key_vault                 = false
-  container_registry        = false
-  azure_sql                 = false
-  sql_managed_instance      = false
-  postgresql                = false
-  mysql                     = false
-  container_apps            = false
-  cosmos_db                 = false
-  web_app                   = false
-  function_app              = false
-}
+# Every service is opt-in, so only the VMs and storage accounts below are deployed.
 
 virtual_machines = {
   primary = {

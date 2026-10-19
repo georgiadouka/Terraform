@@ -32,8 +32,7 @@ run "consumption_default" {
       length(azurerm_container_app_environment.this.workload_profile) == 1 &&
       one(azurerm_container_app_environment.this.workload_profile).name == "Consumption" &&
       output.app_workload_profile_name == "Consumption" &&
-      length(output.dedicated_workload_profile_names) == 0 &&
-      output.dedicated_workload_profile_name == null
+      length(output.dedicated_workload_profile_names) == 0
     )
     error_message = "Default configuration must retain only Consumption."
   }
@@ -51,7 +50,6 @@ run "one_dedicated_profile" {
     condition = (
       length(azurerm_container_app_environment.this.workload_profile) == 2 &&
       output.dedicated_workload_profile_names["general"] == "wp-general" &&
-      output.dedicated_workload_profile_name == "wp-general" &&
       output.app_workload_profile_name == "wp-general" &&
       one([for profile in azurerm_container_app_environment.this.workload_profile : profile if profile.name == "wp-general"]).minimum_count == 0 &&
       one([for profile in azurerm_container_app_environment.this.workload_profile : profile if profile.name == "wp-general"]).maximum_count == 3
@@ -78,7 +76,6 @@ run "multiple_profiles" {
       one([for profile in azurerm_container_app_environment.this.workload_profile : profile if profile.name == "wp-memory"]).workload_profile_type == "E4" &&
       output.app_workload_profile_name == "wp-memory" &&
       length(output.dedicated_workload_profile_names) == 2 &&
-      output.dedicated_workload_profile_name == null &&
       azurerm_container_app.this.template[0].min_replicas == 0 &&
       azurerm_container_app.this.template[0].max_replicas == 1 &&
       azurerm_container_app.this.template[0].container[0].cpu == 0.25 &&
@@ -131,33 +128,6 @@ run "no_selector_defaults_to_consumption" {
   }
 }
 
-run "legacy_single_profile" {
-  command = plan
-  variables {
-    dedicated_workload_profile = { enabled = true, name = "wp-lab-test1", use_for_app = true }
-  }
-  assert {
-    condition = (
-      length(azurerm_container_app_environment.this.workload_profile) == 2 &&
-      output.app_workload_profile_name == "wp-lab-test1" &&
-      output.dedicated_workload_profile_name == "wp-lab-test1" &&
-      output.dedicated_workload_profile_names["legacy"] == "wp-lab-test1"
-    )
-    error_message = "Legacy callers must preserve their existing profile name and placement without migration."
-  }
-}
-
-run "legacy_consumption_placement" {
-  command = plan
-  variables {
-    dedicated_workload_profile = { enabled = true, name = "wp-lab-test1", use_for_app = false }
-  }
-  assert {
-    condition     = output.app_workload_profile_name == "Consumption" && length(azurerm_container_app_environment.this.workload_profile) == 2
-    error_message = "Legacy use_for_app=false must retain Consumption placement."
-  }
-}
-
 run "reject_missing_selector" {
   command = plan
   variables {
@@ -179,24 +149,6 @@ run "reject_blank_selector" {
   command = plan
   variables {
     app_workload_profile = ""
-  }
-  expect_failures = [var.app_workload_profile]
-}
-
-run "reject_mixed_interfaces" {
-  command = plan
-  variables {
-    dedicated_workload_profile  = { enabled = true, name = "wp-legacy" }
-    dedicated_workload_profiles = { general = { name = "wp-general" } }
-  }
-  expect_failures = [var.dedicated_workload_profiles]
-}
-
-run "reject_legacy_with_new_selector" {
-  command = plan
-  variables {
-    dedicated_workload_profile = { enabled = true, name = "wp-legacy" }
-    app_workload_profile       = "Consumption"
   }
   expect_failures = [var.app_workload_profile]
 }

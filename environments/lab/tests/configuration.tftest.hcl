@@ -642,10 +642,9 @@ run "container_apps_single_profile" {
   assert {
     condition = (
       output.container_app_dedicated_workload_profile_names["general"] == "wp-general01" &&
-      output.container_app_workload_profile_name == output.container_app_dedicated_workload_profile_names["general"] &&
-      output.container_app_dedicated_workload_profile_name == output.container_app_dedicated_workload_profile_names["general"]
+      output.container_app_workload_profile_name == output.container_app_dedicated_workload_profile_names["general"]
     )
-    error_message = "A single dedicated profile must use its deterministic Azure name, remain selectable through tfvars, and be available through both output shapes."
+    error_message = "A single dedicated profile must use its deterministic Azure name and remain selectable through tfvars."
   }
 }
 
@@ -668,8 +667,7 @@ run "container_apps_multiple_profiles" {
       output.container_app_dedicated_workload_profile_names["memory"] == "wp-memory01" &&
       output.container_app_dedicated_workload_profile_names["general"] == run.container_apps_single_profile.container_app_dedicated_workload_profile_names["general"] &&
       length(distinct(values(output.container_app_dedicated_workload_profile_names))) == 2 &&
-      alltrue([for name in values(output.container_app_dedicated_workload_profile_names) : length(name) <= 15]) &&
-      output.container_app_dedicated_workload_profile_name == null
+      alltrue([for name in values(output.container_app_dedicated_workload_profile_names) : length(name) <= 15])
     )
     error_message = "Root configuration must pass logical placement and generate the requested deterministic Azure profile names."
   }
@@ -698,30 +696,6 @@ run "container_apps_long_profile_prefix" {
       alltrue([for name in values(output.container_app_dedicated_workload_profile_names) : length(name) <= 15])
     )
     error_message = "Long profile prefixes must fall back to unique deterministic names within Azure's 15-character limit."
-  }
-}
-
-run "container_apps_legacy_profile" {
-  command = plan
-  variables {
-    services = merge(var.services, { container_apps = true })
-    container_apps = {
-      dedicated_workload_profile = {
-        enabled               = true
-        workload_profile_type = "D4"
-        minimum_count         = 0
-        maximum_count         = 3
-        use_for_app           = true
-      }
-    }
-  }
-  assert {
-    condition = (
-      output.container_app_workload_profile_name == "wp-legacy01" &&
-      output.container_app_dedicated_workload_profile_name == "wp-legacy01" &&
-      output.container_app_dedicated_workload_profile_names["legacy"] == "wp-legacy01"
-    )
-    error_message = "The legacy profile must use a plan-time-known Azure name and retain app placement."
   }
 }
 

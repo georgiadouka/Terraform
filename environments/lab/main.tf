@@ -201,11 +201,6 @@ locals {
     container_apps_environment = "${local.naming_prefixes.container_apps_environment}-${local.name_stem}"
     container_app              = "${local.naming_prefixes.container_app}-${local.name_stem}"
     container_app_container    = "${local.naming_prefixes.container_app_container}-${local.name_stem}"
-    container_apps_profile = (
-      length("${local.naming_prefixes.container_apps_profile}-legacy01") <= 15
-      ? "${local.naming_prefixes.container_apps_profile}-legacy01"
-      : format("%s-legacy01", substr(local.naming_prefixes.container_apps_profile, 0, 3))
-    )
     container_apps_profiles = {
       for key in keys(var.container_apps.dedicated_workload_profiles) : key => (
         length("${local.naming_prefixes.container_apps_profile}-${key}01") <= 15
@@ -841,10 +836,6 @@ module "container_apps" {
   virtual_network_id           = module.network.id
   image                        = var.container_apps.image
   target_port                  = var.container_apps.target_port
-  dedicated_workload_profile = merge(
-    var.container_apps.dedicated_workload_profile,
-    { name = local.resource_names.container_apps_profile }
-  )
   dedicated_workload_profiles = {
     for key, profile in var.container_apps.dedicated_workload_profiles : key => merge(
       profile,

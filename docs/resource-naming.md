@@ -325,8 +325,6 @@ Current results:
 | `general` | `wp-general01` |
 | `memory` | `wp-memory01` |
 
-The deprecated single-profile input uses `wp-legacy01`.
-
 If a custom prefix or logical key would make the direct name longer than
 Azure's 15-character limit, the name falls back to:
 

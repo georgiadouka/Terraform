@@ -199,7 +199,7 @@ variable "subnet_cidrs" {
 }
 
 variable "virtual_machines" {
-  description = "Linux or Windows virtual machines keyed by a stable logical name. Use one entry for one VM, multiple entries for multiple VMs, or an empty map for none."
+  description = "Linux or Windows virtual machines keyed by a stable logical name. Defaults to none; add one entry per VM."
   type = map(object({
     size           = optional(string, "Standard_B2s_v2")
     admin_username = optional(string, "azureadmin")
@@ -229,9 +229,7 @@ variable "virtual_machines" {
       }
     })
   }))
-  default = {
-    primary = {}
-  }
+  default = {}
 
   validation {
     condition = alltrue([
@@ -307,7 +305,7 @@ variable "key_vault" {
 }
 
 variable "storage_accounts" {
-  description = "General-purpose v2 storage accounts keyed by a stable logical name. Use an empty map to create none."
+  description = "General-purpose v2 storage accounts keyed by a stable logical name. Defaults to none; add one entry per account."
   type = map(object({
     replication_type = optional(string, "LRS")
     containers       = optional(set(string), ["appdata", "archive"])
@@ -324,9 +322,7 @@ variable "storage_accounts" {
       skip_service_principal_aad_check = optional(bool, false)
     })), {})
   }))
-  default = {
-    primary = {}
-  }
+  default = {}
 
   validation {
     condition = alltrue([
@@ -339,7 +335,7 @@ variable "storage_accounts" {
 }
 
 variable "premium_file_accounts" {
-  description = "Premium FileStorage accounts and SMB shares keyed by a stable logical account name. Use an empty map to create none."
+  description = "Premium FileStorage accounts and SMB shares keyed by a stable logical account name. Defaults to none; add one entry per account."
   type = map(object({
     replication_type = optional(string, "LRS")
     file_shares = optional(map(object({
@@ -350,9 +346,7 @@ variable "premium_file_accounts" {
       }
     })
   }))
-  default = {
-    primary = {}
-  }
+  default = {}
 
   validation {
     condition = alltrue([
@@ -400,14 +394,6 @@ variable "container_apps" {
       maximum_count         = optional(number, 3)
     })), {})
     app_workload_profile = optional(string)
-    # Legacy input retained to avoid removing an existing profile on upgrade.
-    dedicated_workload_profile = optional(object({
-      enabled               = optional(bool, false)
-      workload_profile_type = optional(string, "D4")
-      minimum_count         = optional(number, 0)
-      maximum_count         = optional(number, 3)
-      use_for_app           = optional(bool, true)
-    }), {})
   })
   default = {}
 }
@@ -542,19 +528,19 @@ variable "web_app" {
 }
 
 variable "services" {
-  description = "Services enabled in this lab composition."
+  description = "Single-instance services enabled in this lab composition. Every service is opt-in."
   type = object({
     virtual_machine_scale_set = optional(bool, false)
-    key_vault                 = optional(bool, true)
-    container_registry        = optional(bool, true)
-    azure_sql                 = optional(bool, true)
+    key_vault                 = optional(bool, false)
+    container_registry        = optional(bool, false)
+    azure_sql                 = optional(bool, false)
     sql_managed_instance      = optional(bool, false)
-    postgresql                = optional(bool, true)
-    mysql                     = optional(bool, true)
-    container_apps            = optional(bool, true)
+    postgresql                = optional(bool, false)
+    mysql                     = optional(bool, false)
+    container_apps            = optional(bool, false)
     cosmos_db                 = optional(bool, false)
-    web_app                   = optional(bool, true)
-    function_app              = optional(bool, true)
+    web_app                   = optional(bool, false)
+    function_app              = optional(bool, false)
   })
   default = {}
 }

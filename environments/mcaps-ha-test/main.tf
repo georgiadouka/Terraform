@@ -40,18 +40,8 @@ module "lab" {
   }
 
   services = {
-    key_vault            = false
-    container_registry   = false
-    storage              = false
-    premium_files        = false
-    azure_sql            = false
-    sql_managed_instance = false
-    postgresql           = true
-    mysql                = true
-    container_apps       = false
-    cosmos_db            = false
-    web_app              = false
-    function_app         = false
+    postgresql = true
+    mysql      = true
   }
 
   virtual_machines = {

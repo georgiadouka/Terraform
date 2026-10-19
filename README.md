@@ -174,6 +174,13 @@ the region, naming convention, network ranges, service switches, SKUs, sizes,
 and database settings. Optional values have defaults, so users do not need to
 understand or override every module input.
 
+Every service is opt-in. With no service switches or resource maps set, the lab
+deploys only the resource group and virtual network. Enable single-instance
+services with `services.<name> = true` and add entries to `virtual_machines`,
+`storage_accounts`, or `premium_file_accounts` for keyed resources. Subnets,
+Private DNS zones, Private Endpoints, and the NAT Gateway are created only when
+an enabled service needs them.
+
 ### Virtual Machines
 
 `virtual_machines` is keyed by stable logical names. An empty map creates no
@@ -350,15 +357,8 @@ container_apps = {
   guarantee zero dedicated charges. See the
   [Microsoft workload profile documentation](https://learn.microsoft.com/azure/container-apps/workload-profiles-overview).
 
-The deprecated `dedicated_workload_profile` object remains supported without
-renaming an existing profile or changing its `use_for_app` behavior. Do not
-combine an enabled legacy object with the new map or selector; Terraform rejects
-the ambiguity. For legacy callers, the plural output uses the key `legacy`.
-The old singular output remains available when exactly one dedicated profile
-exists and returns null for zero or multiple profiles. Migrating from the
-legacy input to the map generates new Azure profile names: review the plan and
-coordinate app placement before applying. Changing a map key also renames that
-profile; changing counts or adding another key does not rename existing entries.
+Changing a map key renames that profile; changing counts or adding another key
+does not rename existing entries.
 
 ### App Service Web App modes
 
@@ -517,8 +517,8 @@ The tests use mocked Azure providers and plan-only runs; they do not deploy
 resources or exercise real database failover. The environment tests override
 network/storage plumbing to focus on configuration, credential selection, Web
 App mode selection, and Container Apps profile naming/placement. Workload
-profile tests cover defaults, multiple profiles, legacy compatibility, and
-invalid inputs.
+profile tests cover defaults, multiple profiles, and invalid inputs. A separate
+lab test confirms that every service is opt-in.
 
 References: [Functions language support](https://learn.microsoft.com/azure/azure-functions/supported-languages),
 [PostgreSQL HA](https://learn.microsoft.com/azure/postgresql/high-availability/how-to-configure-high-availability),
@@ -577,8 +577,7 @@ database/container names are compact alphanumeric identifiers compatible with
 all supported APIs. Map-based Container Apps workload profile names use
 `<prefix up to 3 characters>-<4-character SHA-1 of logical key>-<suffix>`, staying
 within Azure's 15-character limit. The key hash makes names independent of map
-ordering; conflicting shortened hashes are rejected. Legacy single-profile
-names retain the compact `<prefix>-<environment>-<suffix>` form. Azure-owned or
+ordering; conflicting shortened hashes are rejected. Azure-owned or
 protocol-defined names cannot be changed, including Private DNS zone FQDNs, `@`/`*` DNS records,
 and the Container Apps `Consumption` profile.
 
