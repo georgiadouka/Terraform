@@ -141,13 +141,13 @@ variables {
     mysql                = "10.42.6.0/24"
     sql_managed_instance = "10.42.7.0/27"
   }
-  virtual_machine_scale_set = {}
-  nat_gateway               = {}
-  azure_sql                 = {}
-  sql_managed_instance      = {}
-  postgresql                = {}
-  mysql                     = {}
-  tags                      = {}
+  virtual_machine_scale_sets = {}
+  nat_gateway                = {}
+  azure_sql                  = {}
+  sql_managed_instance       = {}
+  postgresql                 = {}
+  mysql                      = {}
+  tags                       = {}
 }
 
 run "all_endpoints" {

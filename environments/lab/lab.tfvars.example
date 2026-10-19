@@ -91,7 +91,6 @@ subnet_cidrs = {
 
 # Enable only the services needed by this environment.
 services = {
-  virtual_machine_scale_set = false
   azure_sql                 = true
   sql_managed_instance      = false
   postgresql                = true
@@ -154,59 +153,64 @@ virtual_machines = {
   # }
 }
 
-# Enable services.virtual_machine_scale_set to deploy this private scale set.
-# Every data disk below is created for every VMSS instance.
-virtual_machine_scale_set = {
-  os_type        = "Linux"
-  size           = "Standard_B2s_v2"
-  admin_username = "azureadmin"
-  zones          = []
-  upgrade_mode   = "Manual"
+# One entry per Virtual Machine Scale Set; an empty map creates none. Uncomment
+# the template below to deploy one. Keys are stable logical names; changing a
+# key replaces that scale set. Every data disk is created for every instance.
+virtual_machine_scale_sets = {}
 
-  source_image_reference = {
-    publisher = "Canonical"
-    offer     = "ubuntu-24_04-lts"
-    sku       = "server"
-    version   = "latest"
-  }
-
-  os_disk = {
-    storage_account_type = "StandardSSD_LRS"
-    disk_size_gb         = 64
-    caching              = "ReadWrite"
-  }
-
-  data_disks = {
-    app = {
-      lun                  = 0
-      storage_account_type = "Premium_LRS"
-      disk_size_gb         = 128
-      caching              = "ReadOnly"
-    }
-    logs = {
-      lun                  = 1
-      storage_account_type = "StandardSSD_LRS"
-      disk_size_gb         = 256
-      caching              = "ReadWrite"
-    }
-  }
-
-  scaling = {
-    mode              = "autoscale"
-    minimum_instances = 2
-    default_instances = 2
-    maximum_instances = 6
-
-    cpu = {
-      scale_out_threshold = 75
-      scale_in_threshold  = 25
-      scale_out_count     = 1
-      scale_in_count      = 1
-      time_window_minutes = 5
-      cooldown_minutes    = 5
-    }
-  }
-}
+# virtual_machine_scale_sets = {
+#   app = {
+#       os_type        = "Linux"
+#       size           = "Standard_B2s_v2"
+#       admin_username = "azureadmin"
+#       zones          = []
+#       upgrade_mode   = "Manual"
+#
+#       source_image_reference = {
+#         publisher = "Canonical"
+#         offer     = "ubuntu-24_04-lts"
+#         sku       = "server"
+#         version   = "latest"
+#       }
+#
+#       os_disk = {
+#         storage_account_type = "StandardSSD_LRS"
+#         disk_size_gb         = 64
+#         caching              = "ReadWrite"
+#       }
+#
+#       data_disks = {
+#         app = {
+#           lun                  = 0
+#           storage_account_type = "Premium_LRS"
+#           disk_size_gb         = 128
+#           caching              = "ReadOnly"
+#         }
+#         logs = {
+#           lun                  = 1
+#           storage_account_type = "StandardSSD_LRS"
+#           disk_size_gb         = 256
+#           caching              = "ReadWrite"
+#         }
+#       }
+#
+#       scaling = {
+#         mode              = "autoscale"
+#         minimum_instances = 2
+#         default_instances = 2
+#         maximum_instances = 6
+#
+#         cpu = {
+#           scale_out_threshold = 75
+#           scale_in_threshold  = 25
+#           scale_out_count     = 1
+#           scale_in_count      = 1
+#           time_window_minutes = 5
+#           cooldown_minutes    = 5
+#         }
+#       }
+#   }
+# }
 
 # One shared gateway is created when VM, VMSS, or Container Apps is enabled and is
 # associated with whichever of those service subnets are active.

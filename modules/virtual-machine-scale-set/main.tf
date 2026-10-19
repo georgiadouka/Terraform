@@ -106,6 +106,22 @@ variable "admin_password" {
   }
 }
 
+variable "computer_name_prefix" {
+  description = "Hostname prefix for scale set instances: up to 9 characters for Windows or 58 for Linux. Null uses the scale set name, which Windows accepts only when the name is at most 9 characters."
+  type        = string
+  default     = null
+
+  validation {
+    condition = (
+      var.computer_name_prefix == null
+      ? var.os_type != "Windows" || length(var.name) <= 9
+      : can(regex("^[A-Za-z][A-Za-z0-9-]*$", var.computer_name_prefix)) &&
+      length(var.computer_name_prefix) <= (var.os_type == "Windows" ? 9 : 58)
+    )
+    error_message = "computer_name_prefix must start with a letter, contain only letters, digits, or hyphens, and be at most 9 characters for Windows or 58 for Linux. Windows scale sets whose name is longer than 9 characters require an explicit prefix."
+  }
+}
+
 variable "source_image_reference" {
   description = "Optional Marketplace image reference; defaults to Ubuntu 22.04 Gen2 for Linux or Windows Server 2022 Azure Edition for Windows."
   type = object({
@@ -360,6 +376,7 @@ resource "azurerm_linux_virtual_machine_scale_set" "this" {
   sku                             = var.size
   instances                       = var.scaling.default_instances
   admin_username                  = var.admin_username
+  computer_name_prefix            = var.computer_name_prefix
   disable_password_authentication = true
   zones                           = length(var.zones) > 0 ? var.zones : null
   upgrade_mode                    = var.upgrade_mode
@@ -423,18 +440,19 @@ resource "azurerm_linux_virtual_machine_scale_set" "this" {
 resource "azurerm_windows_virtual_machine_scale_set" "this" {
   count = var.os_type == "Windows" ? 1 : 0
 
-  name                = var.name
-  resource_group_name = var.resource_group_name
-  location            = var.location
-  sku                 = var.size
-  instances           = var.scaling.default_instances
-  admin_username      = var.admin_username
-  admin_password      = var.admin_password
-  zones               = length(var.zones) > 0 ? var.zones : null
-  upgrade_mode        = var.upgrade_mode
-  secure_boot_enabled = true
-  vtpm_enabled        = true
-  tags                = var.tags
+  name                 = var.name
+  resource_group_name  = var.resource_group_name
+  location             = var.location
+  sku                  = var.size
+  instances            = var.scaling.default_instances
+  admin_username       = var.admin_username
+  admin_password       = var.admin_password
+  computer_name_prefix = var.computer_name_prefix
+  zones                = length(var.zones) > 0 ? var.zones : null
+  upgrade_mode         = var.upgrade_mode
+  secure_boot_enabled  = true
+  vtpm_enabled         = true
+  tags                 = var.tags
 
   identity {
     type = "SystemAssigned"

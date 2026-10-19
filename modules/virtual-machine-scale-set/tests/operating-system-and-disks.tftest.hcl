@@ -196,6 +196,62 @@ run "invalid_os" {
   expect_failures = [var.os_type]
 }
 
+run "windows_explicit_computer_name_prefix" {
+  command = plan
+
+  variables {
+    name                 = "vmss-app-metlen-lab-test1"
+    os_type              = "Windows"
+    admin_password       = "MockOnly-Passw0rd!123"
+    admin_ssh_public_key = null
+    computer_name_prefix = "vmss1a2b3"
+  }
+
+  assert {
+    condition     = azurerm_windows_virtual_machine_scale_set.this[0].computer_name_prefix == "vmss1a2b3"
+    error_message = "An explicit prefix must be passed to the Windows scale set."
+  }
+}
+
+run "linux_explicit_computer_name_prefix" {
+  command = plan
+
+  variables {
+    computer_name_prefix = "vmss1a2b3"
+  }
+
+  assert {
+    condition     = azurerm_linux_virtual_machine_scale_set.this[0].computer_name_prefix == "vmss1a2b3"
+    error_message = "An explicit prefix must be passed to the Linux scale set."
+  }
+}
+
+run "reject_windows_long_name_without_prefix" {
+  command = plan
+
+  variables {
+    name                 = "vmss-app-metlen-lab-test1"
+    os_type              = "Windows"
+    admin_password       = "MockOnly-Passw0rd!123"
+    admin_ssh_public_key = null
+  }
+
+  expect_failures = [var.computer_name_prefix]
+}
+
+run "reject_long_windows_prefix" {
+  command = plan
+
+  variables {
+    os_type              = "Windows"
+    admin_password       = "MockOnly-Passw0rd!123"
+    admin_ssh_public_key = null
+    computer_name_prefix = "vmss1a2b3c"
+  }
+
+  expect_failures = [var.computer_name_prefix]
+}
+
 run "missing_linux_key" {
   command = plan
   variables { admin_ssh_public_key = null }

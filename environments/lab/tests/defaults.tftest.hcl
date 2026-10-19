@@ -33,19 +33,19 @@ variables {
     mysql                = "10.42.6.0/24"
     sql_managed_instance = "10.42.7.0/27"
   }
-  virtual_machine_scale_set = {}
-  nat_gateway               = {}
-  key_vaults                = {}
-  container_registries      = {}
-  azure_sql                 = {}
-  container_apps            = {}
-  cosmos_db                 = {}
-  sql_managed_instance      = {}
-  postgresql                = {}
-  mysql                     = {}
-  function_app              = {}
-  web_app                   = {}
-  tags                      = {}
+  virtual_machine_scale_sets = {}
+  nat_gateway                = {}
+  key_vaults                 = {}
+  container_registries       = {}
+  azure_sql                  = {}
+  container_apps             = {}
+  cosmos_db                  = {}
+  sql_managed_instance       = {}
+  postgresql                 = {}
+  mysql                      = {}
+  function_app               = {}
+  web_app                    = {}
+  tags                       = {}
 }
 
 run "services_are_opt_in" {

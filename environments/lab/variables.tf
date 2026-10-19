@@ -246,9 +246,9 @@ variable "virtual_machines" {
   }
 }
 
-variable "virtual_machine_scale_set" {
-  description = "Linux or Windows VMSS image, sizing, disks, networking, and Azure Monitor capacity settings."
-  type = object({
+variable "virtual_machine_scale_sets" {
+  description = "Linux or Windows Virtual Machine Scale Sets keyed by a stable logical name. Defaults to none; add one entry per scale set."
+  type = map(object({
     size                          = optional(string, "Standard_B2s_v2")
     admin_username                = optional(string, "azureadmin")
     os_type                       = optional(string, "Linux")
@@ -288,8 +288,17 @@ variable "virtual_machine_scale_set" {
     }), {})
     load_balancer_backend_address_pool_ids       = optional(set(string), [])
     application_gateway_backend_address_pool_ids = optional(set(string), [])
-  })
+  }))
   default = {}
+
+  validation {
+    condition = alltrue([
+      for key in keys(var.virtual_machine_scale_sets) :
+      can(regex("^[a-z][a-z0-9-]{0,11}$", key)) &&
+      !strcontains(key, "--")
+    ])
+    error_message = "virtual_machine_scale_sets keys must be 1-12 lowercase alphanumeric or hyphen characters, start with a letter, and not contain consecutive hyphens."
+  }
 }
 
 variable "nat_gateway" {
@@ -559,15 +568,14 @@ variable "web_app" {
 variable "services" {
   description = "Single-instance services enabled in this lab composition. Every service is opt-in."
   type = object({
-    virtual_machine_scale_set = optional(bool, false)
-    azure_sql                 = optional(bool, false)
-    sql_managed_instance      = optional(bool, false)
-    postgresql                = optional(bool, false)
-    mysql                     = optional(bool, false)
-    container_apps            = optional(bool, false)
-    cosmos_db                 = optional(bool, false)
-    web_app                   = optional(bool, false)
-    function_app              = optional(bool, false)
+    azure_sql            = optional(bool, false)
+    sql_managed_instance = optional(bool, false)
+    postgresql           = optional(bool, false)
+    mysql                = optional(bool, false)
+    container_apps       = optional(bool, false)
+    cosmos_db            = optional(bool, false)
+    web_app              = optional(bool, false)
+    function_app         = optional(bool, false)
   })
   default = {}
 }

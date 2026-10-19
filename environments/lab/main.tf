@@ -46,13 +46,19 @@ resource "random_password" "vm_windows" {
 }
 
 resource "tls_private_key" "vmss" {
-  count = var.services.virtual_machine_scale_set && var.virtual_machine_scale_set.os_type == "Linux" ? 1 : 0
+  for_each = {
+    for key, scale_set in var.virtual_machine_scale_sets : key => scale_set
+    if scale_set.os_type == "Linux"
+  }
 
   algorithm = "ED25519"
 }
 
 resource "random_password" "vmss_windows" {
-  count = var.services.virtual_machine_scale_set && var.virtual_machine_scale_set.os_type == "Windows" ? 1 : 0
+  for_each = {
+    for key, scale_set in var.virtual_machine_scale_sets : key => scale_set
+    if scale_set.os_type == "Windows"
+  }
 
   length           = 24
   min_lower        = 1
@@ -104,11 +110,18 @@ locals {
       sql_managed_instance = "${local.naming_prefixes.subnet_delegation}-sql-managed-instance-${local.name_stem}"
     }
 
-    virtual_machine_scale_set = "${local.naming_prefixes.virtual_machine_scale_set}-${local.name_stem}"
-    vmss_network_interface    = "${local.naming_prefixes.network_interface}-vmss-${local.name_stem}"
-    vmss_autoscale_setting    = "${local.naming_prefixes.autoscale_setting}-${local.name_stem}"
-    nat_gateway               = "${local.naming_prefixes.nat_gateway}-${local.name_stem}"
-    nat_public_ip             = "${local.naming_prefixes.public_ip}-nat-${local.name_stem}"
+    nat_gateway   = "${local.naming_prefixes.nat_gateway}-${local.name_stem}"
+    nat_public_ip = "${local.naming_prefixes.public_ip}-nat-${local.name_stem}"
+    # Instance hostnames use a 9-character prefix (the Windows limit) that is
+    # unique per key, so scale sets in the same VNet never share hostnames.
+    virtual_machine_scale_sets = {
+      for key in keys(var.virtual_machine_scale_sets) : key => {
+        name                   = "${local.naming_prefixes.virtual_machine_scale_set}-${key}-${local.name_stem}"
+        network_interface_name = "${local.naming_prefixes.network_interface}-vmss-${key}-${local.name_stem}"
+        autoscale_setting_name = "${local.naming_prefixes.autoscale_setting}-${key}-${local.name_stem}"
+        computer_name_prefix   = "vmss${substr(sha1(key), 0, 5)}"
+      }
+    }
     virtual_machines = {
       for key, vm in var.virtual_machines : key => {
         name                   = "${local.naming_prefixes.virtual_machine}-${key}-${local.name_stem}"
@@ -400,15 +413,13 @@ locals {
     for endpoint in values(local.private_endpoint_catalog) : endpoint.enabled
   ])
 
-  nat_gateway_required = anytrue([
-    length(var.virtual_machines) > 0,
-    var.services.virtual_machine_scale_set,
-    var.services.container_apps
-  ])
+  virtual_machine_subnet_required = length(var.virtual_machines) > 0 || length(var.virtual_machine_scale_sets) > 0
+
+  nat_gateway_required = local.virtual_machine_subnet_required || var.services.container_apps
 
   subnet_enabled = {
     private_endpoints    = local.private_endpoints_required
-    virtual_machines     = length(var.virtual_machines) > 0 || var.services.virtual_machine_scale_set
+    virtual_machines     = local.virtual_machine_subnet_required
     container_apps       = var.services.container_apps
     web_app_integration  = var.services.web_app
     function_integration = var.services.function_app
@@ -568,29 +579,30 @@ module "virtual_machine" {
 }
 
 module "virtual_machine_scale_set" {
-  count  = var.services.virtual_machine_scale_set ? 1 : 0
-  source = "../../modules/virtual-machine-scale-set"
+  for_each = var.virtual_machine_scale_sets
+  source   = "../../modules/virtual-machine-scale-set"
 
-  name                                         = local.resource_names.virtual_machine_scale_set
-  autoscale_setting_name                       = local.resource_names.vmss_autoscale_setting
-  network_interface_name                       = local.resource_names.vmss_network_interface
+  name                                         = local.resource_names.virtual_machine_scale_sets[each.key].name
+  autoscale_setting_name                       = local.resource_names.virtual_machine_scale_sets[each.key].autoscale_setting_name
+  network_interface_name                       = local.resource_names.virtual_machine_scale_sets[each.key].network_interface_name
+  computer_name_prefix                         = local.resource_names.virtual_machine_scale_sets[each.key].computer_name_prefix
   resource_group_name                          = module.resource_group.name
   location                                     = module.resource_group.location
   subnet_id                                    = module.network.subnet_ids["virtual_machines"]
-  size                                         = var.virtual_machine_scale_set.size
-  admin_username                               = var.virtual_machine_scale_set.admin_username
-  os_type                                      = var.virtual_machine_scale_set.os_type
-  source_image_reference                       = var.virtual_machine_scale_set.source_image_reference
-  admin_ssh_public_key                         = var.virtual_machine_scale_set.os_type == "Linux" ? tls_private_key.vmss[0].public_key_openssh : null
-  admin_password                               = var.virtual_machine_scale_set.os_type == "Windows" ? random_password.vmss_windows[0].result : null
-  os_disk                                      = var.virtual_machine_scale_set.os_disk
-  data_disks                                   = var.virtual_machine_scale_set.data_disks
-  scaling                                      = var.virtual_machine_scale_set.scaling
-  zones                                        = var.virtual_machine_scale_set.zones
-  upgrade_mode                                 = var.virtual_machine_scale_set.upgrade_mode
-  enable_accelerated_networking                = var.virtual_machine_scale_set.enable_accelerated_networking
-  load_balancer_backend_address_pool_ids       = var.virtual_machine_scale_set.load_balancer_backend_address_pool_ids
-  application_gateway_backend_address_pool_ids = var.virtual_machine_scale_set.application_gateway_backend_address_pool_ids
+  size                                         = each.value.size
+  admin_username                               = each.value.admin_username
+  os_type                                      = each.value.os_type
+  source_image_reference                       = each.value.source_image_reference
+  admin_ssh_public_key                         = each.value.os_type == "Linux" ? tls_private_key.vmss[each.key].public_key_openssh : null
+  admin_password                               = each.value.os_type == "Windows" ? random_password.vmss_windows[each.key].result : null
+  os_disk                                      = each.value.os_disk
+  data_disks                                   = each.value.data_disks
+  scaling                                      = each.value.scaling
+  zones                                        = each.value.zones
+  upgrade_mode                                 = each.value.upgrade_mode
+  enable_accelerated_networking                = each.value.enable_accelerated_networking
+  load_balancer_backend_address_pool_ids       = each.value.load_balancer_backend_address_pool_ids
+  application_gateway_backend_address_pool_ids = each.value.application_gateway_backend_address_pool_ids
   tags                                         = local.common_tags
 
   depends_on = [module.nat_gateway]
@@ -605,7 +617,7 @@ module "nat_gateway" {
   resource_group_name = module.resource_group.name
   location            = module.resource_group.location
   subnet_ids = merge(
-    length(var.virtual_machines) > 0 || var.services.virtual_machine_scale_set ? {
+    local.virtual_machine_subnet_required ? {
       virtual_machines = module.network.subnet_ids["virtual_machines"]
     } : {},
     var.services.container_apps ? {

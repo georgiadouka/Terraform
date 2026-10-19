@@ -215,7 +215,7 @@ Subnet creation follows the enabled service graph:
 | Subnet | Created when |
 |---|---|
 | `private_endpoints` | Azure SQL, Cosmos DB, Web App, or Function App is enabled, or `container_registries`/`key_vaults`/`storage_accounts`/`premium_file_accounts` is nonempty |
-| `virtual_machines` | `virtual_machines` is non-empty or `services.virtual_machine_scale_set` is `true` |
+| `virtual_machines` | `virtual_machines` or `virtual_machine_scale_sets` is non-empty |
 | `container_apps` | `services.container_apps` is `true` |
 | `web_app_integration` | `services.web_app` is `true` |
 | `function_integration` | `services.function_app` is `true` |
@@ -232,18 +232,19 @@ fails safely if unmanaged resources still occupy it.
 
 ### Configure a Virtual Machine Scale Set
 
-The VMSS is disabled by default. Enable it independently of the standalone VM:
+Scale sets are opt-in and independent of standalone VMs. Add one entry per
+scale set:
 
 ```hcl
-services = {
-  virtual_machine_scale_set = true
-  # Keep the other service switches required by this environment.
+virtual_machine_scale_sets = {
+  web = {}
+  jobs = { os_type = "Windows", scaling = { mode = "fixed", default_instances = 1 } }
 }
 
 virtual_machines = {}
 ```
 
-The example `virtual_machine_scale_set` object demonstrates a Marketplace
+The commented `app` template in `lab.tfvars.example` demonstrates a Marketplace
 image, a sized OS disk, two data-disk templates, and CPU autoscaling. Every
 data-disk template is reproduced on every instance; choose the VM SKU and
 maximum capacity with total disk count and cost in mind.
@@ -282,7 +283,7 @@ Azure platform dependencies, and application calls to public APIs. An internal C
 restricts inbound access; it does not remove the need for outbound traffic.
 
 When `virtual_machines` is non-empty, or
-`services.virtual_machine_scale_set`/`services.container_apps` is `true`,
+`virtual_machine_scale_sets` is non-empty or `services.container_apps` is `true`,
 Terraform creates one shared Standard NAT Gateway and one Standard static
 public IPv4 address. It associates that gateway with whichever of the
 `virtual_machines` and `container_apps` subnets are active. When both services

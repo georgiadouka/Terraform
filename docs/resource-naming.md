@@ -112,7 +112,7 @@ Examples using the example suffix:
 | Resource group | `rg` + stem | `rg-metlen-lab-it6hp` |
 | Virtual network | `vnet` + stem | `vnet-metlen-lab-it6hp` |
 | Virtual machine | `vm` + logical key + stem | `vm-primary-metlen-lab-it6hp` |
-| VM scale set | `vmss` + stem | `vmss-metlen-lab-it6hp` |
+| VM scale set | `vmss` + key + stem | `vmss-web-metlen-lab-it6hp` |
 | NAT Gateway | `nat` + stem | `nat-metlen-lab-it6hp` |
 | Container Apps Environment | `cae` + stem | `cae-metlen-lab-it6hp` |
 | Container App | `ca` + stem | `ca-metlen-lab-it6hp` |
@@ -176,7 +176,9 @@ Examples:
 | MySQL subnet | `snet-mysql-metlen-lab-it6hp` |
 | SQL Managed Instance subnet | `snet-sqlmi-metlen-lab-it6hp` |
 | NAT public IP | `pip-nat-metlen-lab-it6hp` |
-| VMSS network interface | `nic-vmss-metlen-lab-it6hp` |
+| VMSS network interface | `nic-vmss-web-metlen-lab-it6hp` |
+| VMSS autoscale setting | `autoscale-web-metlen-lab-it6hp` |
+| VMSS hostname prefix | `vmss` + first five SHA-1 characters of the key, such as `vmss` + 5 hex characters; 9 characters fits the Windows limit and stays unique per key |
 | Data disk labelled `data` | `disk-data-metlen-lab-it6hp` |
 | Data disk labelled `logs` | `disk-logs-metlen-lab-it6hp` |
 

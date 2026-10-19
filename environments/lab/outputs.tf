@@ -47,44 +47,29 @@ output "vm_windows_admin_passwords" {
   sensitive   = true
 }
 
-output "vmss_id" {
-  description = "Virtual Machine Scale Set ID when enabled."
-  value       = try(module.virtual_machine_scale_set[0].id, null)
+output "virtual_machine_scale_sets" {
+  description = "Virtual Machine Scale Set details keyed by the configured logical scale set name."
+  value = {
+    for key, scale_set in module.virtual_machine_scale_set : key => {
+      id                   = scale_set.id
+      name                 = scale_set.name
+      os_type              = scale_set.os_type
+      principal_id         = scale_set.principal_id
+      autoscale_setting_id = scale_set.autoscale_setting_id
+      scaling_mode         = scale_set.scaling_mode
+      computer_name_prefix = local.resource_names.virtual_machine_scale_sets[key].computer_name_prefix
+    }
+  }
 }
 
-output "vmss_name" {
-  description = "Virtual Machine Scale Set name when enabled."
-  value       = try(module.virtual_machine_scale_set[0].name, null)
+output "vmss_ssh_public_keys" {
+  description = "Generated SSH public keys keyed by Linux scale set name."
+  value       = { for key, private_key in tls_private_key.vmss : key => private_key.public_key_openssh }
 }
 
-output "vmss_os_type" {
-  description = "Operating system of the enabled Virtual Machine Scale Set."
-  value       = var.services.virtual_machine_scale_set ? var.virtual_machine_scale_set.os_type : null
-}
-
-output "vmss_principal_id" {
-  description = "Virtual Machine Scale Set managed identity principal ID when enabled."
-  value       = try(module.virtual_machine_scale_set[0].principal_id, null)
-}
-
-output "vmss_autoscale_setting_id" {
-  description = "Azure Monitor autoscale setting ID when the Virtual Machine Scale Set is enabled."
-  value       = try(module.virtual_machine_scale_set[0].autoscale_setting_id, null)
-}
-
-output "vmss_scaling_mode" {
-  description = "Virtual Machine Scale Set capacity mode when enabled."
-  value       = try(module.virtual_machine_scale_set[0].scaling_mode, null)
-}
-
-output "vmss_ssh_public_key" {
-  description = "Ephemeral lab VMSS SSH public key when a Linux scale set is enabled."
-  value       = try(tls_private_key.vmss[0].public_key_openssh, null)
-}
-
-output "vmss_windows_admin_password" {
-  description = "Generated Windows VMSS administrator password. Stored in Terraform state; retrieve only when needed."
-  value       = try(random_password.vmss_windows[0].result, null)
+output "vmss_windows_admin_passwords" {
+  description = "Generated administrator passwords keyed by Windows scale set name. Stored in Terraform state; retrieve only when needed."
+  value       = { for key, password in random_password.vmss_windows : key => password.result }
   sensitive   = true
 }
 

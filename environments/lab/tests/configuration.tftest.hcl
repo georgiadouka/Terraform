@@ -174,15 +174,14 @@ variables {
   storage_accounts      = {}
   premium_file_accounts = {}
   services = {
-    virtual_machine_scale_set = false
-    azure_sql                 = false
-    sql_managed_instance      = false
-    postgresql                = false
-    mysql                     = false
-    container_apps            = false
-    cosmos_db                 = false
-    web_app                   = false
-    function_app              = true
+    azure_sql            = false
+    sql_managed_instance = false
+    postgresql           = false
+    mysql                = false
+    container_apps       = false
+    cosmos_db            = false
+    web_app              = false
+    function_app         = true
   }
   storage_use_azuread = true
   location            = "swedencentral"
@@ -199,16 +198,16 @@ variables {
     mysql                = "10.42.6.0/24"
     sql_managed_instance = "10.42.7.0/27"
   }
-  virtual_machine_scale_set = {}
-  nat_gateway               = {}
-  key_vaults                = {}
-  container_registries      = {}
-  azure_sql                 = {}
-  cosmos_db                 = {}
-  sql_managed_instance      = {}
-  postgresql                = {}
-  mysql                     = {}
-  tags                      = {}
+  virtual_machine_scale_sets = {}
+  nat_gateway                = {}
+  key_vaults                 = {}
+  container_registries       = {}
+  azure_sql                  = {}
+  cosmos_db                  = {}
+  sql_managed_instance       = {}
+  postgresql                 = {}
+  mysql                      = {}
+  tags                       = {}
 }
 
 run "linux_defaults" {
@@ -294,67 +293,107 @@ run "multiple_virtual_machines" {
 run "vmss_linux_autoscale" {
   command = plan
   variables {
-    services = merge(var.services, { virtual_machine_scale_set = true })
-    virtual_machine_scale_set = {
-      data_disks = {
-        app  = { lun = 0, disk_size_gb = 128 }
-        logs = { lun = 1, disk_size_gb = 256 }
-      }
-      scaling = {
-        mode              = "autoscale"
-        minimum_instances = 2
-        default_instances = 3
-        maximum_instances = 6
+    virtual_machine_scale_sets = {
+      web = {
+        data_disks = {
+          app  = { lun = 0, disk_size_gb = 128 }
+          logs = { lun = 1, disk_size_gb = 256 }
+        }
+        scaling = {
+          mode              = "autoscale"
+          minimum_instances = 2
+          default_instances = 3
+          maximum_instances = 6
+        }
       }
     }
   }
   assert {
     condition = (
-      output.vmss_name == "vmss-metlen-lab-test1" &&
-      output.vmss_os_type == "Linux" &&
-      output.vmss_scaling_mode == "autoscale" &&
-      output.vmss_windows_admin_password == null &&
-      length(module.virtual_machine_scale_set) == 1 &&
-      length(tls_private_key.vmss) == 1 &&
-      length(random_password.vmss_windows) == 0
+      output.virtual_machine_scale_sets["web"].name == "vmss-web-metlen-lab-test1" &&
+      output.virtual_machine_scale_sets["web"].os_type == "Linux" &&
+      output.virtual_machine_scale_sets["web"].scaling_mode == "autoscale" &&
+      local.resource_names.virtual_machine_scale_sets["web"].network_interface_name == "nic-vmss-web-metlen-lab-test1" &&
+      local.resource_names.virtual_machine_scale_sets["web"].autoscale_setting_name == "autoscale-web-metlen-lab-test1" &&
+      output.virtual_machine_scale_sets["web"].computer_name_prefix == "vmss${substr(sha1("web"), 0, 5)}" &&
+      contains(keys(output.vmss_ssh_public_keys), "web") &&
+      length(output.vmss_windows_admin_passwords) == 0 &&
+      length(module.virtual_machine_scale_set) == 1
     )
-    error_message = "The lab must create the named Linux VMSS with independent SSH credentials, managed identity, and autoscaling."
+    error_message = "A Linux scale set entry must create a keyed scale set with its own SSH key, names, hostname prefix, and autoscaling."
   }
 }
 
 run "vmss_windows_fixed" {
   command = plan
   variables {
-    services                  = merge(var.services, { virtual_machine_scale_set = true })
-    virtual_machine_scale_set = { os_type = "Windows", scaling = { mode = "fixed", default_instances = 2 } }
+    virtual_machine_scale_sets = {
+      jobs = { os_type = "Windows", scaling = { mode = "fixed", default_instances = 2 } }
+    }
   }
   assert {
     condition = (
-      output.vmss_os_type == "Windows" &&
-      output.vmss_scaling_mode == "fixed" &&
-      output.vmss_ssh_public_key == null &&
-      length(module.virtual_machine_scale_set) == 1 &&
-      length(tls_private_key.vmss) == 0 &&
-      length(random_password.vmss_windows) == 1
+      output.virtual_machine_scale_sets["jobs"].os_type == "Windows" &&
+      output.virtual_machine_scale_sets["jobs"].scaling_mode == "fixed" &&
+      length(output.virtual_machine_scale_sets["jobs"].computer_name_prefix) <= 9 &&
+      length(output.vmss_ssh_public_keys) == 0 &&
+      contains(keys(random_password.vmss_windows), "jobs") &&
+      length(tls_private_key.vmss) == 0
     )
-    error_message = "The lab must create the Windows VMSS with independent password credentials and fixed Azure Monitor capacity."
+    error_message = "A Windows scale set entry must use a generated password, fixed capacity, and a hostname prefix within the Windows limit."
   }
+}
+
+run "multiple_vm_scale_sets" {
+  command = plan
+  variables {
+    virtual_machines = {}
+    virtual_machine_scale_sets = {
+      web  = {}
+      api  = {}
+      jobs = { os_type = "Windows" }
+    }
+  }
+  assert {
+    condition = (
+      length(module.virtual_machine_scale_set) == 3 &&
+      keys(tls_private_key.vmss) == ["api", "web"] &&
+      keys(random_password.vmss_windows) == ["jobs"] &&
+      length(distinct([for names in values(local.resource_names.virtual_machine_scale_sets) : names.computer_name_prefix])) == 3 &&
+      length(distinct([for names in values(local.resource_names.virtual_machine_scale_sets) : names.name])) == 3 &&
+      length(distinct([for names in values(local.resource_names.virtual_machine_scale_sets) : names.autoscale_setting_name])) == 3 &&
+      local.subnet_enabled.virtual_machines &&
+      length(module.nat_gateway) == 1 &&
+      length(module.virtual_machine) == 0
+    )
+    error_message = "Each scale set entry must have its own names, hostname prefix, and credentials while sharing the VM subnet and NAT Gateway."
+  }
+}
+
+run "reject_invalid_vm_scale_set_key" {
+  command = plan
+  variables {
+    virtual_machine_scale_sets = {
+      "Bad_Key" = {}
+    }
+  }
+  expect_failures = [var.virtual_machine_scale_sets]
 }
 
 run "vmss_only_keeps_shared_network" {
   command = plan
   variables {
-    virtual_machines = {}
+    virtual_machines           = {}
+    virtual_machine_scale_sets = { app = {} }
     services = {
-      virtual_machine_scale_set = true
-      azure_sql                 = false
-      sql_managed_instance      = false
-      postgresql                = false
-      mysql                     = false
-      container_apps            = false
-      cosmos_db                 = false
-      web_app                   = false
-      function_app              = false
+      azure_sql            = false
+      sql_managed_instance = false
+      postgresql           = false
+      mysql                = false
+      container_apps       = false
+      cosmos_db            = false
+      web_app              = false
+      function_app         = false
     }
   }
   assert {
@@ -374,15 +413,14 @@ run "disabled_services" {
   variables {
     virtual_machines = {}
     services = {
-      virtual_machine_scale_set = false
-      azure_sql                 = false
-      sql_managed_instance      = false
-      postgresql                = false
-      mysql                     = false
-      container_apps            = false
-      cosmos_db                 = false
-      web_app                   = false
-      function_app              = false
+      azure_sql            = false
+      sql_managed_instance = false
+      postgresql           = false
+      mysql                = false
+      container_apps       = false
+      cosmos_db            = false
+      web_app              = false
+      function_app         = false
     }
   }
   assert {
@@ -392,10 +430,9 @@ run "disabled_services" {
       length(output.vm_windows_admin_passwords) == 0 &&
       length(tls_private_key.vm) == 0 &&
       length(random_password.vm_windows) == 0 &&
-      output.vmss_id == null &&
-      output.vmss_os_type == null &&
-      output.vmss_ssh_public_key == null &&
-      output.vmss_windows_admin_password == null &&
+      length(output.virtual_machine_scale_sets) == 0 &&
+      length(output.vmss_ssh_public_keys) == 0 &&
+      length(output.vmss_windows_admin_passwords) == 0 &&
       length(tls_private_key.vmss) == 0 &&
       length(random_password.vmss_windows) == 0 &&
       length(module.function_app) == 0 &&

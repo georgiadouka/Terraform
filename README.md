@@ -84,7 +84,8 @@ APIs and the three throughput modes have been Terraform plan-validated, but
 Cosmos DB has not been applied. `MongoDB` refers to the classic RU-based Cosmos
 DB API for MongoDB, not the separate Azure Cosmos DB for MongoDB vCore product.
 
-Virtual Machine Scale Sets are disabled by default. The module supports Linux
+Virtual Machine Scale Sets are opt-in through the `virtual_machine_scale_sets`
+map. The module supports Linux
 and Windows Marketplace images, Trusted Launch, system-assigned identity,
 private instance networking, and zero or more data-disk templates. Every data
 disk is created for every instance. Azure Monitor is the single owner of
@@ -314,8 +315,11 @@ and its stored images.
 
 ### Virtual Machine Scale Sets
 
-Set `services.virtual_machine_scale_set = true` to add a private Linux or
-Windows Uniform VMSS. `source_image_reference.sku` selects the OS release and
+Add an entry to `virtual_machine_scale_sets` for each private Linux or Windows
+Uniform VMSS. Each key gets its own scale set, NIC configuration, autoscale
+setting, generated credentials, and a 9-character hostname prefix that is
+unique per key and within the Windows limit. All scale sets share the VM
+subnet and NAT Gateway. `source_image_reference.sku` selects the OS release and
 `source_image_reference.version` selects the Marketplace image build. A null
 image uses Ubuntu 22.04 Gen2 or Windows Server 2022 Azure Edition.
 
@@ -325,40 +329,42 @@ For example, a two-instance scale set with two data-disk templates creates four
 data disks in total.
 
 ```hcl
-virtual_machine_scale_set = {
-  os_type = "Linux"
-  size    = "Standard_B2s_v2"
+virtual_machine_scale_sets = {
+  web = {
+      os_type = "Linux"
+      size    = "Standard_B2s_v2"
 
-  source_image_reference = {
-    publisher = "Canonical"
-    offer     = "ubuntu-24_04-lts"
-    sku       = "server"
-    version   = "latest"
-  }
+      source_image_reference = {
+        publisher = "Canonical"
+        offer     = "ubuntu-24_04-lts"
+        sku       = "server"
+        version   = "latest"
+      }
 
-  os_disk = {
-    storage_account_type = "StandardSSD_LRS"
-    disk_size_gb         = 64
-  }
+      os_disk = {
+        storage_account_type = "StandardSSD_LRS"
+        disk_size_gb         = 64
+      }
 
-  data_disks = {
-    app  = { lun = 0, disk_size_gb = 128, storage_account_type = "Premium_LRS" }
-    logs = { lun = 1, disk_size_gb = 256 }
-  }
+      data_disks = {
+        app  = { lun = 0, disk_size_gb = 128, storage_account_type = "Premium_LRS" }
+        logs = { lun = 1, disk_size_gb = 256 }
+      }
 
-  scaling = {
-    mode              = "autoscale"
-    minimum_instances = 2
-    default_instances = 2
-    maximum_instances = 6
-    cpu = {
-      scale_out_threshold = 75
-      scale_in_threshold  = 25
-      scale_out_count     = 1
-      scale_in_count      = 1
-      time_window_minutes = 5
-      cooldown_minutes    = 5
-    }
+      scaling = {
+        mode              = "autoscale"
+        minimum_instances = 2
+        default_instances = 2
+        maximum_instances = 6
+        cpu = {
+          scale_out_threshold = 75
+          scale_in_threshold  = 25
+          scale_out_count     = 1
+          scale_in_count      = 1
+          time_window_minutes = 5
+          cooldown_minutes    = 5
+        }
+      }
   }
 }
 ```
