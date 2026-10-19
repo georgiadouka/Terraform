@@ -88,9 +88,17 @@ try {
         "CONTAINER_APP_HOST=$($outputs.container_app_fqdn.value)"
     )
 
-    $smokeParameters += "SQL_MANAGED_INSTANCE_HOST=$($outputs.sql_managed_instance_fqdn.value)"
-    $smokeParameters += "COSMOS_DB_HOST=$($outputs.cosmos_db_hostname.value)"
-    $smokeParameters += "NAT_GATEWAY_PUBLIC_IP=$($outputs.nat_gateway_public_ip_address.value)"
+    # Run Command drops empty parameters, which would shift the Linux script's
+    # positional arguments, so unset optional values are sent as "none".
+    $optionalSmokeValues = [ordered]@{
+        SQL_MANAGED_INSTANCE_HOST = $outputs.sql_managed_instance_fqdn.value
+        COSMOS_DB_HOST            = $outputs.cosmos_db_hostname.value
+        NAT_GATEWAY_PUBLIC_IP     = $outputs.nat_gateway_public_ip_address.value
+    }
+    foreach ($entry in $optionalSmokeValues.GetEnumerator()) {
+        $value = if ([string]::IsNullOrWhiteSpace($entry.Value)) { "none" } else { $entry.Value }
+        $smokeParameters += "$($entry.Key)=$value"
+    }
 
     & az vm run-command invoke `
         --resource-group $outputs.resource_group_name.value `

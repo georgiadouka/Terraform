@@ -66,6 +66,21 @@ if ($scenario.DnsCalls -ne 13) {
 }
 Write-Output "PASS optional database hostnames"
 
+$parameters.SQL_MANAGED_INSTANCE_HOST = "none"
+$parameters.COSMOS_DB_HOST = "none"
+$parameters.NAT_GATEWAY_PUBLIC_IP = "none"
+$scenario.DnsCalls = 0
+$scenario.WebCalls = 0
+& $scriptPath @parameters | Out-Null
+if ($scenario.DnsCalls -ne 11 -or $scenario.WebCalls -ne 2) {
+    throw "The 'none' placeholder must skip optional hostnames and the NAT egress check."
+}
+Write-Output "PASS unset optional placeholders skipped"
+
+$parameters.SQL_MANAGED_INSTANCE_HOST = "sqlmi.test"
+$parameters.COSMOS_DB_HOST = "cosmos.test"
+$parameters.NAT_GATEWAY_PUBLIC_IP = "203.0.113.10"
+
 $scenario.DnsAddresses = @("198.51.100.5")
 Assert-SmokeFailure -ExpectedMessage "FAIL sql.test*"
 Write-Output "PASS public DNS rejected"

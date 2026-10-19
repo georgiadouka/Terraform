@@ -21,6 +21,11 @@ SQL_MANAGED_INSTANCE_HOST="${12:-}"
 COSMOS_DB_HOST="${13:-}"
 NAT_GATEWAY_PUBLIC_IP="${14:-}"
 
+# "none" marks an unset optional value; Run Command drops empty arguments.
+if [[ "$SQL_MANAGED_INSTANCE_HOST" == "none" ]]; then SQL_MANAGED_INSTANCE_HOST=""; fi
+if [[ "$COSMOS_DB_HOST" == "none" ]]; then COSMOS_DB_HOST=""; fi
+if [[ "$NAT_GATEWAY_PUBLIC_IP" == "none" ]]; then NAT_GATEWAY_PUBLIC_IP=""; fi
+
 check_private_dns() {
   local host="$1"
   local ip
