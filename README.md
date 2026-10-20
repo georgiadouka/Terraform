@@ -477,6 +477,14 @@ virtual_machine_scale_sets = {
 - `load_balancer_backend_address_pool_ids` on a scale set still accepts pools
   outside the lab; they are combined with the `load_balancer` key's pool.
 
+Two load balancers sharing one subnet were applied in Azure: `web` (dynamic
+IP, HTTP probe) with two VMs and `data` (static IP, TCP probe, port 8080 to 80)
+with a one-instance scale set. Requests were spread across both VMs, the port
+translation worked, stopping nginx on one VM moved all traffic to the other,
+and a re-plan showed no drift. The same run placed two Container Apps
+environments on their key-matched `subnet_cidrs.container_apps` ranges, with a
+third range reserved but not created.
+
 ### Container Apps environments, apps, and workload profiles
 
 Each `container_apps_environments` entry is one environment with its own

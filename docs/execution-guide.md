@@ -336,6 +336,9 @@ az vmss update-instances --resource-group <resource-group> --name <scale-set> --
 Inspect frontend IPs and members with
 `terraform -chdir=environments\lab output load_balancers`.
 
+Load balancing, port translation, health-probe failover, and scale set
+membership have been verified in Azure from a VM inside the VNet.
+
 ### Configure outbound internet egress
 
 Virtual machines, VMSS instances, and Container Apps require outbound
