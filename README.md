@@ -79,7 +79,10 @@ password (output `mysql_administrator_passwords`, sensitive). All servers share
 the delegated `mysql` subnet and the `privatelink.mysql.database.azure.com`
 zone. Each server takes one subnet address, or two with high availability;
 Terraform rejects a `subnet_cidrs.mysql` range that is too small at plan time.
-Server details are in the `mysql_servers` output.
+Server details are in the `mysql_servers` output. Two servers sharing the
+subnet and DNS zone have been applied in Azure: each FQDN resolved to its own
+private IP, each server accepted only its own password over TLS from a VM in
+the VNet, and a re-plan showed no drift.
 
 Container Apps environments are opt-in through the `container_apps_environments`
 map. Each entry creates one internal environment on its own delegated subnet,
