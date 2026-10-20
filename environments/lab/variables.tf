@@ -739,8 +739,9 @@ variable "postgresql_servers" {
     error_message = "subnet_cidrs.postgresql must be /28 or larger when postgresql_servers is non-empty."
   }
 
-  # Azure documents four subnet addresses per high-availability server and
-  # reserves five addresses in every subnet.
+  # Azure documents four subnet addresses per high-availability server; a
+  # non-HA server was measured in Azure to use one. Azure reserves five
+  # addresses in every subnet.
   validation {
     condition = length(var.postgresql_servers) == 0 || try(
       sum([for server in values(var.postgresql_servers) : server.high_availability.enabled ? 4 : 1]) <=

@@ -82,7 +82,10 @@ the `Microsoft.Storage` service endpoint Azure needs for WAL archiving, and the
 that subnet is /28, and a high-availability server uses four addresses;
 Terraform rejects a `subnet_cidrs.postgresql` range that is below /28 or too
 small for the configured servers at plan time. Server details are in the
-`postgresql_servers` output.
+`postgresql_servers` output. Two non-HA servers on a /28 have been applied in
+Azure: they took consecutive addresses (one each), each FQDN resolved to its
+own private IP through the shared zone, each server accepted only its own
+password over TLS from a VM in the VNet, and a re-plan showed no drift.
 
 MySQL Flexible Servers are opt-in through the `mysql_servers` map. Each entry
 creates one server with one database and its own generated administrator
