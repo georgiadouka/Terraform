@@ -60,13 +60,16 @@ The SQL Managed Instance module has been schema-validated and included in a
 successful Terraform plan, but it has not been applied. The rest of the lab was
 previously applied, smoke-tested, and destroyed.
 
-Azure SQL uses a standalone Basic database by default. An environment owner can
-enable an elastic pool through the centralized `azure_sql.elastic_pool` object
-in the environment `.tfvars` file without editing the reusable module. The
+Azure SQL servers are opt-in through the `azure_sql_servers` map. Each entry
+creates one logical server with one database, standalone Basic by default. An
+environment owner can enable an elastic pool per server through that entry's
+`elastic_pool` object in the environment `.tfvars` file without editing the
+reusable module. The
 example uses the smallest Sweden Central Basic pool capability: 50 eDTUs,
 5,000 MB pool storage (`max_size_gb = 4.8828125` in AzureRM), and 0-5 eDTUs per
-database. The SQL Private Endpoint and Private DNS configuration do not change
-because connectivity is configured on the logical server.
+database. Each server gets its own Private Endpoint, and all servers share the
+`privatelink.database.windows.net` zone; neither changes with pooling because
+connectivity is configured on the logical server.
 
 Container Apps retains Consumption by default. Environment owners can add one
 or more dedicated profiles through `container_apps.dedicated_workload_profiles`
@@ -139,8 +142,8 @@ through `address_space` and `subnet_cidrs` in their `.tfvars` file. Terraform
 validates the complete current and future address plan for VNet containment and
 overlap, but creates only the subnets required by enabled services. The shared
 Private Endpoint subnet is created while at least one Key Vault, storage
-account, Premium Files account, container registry, or Cosmos DB account is
-configured, or Azure SQL, Web App, or Function App is enabled. Enabling a
+account, Premium Files account, container registry, Cosmos DB account, or Azure
+SQL server is configured, or Web App or Function App is enabled. Enabling a
 service later adds its required subnet without changing existing subnet
 addresses. Private DNS zones and VNet links are likewise created only for
 enabled services; zones shared by multiple services remain while any consumer
@@ -196,8 +199,8 @@ Every service is opt-in. With no service switches or resource maps set, the lab
 deploys only the resource group and virtual network. Enable single-instance
 services with `services.<name> = true` and add entries to `virtual_machines`,
 `storage_accounts`, `premium_file_accounts`, `key_vaults`,
-`container_registries`, `virtual_machine_scale_sets`, or `cosmos_db_accounts`
-for keyed resources. Subnets,
+`container_registries`, `virtual_machine_scale_sets`, `cosmos_db_accounts`, or
+`azure_sql_servers` for keyed resources. Subnets,
 Private DNS zones, Private Endpoints, and the NAT Gateway are created only when
 an enabled service needs them.
 

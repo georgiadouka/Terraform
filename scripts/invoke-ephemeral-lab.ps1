@@ -21,6 +21,9 @@ param(
     [ValidatePattern("^[a-z][a-z0-9-]{0,11}$")]
     [string]$SmokeTestContainerRegistryKey = "primary",
 
+    [ValidatePattern("^[a-z][a-z0-9-]{0,11}$")]
+    [string]$SmokeTestAzureSqlServerKey = "primary",
+
     # Cosmos DB is optional: with no cosmos_db_accounts the check is skipped.
     [ValidatePattern("^[a-z][a-z0-9-]{0,11}$")]
     [string]$SmokeTestCosmosDbAccountKey = "primary",
@@ -104,6 +107,11 @@ try {
         throw "The configured smoke-test container registry key '$SmokeTestContainerRegistryKey' was not found."
     }
 
+    $smokeTestAzureSqlServer = $outputs.azure_sql_servers.value.PSObject.Properties[$SmokeTestAzureSqlServerKey].Value
+    if ($null -eq $smokeTestAzureSqlServer) {
+        throw "The configured smoke-test Azure SQL server key '$SmokeTestAzureSqlServerKey' was not found."
+    }
+
     $cosmosDbAccounts = @($outputs.cosmos_db_accounts.value.PSObject.Properties)
     $smokeTestCosmosDbHost = $null
     if ($cosmosDbAccounts.Count -gt 0) {
@@ -115,7 +123,7 @@ try {
     }
 
     $smokeParameters = @(
-        "SQL_HOST=$($outputs.azure_sql_fqdn.value)",
+        "SQL_HOST=$($smokeTestAzureSqlServer.fully_qualified_domain_name)",
         "POSTGRESQL_HOST=$($outputs.postgresql_fqdn.value)",
         "MYSQL_HOST=$($outputs.mysql_fqdn.value)",
         "KEY_VAULT_HOST=$($smokeTestKeyVault.hostname)",

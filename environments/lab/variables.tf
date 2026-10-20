@@ -396,9 +396,9 @@ variable "premium_file_accounts" {
   }
 }
 
-variable "azure_sql" {
-  description = "Azure SQL database and optional elastic pool configuration."
-  type = object({
+variable "azure_sql_servers" {
+  description = "Azure SQL logical servers keyed by a stable logical name. Each server hosts one database, standalone or in an optional elastic pool. Defaults to none; add one entry per server."
+  type = map(object({
     database_sku_name = optional(string, "Basic")
     max_size_gb       = optional(number, 2)
     elastic_pool = optional(object({
@@ -417,8 +417,17 @@ variable "azure_sql" {
       license_type   = optional(string)
       zone_redundant = optional(bool, false)
     }), {})
-  })
+  }))
   default = {}
+
+  validation {
+    condition = alltrue([
+      for key in keys(var.azure_sql_servers) :
+      can(regex("^[a-z][a-z0-9-]{0,11}$", key)) &&
+      !strcontains(key, "--")
+    ])
+    error_message = "azure_sql_servers keys must be 1-12 lowercase alphanumeric or hyphen characters, start with a letter, and not contain consecutive hyphens."
+  }
 }
 
 variable "container_apps" {
@@ -585,7 +594,6 @@ variable "web_app" {
 variable "services" {
   description = "Single-instance services enabled in this lab composition. Every service is opt-in."
   type = object({
-    azure_sql            = optional(bool, false)
     sql_managed_instance = optional(bool, false)
     postgresql           = optional(bool, false)
     mysql                = optional(bool, false)

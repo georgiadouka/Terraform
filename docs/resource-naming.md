@@ -114,6 +114,9 @@ Examples using the example suffix:
 | Virtual machine | `vm` + logical key + stem | `vm-primary-metlen-lab-it6hp` |
 | VM scale set | `vmss` + key + stem | `vmss-web-metlen-lab-it6hp` |
 | NAT Gateway | `nat` + stem | `nat-metlen-lab-it6hp` |
+| Azure SQL server | `sql` + key + stem | `sql-primary-metlen-lab-it6hp` |
+| Azure SQL database | `sqldb` + key + stem | `sqldb-primary-metlen-lab-it6hp` |
+| Azure SQL elastic pool | `sqlep` + key + stem | `sqlep-primary-metlen-lab-it6hp` |
 | Container Apps Environment | `cae` + stem | `cae-metlen-lab-it6hp` |
 | Container App | `ca` + stem | `ca-metlen-lab-it6hp` |
 | Log Analytics workspace | `log` + stem | `log-metlen-lab-it6hp` |
@@ -124,6 +127,9 @@ Standalone VM, NIC, OS disk, and data disk names include the stable key from
 the `virtual_machines` map so that multiple independently configured VMs have
 distinct Azure names. Storage account and storage Private Endpoint names also
 derive from the stable keys in `storage_accounts` and `premium_file_accounts`.
+Azure SQL server names are globally unique and at most 63 characters; with the
+readable key they are at most 51 characters, so no hash token is needed.
+Database and elastic pool names are scoped to their server.
 
 For example, the Container Apps Environment name is calculated as:
 
@@ -329,7 +335,8 @@ All three share one pattern built from the endpoint's name token:
 
 | Endpoint | Name token |
 |---|---|
-| Single-instance service | Service prefix, such as `sql`, `app`, or `func` |
+| Single-instance service | Service prefix, such as `app` or `func` |
+| Azure SQL | `sql-<server key>` |
 | Cosmos DB | `cosmos-<account key>` |
 | Container Registry | `cr-<registry key>` |
 | Key Vault | `kv-<vault key>` |

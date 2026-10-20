@@ -91,7 +91,6 @@ subnet_cidrs = {
 
 # Enable only the services needed by this environment.
 services = {
-  azure_sql                 = true
   sql_managed_instance      = false
   postgresql                = true
   mysql                     = true
@@ -290,13 +289,17 @@ premium_file_accounts = {
   # }
 }
 
-azure_sql = {
-  database_sku_name = "Basic"
-  max_size_gb       = 2
+# One entry per Azure SQL logical server; each hosts one database. Keys are
+# stable logical names; changing a key replaces that server and its database.
+azure_sql_servers = {
+  primary = {
+      database_sku_name = "Basic"
+      max_size_gb       = 2
 
-  # Set enabled to true to use the module defaults for a small Basic pool.
-  elastic_pool = {
-    enabled = false
+      # Set enabled to true to use the module defaults for a small Basic pool.
+      elastic_pool = {
+        enabled = false
+      }
   }
 }
 

@@ -74,7 +74,7 @@ override_module {
   outputs = { id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Storage/storageAccounts/pfmedia", name = "pfmedia", file_share_ids = {} }
 }
 override_module {
-  target  = module.azure_sql[0]
+  target  = module.azure_sql["primary"]
   outputs = { server_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Sql/servers/sql", database_id = "db", elastic_pool_id = null, elastic_pool_name = null, fully_qualified_domain_name = "sql.database.windows.net" }
 }
 override_module {
@@ -124,8 +124,10 @@ variables {
   cosmos_db_accounts = {
     primary = {}
   }
+  azure_sql_servers = {
+    primary = {}
+  }
   services = {
-    azure_sql    = true
     web_app      = true
     function_app = true
   }
@@ -144,7 +146,6 @@ variables {
   }
   virtual_machine_scale_sets = {}
   nat_gateway                = {}
-  azure_sql                  = {}
   sql_managed_instance       = {}
   postgresql                 = {}
   mysql                      = {}
@@ -156,7 +157,7 @@ run "all_endpoints" {
 
   assert {
     condition = keys(local.service_private_endpoints) == [
-      "azure_sql", "container_registry/primary", "cosmos_db/primary", "function_app", "key_vault/primary", "key_vault/secrets",
+      "azure_sql/primary", "container_registry/primary", "cosmos_db/primary", "function_app", "key_vault/primary", "key_vault/secrets",
       "premium_files/media/file", "premium_files/primary/file",
       "storage/archive/blob", "storage/archive/file", "storage/primary/blob", "storage/primary/file",
       "web_app"
@@ -189,12 +190,12 @@ run "all_endpoints" {
       local.service_private_endpoints["key_vault/secrets"].subresource == "vault" &&
       local.service_private_endpoints["key_vault/secrets"].dns_zone == "privatelink.vaultcore.azure.net" &&
       local.private_endpoint_target_ids["cosmos_db/primary"] == "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.DocumentDB/databaseAccounts/cosmos" &&
-      local.private_endpoint_target_ids["azure_sql"] == "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Sql/servers/sql" &&
+      local.private_endpoint_target_ids["azure_sql/primary"] == "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Sql/servers/sql" &&
       local.function_storage_target_ids["function_storage"] == "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Storage/storageAccounts/stfn" &&
       local.service_private_endpoints["storage/archive/file"].target == "storage/archive" &&
       local.service_private_endpoints["storage/archive/file"].subresource == "file" &&
       local.service_private_endpoints["storage/archive/file"].dns_zone == "privatelink.file.core.windows.net" &&
-      local.service_private_endpoints["azure_sql"].subresource == "sqlServer" &&
+      local.service_private_endpoints["azure_sql/primary"].subresource == "sqlServer" &&
       local.service_private_endpoints["cosmos_db/primary"].subresource == "Sql" &&
       local.service_private_endpoints["cosmos_db/primary"].dns_zone == "privatelink.documents.azure.com" &&
       local.function_storage_private_endpoints["function_storage/queue"].dns_zone == "privatelink.queue.core.windows.net"
@@ -279,6 +280,7 @@ run "no_endpoints" {
     key_vaults            = {}
     container_registries  = {}
     cosmos_db_accounts    = {}
+    azure_sql_servers     = {}
   }
 
   assert {

@@ -159,6 +159,16 @@ output "server_id" {
   value       = azurerm_mssql_server.this.id
 }
 
+output "server_name" {
+  description = "Azure SQL logical server name."
+  value       = azurerm_mssql_server.this.name
+}
+
+output "database_name" {
+  description = "Azure SQL database name."
+  value       = azurerm_mssql_database.this.name
+}
+
 output "database_id" {
   description = "Azure SQL database ID."
   value       = azurerm_mssql_database.this.id

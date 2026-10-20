@@ -107,19 +107,19 @@ output "container_registries" {
   }
 }
 
-output "azure_sql_fqdn" {
-  description = "Azure SQL logical server FQDN when enabled."
-  value       = try(module.azure_sql[0].fully_qualified_domain_name, null)
-}
-
-output "azure_sql_elastic_pool_id" {
-  description = "Azure SQL elastic pool ID when enabled."
-  value       = try(module.azure_sql[0].elastic_pool_id, null)
-}
-
-output "azure_sql_elastic_pool_name" {
-  description = "Azure SQL elastic pool name when enabled."
-  value       = try(module.azure_sql[0].elastic_pool_name, null)
+output "azure_sql_servers" {
+  description = "Azure SQL server details keyed by the configured logical server name. elastic_pool_id and elastic_pool_name are null for a standalone database."
+  value = {
+    for key, server in module.azure_sql : key => {
+      id                          = server.server_id
+      name                        = server.server_name
+      fully_qualified_domain_name = server.fully_qualified_domain_name
+      database_id                 = server.database_id
+      database_name               = server.database_name
+      elastic_pool_id             = server.elastic_pool_id
+      elastic_pool_name           = server.elastic_pool_name
+    }
+  }
 }
 
 output "sql_managed_instance_fqdn" {
@@ -252,7 +252,10 @@ output "private_endpoint_ids" {
       for account_key in keys(var.premium_file_accounts) :
       account_key => module.private_endpoints["premium_files/${account_key}/file"].id
     }
-    azure_sql = try(module.private_endpoints["azure_sql"].id, null)
+    azure_sql_servers = {
+      for server_key in keys(var.azure_sql_servers) :
+      server_key => module.private_endpoints["azure_sql/${server_key}"].id
+    }
     cosmos_db_accounts = {
       for account_key in keys(var.cosmos_db_accounts) :
       account_key => module.private_endpoints["cosmos_db/${account_key}"].id

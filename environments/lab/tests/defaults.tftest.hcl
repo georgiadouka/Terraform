@@ -37,7 +37,7 @@ variables {
   nat_gateway                = {}
   key_vaults                 = {}
   container_registries       = {}
-  azure_sql                  = {}
+  azure_sql_servers          = {}
   container_apps             = {}
   cosmos_db_accounts         = {}
   sql_managed_instance       = {}

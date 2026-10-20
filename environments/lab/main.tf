@@ -204,9 +204,16 @@ locals {
     }
     function_content_share = "${local.naming_prefixes.file_share}-function-content-${local.name_stem}"
 
-    azure_sql_server       = "${local.naming_prefixes.azure_sql_server}-${local.name_stem}"
-    azure_sql_database     = "${local.naming_prefixes.azure_sql_database}-${local.name_stem}"
-    azure_sql_elastic_pool = "${local.naming_prefixes.azure_sql_elastic_pool}-${local.name_stem}"
+    # Server names are globally unique and at most 51 characters here, within
+    # the 63-character limit, so the readable key is used without hashing.
+    # Database and pool names are scoped to their server.
+    azure_sql_servers = {
+      for key in keys(var.azure_sql_servers) : key => {
+        server_name       = "${local.naming_prefixes.azure_sql_server}-${key}-${local.name_stem}"
+        database_name     = "${local.naming_prefixes.azure_sql_database}-${key}-${local.name_stem}"
+        elastic_pool_name = "${local.naming_prefixes.azure_sql_elastic_pool}-${key}-${local.name_stem}"
+      }
+    }
 
     sql_managed_instance = "${local.naming_prefixes.sql_managed_instance}-${local.name_stem}"
     sql_mi_nsg           = "${local.naming_prefixes.network_security_group}-sql-managed-instance-${local.name_stem}"
@@ -296,14 +303,6 @@ locals {
   # the Function App must wait for them before it is created.
   private_endpoint_catalog = merge(
     {
-      azure_sql = {
-        enabled               = var.services.azure_sql
-        function_host_storage = false
-        target                = "azure_sql"
-        name_token            = local.naming_prefixes.azure_sql_server
-        subresource           = "sqlServer"
-        dns_zone              = "privatelink.database.windows.net"
-      }
       web_app = {
         enabled               = var.services.web_app
         function_host_storage = false
@@ -330,6 +329,17 @@ locals {
         name_token            = "${local.naming_prefixes.container_registry}-${registry_key}"
         subresource           = "registry"
         dns_zone              = "privatelink.azurecr.io"
+      }
+    },
+    {
+      for server_key in keys(var.azure_sql_servers) :
+      "azure_sql/${server_key}" => {
+        enabled               = true
+        function_host_storage = false
+        target                = "azure_sql/${server_key}"
+        name_token            = "${local.naming_prefixes.azure_sql_server}-${server_key}"
+        subresource           = "sqlServer"
+        dns_zone              = "privatelink.database.windows.net"
       }
     },
     {
@@ -402,10 +412,10 @@ locals {
   # Private Link resource IDs keyed by catalog target. Function host storage is
   # resolved separately so its endpoints do not wait for the Function App.
   private_endpoint_target_ids = merge(
-    var.services.azure_sql ? { azure_sql = module.azure_sql[0].server_id } : {},
     var.services.web_app ? { web_app = module.web_app[0].id } : {},
     var.services.function_app ? { function_app = module.function_app[0].id } : {},
     { for key, registry in module.container_registry : "container_registry/${key}" => registry.id },
+    { for key, server in module.azure_sql : "azure_sql/${key}" => server.server_id },
     { for key, account in module.cosmos_db : "cosmos_db/${key}" => account.id },
     { for key, vault in module.key_vault : "key_vault/${key}" => vault.id },
     { for key, account in module.storage : "storage/${key}" => account.id },
@@ -698,16 +708,16 @@ module "premium_files" {
 }
 
 module "azure_sql" {
-  count  = var.services.azure_sql ? 1 : 0
-  source = "../../modules/azure-sql"
+  for_each = var.azure_sql_servers
+  source   = "../../modules/azure-sql"
 
-  server_name       = local.resource_names.azure_sql_server
-  database_name     = local.resource_names.azure_sql_database
-  database_sku_name = var.azure_sql.database_sku_name
-  max_size_gb       = var.azure_sql.max_size_gb
+  server_name       = local.resource_names.azure_sql_servers[each.key].server_name
+  database_name     = local.resource_names.azure_sql_servers[each.key].database_name
+  database_sku_name = each.value.database_sku_name
+  max_size_gb       = each.value.max_size_gb
   elastic_pool = merge(
-    var.azure_sql.elastic_pool,
-    { name = local.resource_names.azure_sql_elastic_pool }
+    each.value.elastic_pool,
+    { name = local.resource_names.azure_sql_servers[each.key].elastic_pool_name }
   )
   resource_group_name = module.resource_group.name
   location            = module.resource_group.location

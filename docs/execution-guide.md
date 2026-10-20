@@ -196,9 +196,12 @@ Important rules:
 - keep `purge_protection_enabled = false` on every `key_vaults` entry for the automated
   apply/destroy workflow. Enable it only for a persistent environment with an
   appropriate retention and recovery process.
-- Azure SQL creates a standalone database while
-  `azure_sql.elastic_pool.enabled = false`. Set it to `true` to create the pool
-  and attach the database; `database_sku_name` is then ignored.
+- `azure_sql_servers` is a map keyed by stable logical names and defaults to
+  empty; there is no `services` switch for Azure SQL. Each entry creates one
+  Entra-only logical server with one database and its own Private Endpoint. The
+  database is standalone while that entry's `elastic_pool.enabled = false`; set
+  it to `true` to create a pool on that server and attach the database, and
+  `database_sku_name` is then ignored.
 - Container Apps always retains Consumption. Add dedicated profiles under
   `container_apps.dedicated_workload_profiles` and select `"Consumption"` or a
   configured key with `container_apps.app_workload_profile`. An empty map is
@@ -215,7 +218,7 @@ Subnet creation follows the enabled service graph:
 
 | Subnet | Created when |
 |---|---|
-| `private_endpoints` | Azure SQL, Web App, or Function App is enabled, or `container_registries`/`cosmos_db_accounts`/`key_vaults`/`storage_accounts`/`premium_file_accounts` is nonempty |
+| `private_endpoints` | Web App or Function App is enabled, or `azure_sql_servers`/`container_registries`/`cosmos_db_accounts`/`key_vaults`/`storage_accounts`/`premium_file_accounts` is nonempty |
 | `virtual_machines` | `virtual_machines` or `virtual_machine_scale_sets` is non-empty |
 | `container_apps` | `services.container_apps` is `true` |
 | `web_app_integration` | `services.web_app` is `true` |
@@ -432,9 +435,10 @@ and 0-5 eDTUs per database. Check the target region's Azure SQL capabilities
 before changing the SKU, capacity, or storage values. `license_type` and
 `sku.family` can also be set for pool tiers that support them.
 
-Private connectivity does not require any pool-specific resources. The Private
-Endpoint and `privatelink.database.windows.net` DNS zone are associated with
-the Azure SQL logical server and work for both standalone and pooled databases.
+Private connectivity does not require any pool-specific resources. Each
+server's Private Endpoint and the shared `privatelink.database.windows.net` DNS
+zone are associated with the logical server and work for both standalone and
+pooled databases.
 
 Configure one or more dedicated Container Apps profiles in the environment
 variables file:
@@ -581,7 +585,7 @@ resources:
 terraform -chdir=environments\lab plan `
   -input=false `
   -var-file=lab.tfvars `
-  -var="azure_sql={elastic_pool={enabled=true}}" `
+  -var="azure_sql_servers={primary={elastic_pool={enabled=true}}}" `
   -out=sql-elastic-pool.tfplan
 ```
 
@@ -662,7 +666,8 @@ deletion time are additional billable time.
 The connectivity script runs through Azure VM Run Command, so the VM needs no
 public IP. It verifies private DNS resolution for:
 
-- Azure SQL;
+- Azure SQL (select the server with `-SmokeTestAzureSqlServerKey`, default
+  `primary`);
 - PostgreSQL;
 - MySQL;
 - Key Vault;

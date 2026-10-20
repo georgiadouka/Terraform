@@ -144,7 +144,7 @@ override_module {
   target = module.private_dns
   outputs = {
     zone_ids = {
-      for service in ["vaultcore.azure.net", "documents.azure.com", "gremlin.cosmos.azure.com", "azurecr.io", "blob.core.windows.net", "file.core.windows.net", "queue.core.windows.net", "table.core.windows.net", "azurewebsites.net"] :
+      for service in ["vaultcore.azure.net", "database.windows.net", "documents.azure.com", "gremlin.cosmos.azure.com", "azurecr.io", "blob.core.windows.net", "file.core.windows.net", "queue.core.windows.net", "table.core.windows.net", "azurewebsites.net"] :
       "privatelink.${service}" => "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Network/privateDnsZones/privatelink.${service}"
     }
   }
@@ -174,7 +174,6 @@ variables {
   storage_accounts      = {}
   premium_file_accounts = {}
   services = {
-    azure_sql            = false
     sql_managed_instance = false
     postgresql           = false
     mysql                = false
@@ -201,7 +200,7 @@ variables {
   nat_gateway                = {}
   key_vaults                 = {}
   container_registries       = {}
-  azure_sql                  = {}
+  azure_sql_servers          = {}
   cosmos_db_accounts         = {}
   sql_managed_instance       = {}
   postgresql                 = {}
@@ -385,7 +384,6 @@ run "vmss_only_keeps_shared_network" {
     virtual_machines           = {}
     virtual_machine_scale_sets = { app = {} }
     services = {
-      azure_sql            = false
       sql_managed_instance = false
       postgresql           = false
       mysql                = false
@@ -411,7 +409,6 @@ run "disabled_services" {
   variables {
     virtual_machines = {}
     services = {
-      azure_sql            = false
       sql_managed_instance = false
       postgresql           = false
       mysql                = false
@@ -810,6 +807,67 @@ run "reject_invalid_cosmos_db_api" {
     }
   }
   expect_failures = [var.cosmos_db_accounts]
+}
+
+run "multiple_azure_sql_servers" {
+  command = plan
+  variables {
+    azure_sql_servers = {
+      primary = {}
+      reports = {
+        max_size_gb  = 4
+        elastic_pool = { enabled = true }
+      }
+    }
+  }
+  assert {
+    condition = (
+      length(module.azure_sql) == 2 &&
+      local.resource_names.azure_sql_servers["primary"].server_name == "sql-primary-metlen-lab-test1" &&
+      local.resource_names.azure_sql_servers["reports"].database_name == "sqldb-reports-metlen-lab-test1" &&
+      local.resource_names.azure_sql_servers["reports"].elastic_pool_name == "sqlep-reports-metlen-lab-test1" &&
+      output.azure_sql_servers["primary"].elastic_pool_id == null &&
+      output.azure_sql_servers["reports"].elastic_pool_name == "sqlep-reports-metlen-lab-test1" &&
+      local.service_private_endpoints["azure_sql/primary"].subresource == "sqlServer" &&
+      local.resource_names.private_endpoints["azure_sql/reports"].name == "pe-sql-reports-metlen-lab-test1" &&
+      length([for key in keys(module.private_endpoints) : key if startswith(key, "azure_sql/")]) == 2 &&
+      length(output.private_endpoint_ids.azure_sql_servers) == 2 &&
+      contains(local.private_dns_zones, "privatelink.database.windows.net")
+    )
+    error_message = "Each azure_sql_servers entry must create a distinctly named server and database, an elastic pool only when enabled, and its own sqlServer Private Endpoint."
+  }
+}
+
+run "azure_sql_server_name_at_maximum_length" {
+  command = plan
+  variables {
+    project_name = "abcdefghijkl"
+    environment  = "abcdefgh"
+    naming = {
+      unique_suffix = "abcde"
+      prefixes      = { azure_sql_server = "abcdefghij" }
+    }
+    azure_sql_servers = {
+      longkeyname1 = {}
+    }
+  }
+  assert {
+    condition = (
+      length(local.resource_names.azure_sql_servers["longkeyname1"].server_name) == 51 &&
+      can(regex("^[a-z0-9][a-z0-9-]*[a-z0-9]$", local.resource_names.azure_sql_servers["longkeyname1"].server_name))
+    )
+    error_message = "The longest possible Azure SQL server name must stay within Azure's 63-character limit and naming rules."
+  }
+}
+
+run "reject_invalid_azure_sql_server_key" {
+  command = plan
+  variables {
+    azure_sql_servers = {
+      "Bad_Key" = {}
+    }
+  }
+  expect_failures = [var.azure_sql_servers]
 }
 
 run "reject_invalid_storage_account_key" {
