@@ -151,6 +151,14 @@ resource "azurerm_mssql_database" "this" {
       condition     = !var.elastic_pool.enabled || var.max_size_gb <= var.elastic_pool.max_size_gb
       error_message = "The database max_size_gb cannot exceed the elastic pool max_size_gb."
     }
+
+    precondition {
+      condition = (
+        (var.elastic_pool.enabled ? lower(var.elastic_pool.sku.tier) : lower(var.database_sku_name)) != "basic" ||
+        var.max_size_gb <= 2
+      )
+      error_message = "Basic tier databases, standalone or in a Basic elastic pool, support at most 2 GB; set max_size_gb to 2 or less or choose a higher tier."
+    }
   }
 }
 

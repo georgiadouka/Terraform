@@ -815,7 +815,6 @@ run "multiple_azure_sql_servers" {
     azure_sql_servers = {
       primary = {}
       reports = {
-        max_size_gb  = 4
         elastic_pool = { enabled = true }
       }
     }
