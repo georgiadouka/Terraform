@@ -136,6 +136,7 @@ override_module {
       "container_apps/longenvname1" = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Network/virtualNetworks/vnet-test/subnets/apps-long"
       load_balancers                = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Network/virtualNetworks/vnet-test/subnets/lb"
       mysql                         = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Network/virtualNetworks/vnet-test/subnets/mysql"
+      postgresql                    = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Network/virtualNetworks/vnet-test/subnets/postgresql"
     }
   }
 }
@@ -149,7 +150,7 @@ override_module {
   target = module.private_dns
   outputs = {
     zone_ids = {
-      for service in ["vaultcore.azure.net", "database.windows.net", "documents.azure.com", "gremlin.cosmos.azure.com", "azurecr.io", "blob.core.windows.net", "file.core.windows.net", "queue.core.windows.net", "table.core.windows.net", "azurewebsites.net", "mysql.database.azure.com"] :
+      for service in ["vaultcore.azure.net", "database.windows.net", "documents.azure.com", "gremlin.cosmos.azure.com", "azurecr.io", "blob.core.windows.net", "file.core.windows.net", "queue.core.windows.net", "table.core.windows.net", "azurewebsites.net", "mysql.database.azure.com", "postgres.database.azure.com"] :
       "privatelink.${service}" => "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Network/privateDnsZones/privatelink.${service}"
     }
   }
@@ -181,7 +182,6 @@ variables {
   premium_file_accounts = {}
   services = {
     sql_managed_instance = false
-    postgresql           = false
     web_app              = false
     function_app         = true
   }
@@ -206,7 +206,7 @@ variables {
   azure_sql_servers          = {}
   cosmos_db_accounts         = {}
   sql_managed_instance       = {}
-  postgresql                 = {}
+  postgresql_servers         = {}
   mysql_servers              = {}
   tags                       = {}
 }
@@ -388,7 +388,6 @@ run "vmss_only_keeps_shared_network" {
     virtual_machine_scale_sets = { app = {} }
     services = {
       sql_managed_instance = false
-      postgresql           = false
       web_app              = false
       function_app         = false
     }
@@ -411,7 +410,6 @@ run "disabled_services" {
     virtual_machines = {}
     services = {
       sql_managed_instance = false
-      postgresql           = false
       web_app              = false
       function_app         = false
     }
@@ -1436,6 +1434,130 @@ run "mysql_subnet_exactly_full" {
   assert {
     condition     = length(module.mysql) == 2
     error_message = "A /29 has three usable addresses, enough for one HA server (two) and one non-HA server (one)."
+  }
+}
+
+run "multiple_postgresql_servers" {
+  command = plan
+  variables {
+    postgresql_servers = {
+      primary = {}
+      reports = {
+        sku_name          = "B_Standard_B1ms"
+        storage_mb        = 65536
+        high_availability = { enabled = false }
+      }
+      ha = {
+        high_availability = { enabled = true }
+      }
+    }
+  }
+  assert {
+    condition = (
+      length(module.postgresql) == 3 &&
+      length(random_password.postgresql) == 3 &&
+      local.resource_names.postgresql_servers["primary"].server_name == "psql-primary-metlen-lab-test1" &&
+      local.resource_names.postgresql_servers["primary"].database_name == "psqldb-primary-metlen-lab-test1" &&
+      local.resource_names.postgresql_servers["reports"].server_name == "psql-reports-metlen-lab-test1" &&
+      local.subnet_enabled.postgresql &&
+      local.subnets["postgresql"].delegation.service == "Microsoft.DBforPostgreSQL/flexibleServers" &&
+      contains(local.subnets["postgresql"].service_endpoints, "Microsoft.Storage") &&
+      length([for key in keys(local.subnets) : key if startswith(key, "postgresql")]) == 1 &&
+      contains(local.private_dns_zones, "privatelink.postgres.database.azure.com") &&
+      output.postgresql_servers["primary"].name == "psql-primary-metlen-lab-test1" &&
+      output.postgresql_servers["primary"].administrator_login == "pgadminuser" &&
+      !output.postgresql_servers["primary"].high_availability_enabled &&
+      output.postgresql_servers["ha"].high_availability_enabled &&
+      toset(keys(output.postgresql_administrator_passwords)) == toset(["primary", "reports", "ha"])
+    )
+    error_message = "Each postgresql_servers entry must create its own named server, database, and password, while all servers share one delegated subnet and DNS zone."
+  }
+}
+
+run "postgresql_is_opt_in" {
+  command = plan
+  assert {
+    condition = (
+      length(module.postgresql) == 0 &&
+      length(random_password.postgresql) == 0 &&
+      !local.subnet_enabled.postgresql &&
+      !contains(local.private_dns_zones, "privatelink.postgres.database.azure.com") &&
+      length(output.postgresql_servers) == 0
+    )
+    error_message = "An empty postgresql_servers map must create no server, password, subnet, or DNS zone."
+  }
+}
+
+run "postgresql_server_name_at_maximum_length" {
+  command = plan
+  variables {
+    project_name = "abcdefghijkl"
+    environment  = "abcdefgh"
+    naming = {
+      unique_suffix = "abcde"
+      prefixes      = { postgresql_server = "abcdefghij", postgresql_database = "abcdefghij" }
+    }
+    postgresql_servers = {
+      longkeyname1 = {}
+    }
+  }
+  assert {
+    condition = (
+      length(local.resource_names.postgresql_servers["longkeyname1"].server_name) == 51 &&
+      can(regex("^[a-z0-9][a-z0-9-]*[a-z0-9]$", local.resource_names.postgresql_servers["longkeyname1"].server_name)) &&
+      length(local.resource_names.postgresql_servers["longkeyname1"].database_name) <= 63
+    )
+    error_message = "The longest possible PostgreSQL server name must stay within Azure's 63-character limit and the database name within PostgreSQL's 63-byte identifier limit."
+  }
+}
+
+run "reject_invalid_postgresql_server_key" {
+  command = plan
+  variables {
+    postgresql_servers = {
+      "Primary" = {}
+    }
+  }
+  expect_failures = [var.postgresql_servers]
+}
+
+run "reject_postgresql_subnet_below_minimum" {
+  command = plan
+  variables {
+    subnet_cidrs       = merge(var.subnet_cidrs, { postgresql = "10.42.5.0/29" })
+    postgresql_servers = { primary = {} }
+  }
+  expect_failures = [var.postgresql_servers]
+}
+
+run "reject_postgresql_subnet_too_small" {
+  command = plan
+  variables {
+    subnet_cidrs = merge(var.subnet_cidrs, { postgresql = "10.42.5.0/28" })
+    postgresql_servers = {
+      one   = { high_availability = { enabled = true } }
+      two   = { high_availability = { enabled = true } }
+      three = { high_availability = { enabled = true } }
+    }
+  }
+  expect_failures = [var.postgresql_servers]
+}
+
+run "postgresql_subnet_exactly_full" {
+  command = plan
+  variables {
+    subnet_cidrs = merge(var.subnet_cidrs, { postgresql = "10.42.5.0/28" })
+    postgresql_servers = {
+      one   = { high_availability = { enabled = true } }
+      two   = { high_availability = { enabled = true } }
+      three = {}
+      four  = {}
+      five  = {}
+    }
+  }
+  assert {
+    condition     = length(module.postgresql) == 5
+    error_message = "A /28 has eleven usable addresses, enough for two HA servers (four each) and three non-HA servers (one each)."
   }
 }
 

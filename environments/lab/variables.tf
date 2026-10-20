@@ -708,9 +708,9 @@ variable "sql_managed_instance" {
   default = {}
 }
 
-variable "postgresql" {
-  description = "PostgreSQL Flexible Server version, compute, and storage settings."
-  type = object({
+variable "postgresql_servers" {
+  description = "PostgreSQL Flexible Servers keyed by a stable logical name. Each entry creates one server with one database and its own generated administrator password; all servers share the delegated postgresql subnet and the privatelink.postgres.database.azure.com zone. Defaults to none."
+  type = map(object({
     administrator_login = optional(string, "pgadminuser")
     sku_name            = optional(string, "GP_Standard_D2ds_v5")
     version_number      = optional(string, "16")
@@ -721,8 +721,34 @@ variable "postgresql" {
       mode                      = optional(string, "ZoneRedundant")
       standby_availability_zone = optional(string)
     }), {})
-  })
-  default = {}
+  }))
+  default  = {}
+  nullable = false
+
+  validation {
+    condition = alltrue([
+      for key in keys(var.postgresql_servers) :
+      can(regex("^[a-z]([a-z0-9-]{0,10}[a-z0-9])?$", key)) && !strcontains(key, "--")
+    ])
+    error_message = "postgresql_servers keys must be 1-12 lowercase alphanumeric or hyphen characters, start with a letter, end with a letter or digit, and not contain consecutive hyphens."
+  }
+
+  # Azure's documented minimum for a PostgreSQL delegated subnet is /28.
+  validation {
+    condition     = length(var.postgresql_servers) == 0 || try(tonumber(split("/", var.subnet_cidrs.postgresql)[1]) <= 28, false)
+    error_message = "subnet_cidrs.postgresql must be /28 or larger when postgresql_servers is non-empty."
+  }
+
+  # Azure documents four subnet addresses per high-availability server and
+  # reserves five addresses in every subnet.
+  validation {
+    condition = length(var.postgresql_servers) == 0 || try(
+      sum([for server in values(var.postgresql_servers) : server.high_availability.enabled ? 4 : 1]) <=
+      pow(2, 32 - tonumber(split("/", var.subnet_cidrs.postgresql)[1])) - 5,
+      false
+    )
+    error_message = "subnet_cidrs.postgresql is too small for postgresql_servers: each server needs one address, or four with high availability, and Azure reserves five addresses per subnet."
+  }
 }
 
 variable "mysql_servers" {
@@ -797,7 +823,6 @@ variable "services" {
   description = "Single-instance services enabled in this lab composition. Every service is opt-in."
   type = object({
     sql_managed_instance = optional(bool, false)
-    postgresql           = optional(bool, false)
     web_app              = optional(bool, false)
     function_app         = optional(bool, false)
   })

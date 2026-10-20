@@ -147,7 +147,7 @@ variables {
   virtual_machine_scale_sets = {}
   nat_gateway                = {}
   sql_managed_instance       = {}
-  postgresql                 = {}
+  postgresql_servers         = {}
   mysql_servers              = {}
   tags                       = {}
 }

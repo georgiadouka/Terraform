@@ -144,9 +144,25 @@ output "sql_managed_instance_fqdn" {
   value       = try(module.sql_managed_instance[0].fqdn, null)
 }
 
-output "postgresql_fqdn" {
-  description = "PostgreSQL FQDN when enabled."
-  value       = try(module.postgresql[0].fqdn, null)
+output "postgresql_servers" {
+  description = "PostgreSQL Flexible Server details keyed by the configured logical server name."
+  value = {
+    for key, server in module.postgresql : key => {
+      id                        = server.id
+      name                      = server.name
+      fqdn                      = server.fqdn
+      database_id               = server.database_id
+      database_name             = server.database_name
+      administrator_login       = var.postgresql_servers[key].administrator_login
+      high_availability_enabled = var.postgresql_servers[key].high_availability.enabled
+    }
+  }
+}
+
+output "postgresql_administrator_passwords" {
+  description = "Generated administrator passwords keyed by PostgreSQL server name. Stored in Terraform state; retrieve only when needed."
+  value       = { for key, password in random_password.postgresql : key => password.result }
+  sensitive   = true
 }
 
 output "mysql_servers" {

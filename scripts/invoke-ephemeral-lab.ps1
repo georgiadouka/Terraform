@@ -25,6 +25,9 @@ param(
     [string]$SmokeTestAzureSqlServerKey = "primary",
 
     [ValidatePattern("^[a-z][a-z0-9-]{0,11}$")]
+    [string]$SmokeTestPostgreSqlServerKey = "primary",
+
+    [ValidatePattern("^[a-z][a-z0-9-]{0,11}$")]
     [string]$SmokeTestMySqlServerKey = "primary",
 
     # Cosmos DB is optional: with no cosmos_db_accounts the check is skipped.
@@ -122,6 +125,11 @@ try {
         throw "The configured smoke-test Azure SQL server key '$SmokeTestAzureSqlServerKey' was not found."
     }
 
+    $smokeTestPostgreSqlServer = $outputs.postgresql_servers.value.PSObject.Properties[$SmokeTestPostgreSqlServerKey].Value
+    if ($null -eq $smokeTestPostgreSqlServer) {
+        throw "The configured smoke-test PostgreSQL server key '$SmokeTestPostgreSqlServerKey' was not found."
+    }
+
     $smokeTestMySqlServer = $outputs.mysql_servers.value.PSObject.Properties[$SmokeTestMySqlServerKey].Value
     if ($null -eq $smokeTestMySqlServer) {
         throw "The configured smoke-test MySQL server key '$SmokeTestMySqlServerKey' was not found."
@@ -148,7 +156,7 @@ try {
 
     $smokeParameters = @(
         "SQL_HOST=$($smokeTestAzureSqlServer.fully_qualified_domain_name)",
-        "POSTGRESQL_HOST=$($outputs.postgresql_fqdn.value)",
+        "POSTGRESQL_HOST=$($smokeTestPostgreSqlServer.fqdn)",
         "MYSQL_HOST=$($smokeTestMySqlServer.fqdn)",
         "KEY_VAULT_HOST=$($smokeTestKeyVault.hostname)",
         "STORAGE_BLOB_HOST=$($smokeTestStorageAccount.blob_hostname)",

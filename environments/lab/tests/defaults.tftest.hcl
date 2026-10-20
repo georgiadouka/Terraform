@@ -41,7 +41,7 @@ variables {
   load_balancers              = {}
   cosmos_db_accounts          = {}
   sql_managed_instance        = {}
-  postgresql                  = {}
+  postgresql_servers          = {}
   mysql_servers               = {}
   function_app                = {}
   web_app                     = {}

@@ -7,7 +7,7 @@ resource "random_string" "suffix" {
 }
 
 resource "random_password" "postgresql" {
-  count = var.services.postgresql ? 1 : 0
+  for_each = var.postgresql_servers
 
   length           = 24
   special          = true
@@ -236,8 +236,15 @@ locals {
     sql_mi_nsg           = "${local.naming_prefixes.network_security_group}-sql-managed-instance-${local.name_stem}"
     sql_mi_route_table   = "${local.naming_prefixes.route_table}-sql-managed-instance-${local.name_stem}"
 
-    postgresql_server   = "${local.naming_prefixes.postgresql_server}-${local.name_stem}"
-    postgresql_database = "${local.naming_prefixes.postgresql_database}-${local.name_stem}"
+    # Server names are globally unique (<name>.postgres.database.azure.com) and
+    # at most 51 characters here, within the 63-character limit, so the readable
+    # key is used without hashing. Database names are scoped to their server.
+    postgresql_servers = {
+      for key in keys(var.postgresql_servers) : key => {
+        server_name   = "${local.naming_prefixes.postgresql_server}-${key}-${local.name_stem}"
+        database_name = "${local.naming_prefixes.postgresql_database}-${key}-${local.name_stem}"
+      }
+    }
 
     # Server names are globally unique (<name>.mysql.database.azure.com) and at
     # most 51 characters here, within the 63-character limit, so the readable
@@ -495,7 +502,7 @@ locals {
     virtual_machines     = local.virtual_machine_subnet_required
     web_app_integration  = var.services.web_app
     function_integration = var.services.function_app
-    postgresql           = var.services.postgresql
+    postgresql           = length(var.postgresql_servers) > 0
     mysql                = length(var.mysql_servers) > 0
     sql_managed_instance = var.services.sql_managed_instance
     load_balancers       = length(var.load_balancers) > 0
@@ -612,7 +619,7 @@ locals {
       for endpoint in values(local.private_endpoint_catalog) : endpoint.dns_zone
       if endpoint.enabled
     ]),
-    var.services.postgresql ? toset(["privatelink.postgres.database.azure.com"]) : toset([]),
+    length(var.postgresql_servers) > 0 ? toset(["privatelink.postgres.database.azure.com"]) : toset([]),
     length(var.mysql_servers) > 0 ? toset(["privatelink.mysql.database.azure.com"]) : toset([])
   )
 
@@ -855,22 +862,22 @@ module "sql_managed_instance" {
 }
 
 module "postgresql" {
-  count  = var.services.postgresql ? 1 : 0
-  source = "../../modules/postgresql-flexible"
+  for_each = var.postgresql_servers
+  source   = "../../modules/postgresql-flexible"
 
-  name                   = local.resource_names.postgresql_server
+  name                   = local.resource_names.postgresql_servers[each.key].server_name
   resource_group_name    = module.resource_group.name
   location               = module.resource_group.location
   delegated_subnet_id    = module.network.subnet_ids["postgresql"]
   private_dns_zone_id    = module.private_dns.zone_ids["privatelink.postgres.database.azure.com"]
-  administrator_password = random_password.postgresql[0].result
-  database_name          = local.resource_names.postgresql_database
-  administrator_login    = var.postgresql.administrator_login
-  sku_name               = var.postgresql.sku_name
-  version_number         = var.postgresql.version_number
-  storage_mb             = var.postgresql.storage_mb
-  zone                   = var.postgresql.zone
-  high_availability      = var.postgresql.high_availability
+  administrator_password = random_password.postgresql[each.key].result
+  database_name          = local.resource_names.postgresql_servers[each.key].database_name
+  administrator_login    = each.value.administrator_login
+  sku_name               = each.value.sku_name
+  version_number         = each.value.version_number
+  storage_mb             = each.value.storage_mb
+  zone                   = each.value.zone
+  high_availability      = each.value.high_availability
   tags                   = local.common_tags
 
   depends_on = [module.private_dns]

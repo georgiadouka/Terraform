@@ -38,14 +38,12 @@ module "lab" {
     sql_managed_instance = "10.43.7.0/27"
   }
 
-  services = {
-    postgresql = true
-  }
-
   virtual_machines = {
     primary = var.virtual_machine
   }
-  postgresql = var.postgresql
+  postgresql_servers = {
+    primary = var.postgresql
+  }
   mysql_servers = {
     primary = var.mysql
   }

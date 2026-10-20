@@ -20,7 +20,7 @@ output "vm_windows_admin_password" {
 }
 
 output "postgresql_fqdn" {
-  value = module.lab.postgresql_fqdn
+  value = module.lab.postgresql_servers["primary"].fqdn
 }
 
 output "mysql_fqdn" {

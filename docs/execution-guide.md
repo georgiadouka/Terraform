@@ -178,6 +178,12 @@ Important rules:
   convention.
 - disabling a service also removes its dedicated subnet and related Private
   Endpoints when they are no longer needed.
+- `postgresql_servers` is a map keyed by stable logical names and defaults to
+  empty; there is no `services` switch for PostgreSQL. Each entry creates one
+  server with one database and its own generated password. All servers share
+  the delegated `postgresql` subnet, which must be `/28` or larger and needs one
+  address per server and four per HA server, and one private DNS zone. Read
+  passwords with `terraform output -json postgresql_administrator_passwords`.
 - `mysql_servers` is a map keyed by stable logical names and defaults to empty;
   there is no `services` switch for MySQL. Each entry creates one server with
   one database and its own generated password. All servers share the delegated
@@ -240,7 +246,7 @@ Subnet creation follows the enabled service graph:
 | `load_balancers` | `load_balancers` is non-empty; shared by every frontend, using `subnet_cidrs.load_balancers` |
 | `web_app_integration` | `services.web_app` is `true` |
 | `function_integration` | `services.function_app` is `true` |
-| `postgresql` | `services.postgresql` is `true` |
+| `postgresql` | `postgresql_servers` is non-empty; shared by every PostgreSQL server |
 | `mysql` | `mysql_servers` is non-empty; shared by every MySQL server |
 | `sql_managed_instance` | `services.sql_managed_instance` is `true` |
 
@@ -754,7 +760,8 @@ public IP. It verifies private DNS resolution for:
 
 - Azure SQL (select the server with `-SmokeTestAzureSqlServerKey`, default
   `primary`);
-- PostgreSQL;
+- PostgreSQL (select the server with `-SmokeTestPostgreSqlServerKey`, default
+  `primary`);
 - MySQL (select the server with `-SmokeTestMySqlServerKey`, default
   `primary`);
 - Key Vault;

@@ -107,7 +107,6 @@ subnet_cidrs = {
 # Enable only the services needed by this environment.
 services = {
   sql_managed_instance      = false
-  postgresql                = true
   web_app                   = true
   function_app              = true
 }
@@ -363,19 +362,32 @@ sql_managed_instance = {
   license_type       = "LicenseIncluded"
 }
 
-postgresql = {
-  administrator_login = "pgadminuser"
-  sku_name            = "GP_Standard_D2ds_v5"
-  version_number      = "16"
-  storage_mb          = 32768
-  zone                = null
+# One entry per PostgreSQL Flexible Server; an empty map creates none. Each
+# server gets one database and its own generated password, and all servers
+# share the delegated subnet_cidrs.postgresql subnet (/28 or larger; one address
+# per server, four with HA) and one private DNS zone. Keys are stable logical
+# names; changing a key replaces that server. The smoke test uses the "primary"
+# server by default.
+postgresql_servers = {
+  primary = {
+    administrator_login = "pgadminuser"
+    sku_name            = "GP_Standard_D2ds_v5"
+    version_number      = "16"
+    storage_mb          = 32768
+    zone                = null
 
-  # HA needs General Purpose or Memory Optimized compute and regional capacity.
-  high_availability = {
-    enabled                   = false
-    mode                      = "ZoneRedundant" # Or SameZone.
-    standby_availability_zone = null
+    # HA needs General Purpose or Memory Optimized compute and regional capacity.
+    high_availability = {
+      enabled                   = false
+      mode                      = "ZoneRedundant" # Or SameZone.
+      standby_availability_zone = null
+    }
   }
+
+  # reports = {
+  #   storage_mb        = 65536
+  #   high_availability = { enabled = true }
+  # }
 }
 
 # One entry per MySQL Flexible Server; an empty map creates none. Each server

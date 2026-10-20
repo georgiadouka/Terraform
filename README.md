@@ -73,6 +73,17 @@ database. Each server gets its own Private Endpoint, and all servers share the
 `privatelink.database.windows.net` zone; neither changes with pooling because
 connectivity is configured on the logical server.
 
+PostgreSQL Flexible Servers are opt-in through the `postgresql_servers` map.
+Each entry creates one server with one database and its own generated
+administrator password (output `postgresql_administrator_passwords`,
+sensitive). All servers share the delegated `postgresql` subnet, which keeps
+the `Microsoft.Storage` service endpoint Azure needs for WAL archiving, and the
+`privatelink.postgres.database.azure.com` zone. Azure's documented minimum for
+that subnet is /28, and a high-availability server uses four addresses;
+Terraform rejects a `subnet_cidrs.postgresql` range that is below /28 or too
+small for the configured servers at plan time. Server details are in the
+`postgresql_servers` output.
+
 MySQL Flexible Servers are opt-in through the `mysql_servers` map. Each entry
 creates one server with one database and its own generated administrator
 password (output `mysql_administrator_passwords`, sensitive). All servers share
@@ -669,7 +680,7 @@ code redeployment plus review of dependent access grants. Private Endpoint and
 outbound VNet integration are retained for either OS. Inspect
 `function_app_os_type` to confirm the selected OS.
 
-- Both `postgresql.high_availability` and each `mysql_servers` entry's
+- Each `postgresql_servers` entry's and each `mysql_servers` entry's
   `high_availability` accept
   `enabled`, `mode` (`SameZone` or `ZoneRedundant`), and optional
   `standby_availability_zone`. `zone` selects the primary zone. HA is disabled
