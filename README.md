@@ -77,8 +77,9 @@ map. Each entry creates one internal environment on its own delegated subnet
 (`subnet_cidr`, /27 or larger), its own private DNS zone, Consumption plus
 optional dedicated workload profiles, and the Container Apps listed in its
 `apps` map. All environments send logs to one shared Log Analytics workspace
-and use the shared NAT Gateway for outbound traffic. The dedicated-profile path
-has mocked Terraform plan coverage; it has not been deployed to Azure.
+and use the shared NAT Gateway for outbound traffic. Two environments, one
+with a dedicated D4 profile, have been applied in Azure with three apps, which
+returned HTTP 200 from inside the VNet and showed no drift on re-plan.
 
 Cosmos DB accounts are opt-in through the `cosmos_db_accounts` map. Each entry
 creates one classic RU-based API account with its own `api_type`: NoSQL,

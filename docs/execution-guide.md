@@ -515,8 +515,9 @@ Renaming an environment, app, or profile key replaces that resource: review
 removal/addition and app placement before applying. Subnet size can't change
 after an environment is created.
 
-Multi-profile behavior is covered by mocked Terraform plans, not a live Azure
-deployment. Review expected charges before applying. See
+Multiple environments and a dedicated D4 profile have been applied in Azure;
+other profile types and multi-profile environments are covered by mocked
+Terraform plans only. Review expected charges before applying. See
 [Microsoft's workload profile guidance](https://learn.microsoft.com/azure/container-apps/workload-profiles-overview).
 
 ### Cosmos DB API and throughput modes
