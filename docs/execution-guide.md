@@ -109,15 +109,15 @@ cost, capacity, or data layout:
 |---|---|
 | Environment | Subscription, tenant, region, project name, environment, tags |
 | Naming | Resource abbreviations and optional deterministic suffix |
-| Network | VNet address space, each service subnet, and NAT idle timeout |
+| Network | VNet address space, every subnet range (including one per Container Apps environment and the shared load balancer range), and NAT idle timeout |
 | Services | Enable or disable each deployable service |
 | Virtual machine | Linux/Windows, Marketplace image, size, administrator username, OS disk, named data disks, and load balancer membership |
 | Virtual Machine Scale Set | Linux/Windows, Marketplace image, size, per-instance disks, zones, upgrade mode, fixed or CPU-autoscaled capacity, and load balancer membership |
-| Load balancers | Internal Standard load balancers keyed by name, each with its own frontend subnet, optional static IP, zones, health probes, and rules |
+| Load balancers | Internal Standard load balancers keyed by name, sharing one frontend subnet, with optional static IP, zones, health probes, and rules |
 | Key Vault | SKU and purge protection |
 | Storage | Terraform authentication, Shared Key policy, workload RBAC, redundancy, containers, shares, quotas, and access tiers |
 | Databases | Versions, SKUs, storage, PostgreSQL/MySQL HA and zones, throughput, and API-specific schema |
-| Container Apps | Environments keyed by name, each with its own subnet CIDR, dedicated workload profile map, and apps (image, port, profile placement) |
+| Container Apps | Environments keyed by name, each matched by key to its own `subnet_cidrs.container_apps` range, with a dedicated workload profile map and apps (image, port, profile placement) |
 | Web App | Linux code, Windows code, or Linux container mode; plan SKU, runtime, image, port, and app settings |
 | Function App | Linux/Windows OS, Elastic Premium plan SKU, language runtime and version |
 
@@ -136,12 +136,15 @@ Important rules:
 - `environment` must be 2-8 lowercase alphanumeric or hyphen characters and
   cannot end in a hyphen or contain consecutive hyphens.
 - `address_space` accepts one or more IPv4 VNet CIDRs.
-- `subnet_cidrs` is the complete current and future address plan for the
-  shared subnets. Terraform validates every prefix, including disabled
-  services, together with every Container Apps environment `subnet_cidr`, and
-  rejects prefixes outside the VNet or overlapping prefixes.
-- Each Container Apps environment `subnet_cidr` must be `/27` or larger. The
-  planned SQL Managed Instance allocation must be `/27` or larger.
+- `subnet_cidrs` is the complete current and future address plan; services
+  never take a CIDR themselves. Terraform validates every prefix, including
+  disabled services and unused `container_apps` keys, and rejects prefixes
+  outside the VNet or overlapping prefixes.
+- `subnet_cidrs.container_apps` maps each Container Apps environment key to its
+  own range, `/27` or larger. Every environment needs a range with the same key.
+  `subnet_cidrs.load_balancers` is one `/29` or larger range shared by every load
+  balancer frontend, required once a load balancer exists. The planned SQL
+  Managed Instance allocation must be `/27` or larger.
 - Terraform creates only the subnets required by enabled services and nonempty
   resource collections. Adding a service or collection entry later creates its
   subnet and delegation before creating the resource.
@@ -206,8 +209,9 @@ Important rules:
   `database_sku_name` is then ignored.
 - `container_apps_environments` is a map keyed by stable logical names and
   defaults to empty; there is no `services` switch for Container Apps. Each
-  entry creates one internal environment on its own delegated subnet
-  (`subnet_cidr`), its own private DNS zone, and the apps in its `apps` map.
+  entry creates one internal environment on its own delegated subnet (the
+  `subnet_cidrs.container_apps` range with the same key), its own private DNS
+  zone, and the apps in its `apps` map.
   Every environment keeps Consumption; add dedicated profiles under that
   entry's `dedicated_workload_profiles` and set each app's `workload_profile`
   to `"Consumption"` (the default) or a profile key from the same environment.
@@ -226,8 +230,8 @@ Subnet creation follows the enabled service graph:
 |---|---|
 | `private_endpoints` | Web App or Function App is enabled, or `azure_sql_servers`/`container_registries`/`cosmos_db_accounts`/`key_vaults`/`storage_accounts`/`premium_file_accounts` is nonempty |
 | `virtual_machines` | `virtual_machines` or `virtual_machine_scale_sets` is non-empty |
-| `container_apps/<key>` | One per `container_apps_environments` entry, using that entry's `subnet_cidr` |
-| `load_balancers/<key>` | One per `load_balancers` entry, using that entry's `subnet_cidr` |
+| `container_apps/<key>` | One per `container_apps_environments` entry, using `subnet_cidrs.container_apps[<key>]` |
+| `load_balancers` | `load_balancers` is non-empty; shared by every frontend, using `subnet_cidrs.load_balancers` |
 | `web_app_integration` | `services.web_app` is `true` |
 | `function_integration` | `services.function_app` is `true` |
 | `postgresql` | `services.postgresql` is `true` |
@@ -292,9 +296,13 @@ Add one `load_balancers` entry per internal load balancer, and set
 `load_balancer` on the VMs and scale sets that should join its backend pool:
 
 ```hcl
+subnet_cidrs = {
+  # ...
+  load_balancers = "10.42.9.0/26"
+}
+
 load_balancers = {
   web = {
-    subnet_cidr        = "10.42.9.0/28"
     private_ip_address = "10.42.9.4" # Optional; omit for a dynamic IP.
     probes = {
       http = { protocol = "Http", port = 80, request_path = "/" }
@@ -310,11 +318,13 @@ virtual_machines = {
 }
 ```
 
-Each load balancer gets its own `/29` or larger frontend subnet that must not
-overlap any other lab subnet; Terraform rejects overlaps and reserved static
-IPs at plan time. A `load_balancer` value that isn't a key in `load_balancers`
-is also rejected. The frontend is internal only and zone-redundant by default.
-Outbound traffic from the backends continues through the NAT Gateway.
+All load balancer frontends share one subnet created from
+`subnet_cidrs.load_balancers` (`/29` or larger). Terraform rejects overlapping
+ranges, reserved or duplicate static IPs, and a missing
+`subnet_cidrs.load_balancers` at plan time. A `load_balancer` value that isn't a
+key in `load_balancers` is also rejected. The frontend is internal only and
+zone-redundant by default. Outbound traffic from the backends continues through
+the NAT Gateway.
 
 With `Manual` upgrade mode, a scale set applies a new backend pool only to new
 instances. Update existing instances after changing membership:
@@ -489,17 +499,23 @@ zone are associated with the logical server and work for both standalone and
 pooled databases.
 
 Configure Container Apps environments, their apps, and optional dedicated
-workload profiles in the environment variables file. Each environment needs its
-own `/27` or larger subnet that doesn't overlap any other lab subnet:
+workload profiles in the environment variables file. Give each environment a
+`/27` or larger range under `subnet_cidrs.container_apps`, using the same key:
 
 ```hcl
+subnet_cidrs = {
+  # ...
+  container_apps = {
+    primary = "10.42.2.0/27"
+    jobs    = "10.42.3.0/24"
+  }
+}
+
 container_apps_environments = {
   primary = {
-    subnet_cidr = "10.42.2.0/27"
-    apps        = { hello = {} }
+    apps = { hello = {} }
   }
   jobs = {
-    subnet_cidr = "10.42.3.0/24"
     dedicated_workload_profiles = {
       general = {
         workload_profile_type = "D4"

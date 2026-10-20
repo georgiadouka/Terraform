@@ -193,7 +193,7 @@ Examples:
 | Private Endpoints subnet | `snet-pe-metlen-lab-it6hp` |
 | VM subnet | `snet-vm-metlen-lab-it6hp` |
 | Container Apps subnet (environment `primary`) | `snet-aca-primary-metlen-lab-it6hp` |
-| Load balancer subnet (load balancer `web`) | `snet-lbi-web-metlen-lab-it6hp` |
+| Load balancer subnet (shared) | `snet-lb-metlen-lab-it6hp` |
 | Web App integration subnet | `snet-app-metlen-lab-it6hp` |
 | Function integration subnet | `snet-func-metlen-lab-it6hp` |
 | PostgreSQL subnet | `snet-psql-metlen-lab-it6hp` |
@@ -215,7 +215,7 @@ retaining the project, environment, and deployment suffix:
 | `private_endpoints` | `pe` |
 | `virtual_machines` | `vm` |
 | `container_apps/<environment key>` | `aca-<environment key>` |
-| `load_balancers/<load balancer key>` | `<load balancer prefix>-<load balancer key>`, such as `lbi-web` |
+| `load_balancers` | `lb` |
 | `web_app_integration` | `app` |
 | `function_integration` | `func` |
 | `postgresql` | `psql` |

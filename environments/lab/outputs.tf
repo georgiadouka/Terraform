@@ -86,7 +86,7 @@ output "load_balancers" {
       name                        = load_balancer.name
       frontend_private_ip_address = load_balancer.frontend_private_ip_address
       backend_address_pool_id     = load_balancer.backend_address_pool_id
-      subnet_id                   = module.network.subnet_ids["load_balancers/${key}"]
+      subnet_id                   = module.network.subnet_ids["load_balancers"]
       probe_ids                   = load_balancer.probe_ids
       rule_ids                    = load_balancer.rule_ids
       virtual_machines            = sort([for vm_key, vm in var.virtual_machines : vm_key if vm.load_balancer == key])

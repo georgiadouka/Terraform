@@ -165,7 +165,7 @@ variable "address_space" {
 }
 
 variable "subnet_cidrs" {
-  description = "CIDR prefix assigned to each shared lab subnet. Container Apps environments set their own subnet_cidr."
+  description = "CIDR prefix for each lab subnet. container_apps maps each Container Apps environment key to its own range; load_balancers is one range shared by every load balancer frontend. Ranges are reserved and overlap-checked even when unused; a subnet is created only when something uses it."
   type = object({
     private_endpoints    = string
     virtual_machines     = string
@@ -174,6 +174,8 @@ variable "subnet_cidrs" {
     postgresql           = string
     mysql                = string
     sql_managed_instance = string
+    container_apps       = optional(map(string), {})
+    load_balancers       = optional(string)
   })
   default = {
     private_endpoints    = "10.42.0.0/24"
@@ -187,7 +189,19 @@ variable "subnet_cidrs" {
 
   validation {
     condition = alltrue([
-      for prefix in values(var.subnet_cidrs) :
+      for prefix in concat(
+        [
+          var.subnet_cidrs.private_endpoints,
+          var.subnet_cidrs.virtual_machines,
+          var.subnet_cidrs.web_app_integration,
+          var.subnet_cidrs.function_integration,
+          var.subnet_cidrs.postgresql,
+          var.subnet_cidrs.mysql,
+          var.subnet_cidrs.sql_managed_instance
+        ],
+        var.subnet_cidrs.load_balancers == null ? [] : [var.subnet_cidrs.load_balancers],
+        values(var.subnet_cidrs.container_apps)
+      ) :
       can(cidrnetmask(prefix)) &&
       can(cidrhost(prefix, 0)) &&
       try(cidrhost(prefix, 0) == split("/", prefix)[0], false)
@@ -198,6 +212,30 @@ variable "subnet_cidrs" {
   validation {
     condition     = can(tonumber(split("/", var.subnet_cidrs.sql_managed_instance)[1])) && tonumber(split("/", var.subnet_cidrs.sql_managed_instance)[1]) <= 27
     error_message = "The future SQL Managed Instance subnet must be /27 or larger."
+  }
+
+  validation {
+    condition = alltrue([
+      for key in keys(var.subnet_cidrs.container_apps) :
+      can(regex("^[a-z]([a-z0-9-]{0,10}[a-z0-9])?$", key)) && !strcontains(key, "--")
+    ])
+    error_message = "subnet_cidrs.container_apps keys must match Container Apps environment keys: 1-12 lowercase alphanumeric or hyphen characters, starting with a letter, ending with a letter or digit, without consecutive hyphens."
+  }
+
+  # A workload profiles environment needs at least a /27; the /23 minimum
+  # applies only to Consumption-only environments, which this lab doesn't create.
+  validation {
+    condition = alltrue([
+      for prefix in values(var.subnet_cidrs.container_apps) :
+      try(tonumber(split("/", prefix)[1]) <= 27, false)
+    ])
+    error_message = "Every subnet_cidrs.container_apps range must be /27 or larger."
+  }
+
+  # Azure's smallest subnet is /29.
+  validation {
+    condition     = var.subnet_cidrs.load_balancers == null || try(tonumber(split("/", var.subnet_cidrs.load_balancers)[1]) <= 29, false)
+    error_message = "subnet_cidrs.load_balancers must be /29 or larger."
   }
 }
 
@@ -318,9 +356,8 @@ variable "virtual_machine_scale_sets" {
 }
 
 variable "load_balancers" {
-  description = "Internal Standard load balancers keyed by a stable logical name. Each gets its own frontend subnet (/29 or larger) and one backend pool; VMs and scale sets join by setting load_balancer to the key. Defaults to none."
+  description = "Internal Standard load balancers keyed by a stable logical name. Every frontend IP sits in the shared subnet_cidrs.load_balancers range, and each load balancer has one backend pool; VMs and scale sets join by setting load_balancer to the key. Defaults to none."
   type = map(object({
-    subnet_cidr        = string
     private_ip_address = optional(string)
     zones              = optional(set(string), ["1", "2", "3"])
     probes = optional(map(object({
@@ -362,40 +399,45 @@ variable "load_balancers" {
     error_message = "Probe and rule keys must be 1-20 lowercase alphanumeric or hyphen characters, start with a letter, end with a letter or digit, and not contain consecutive hyphens."
   }
 
-  # Azure's smallest subnet is /29.
   validation {
-    condition = alltrue([
-      for load_balancer in values(var.load_balancers) :
-      can(cidrnetmask(load_balancer.subnet_cidr)) &&
-      try(cidrhost(load_balancer.subnet_cidr, 0) == split("/", load_balancer.subnet_cidr)[0], false) &&
-      try(tonumber(split("/", load_balancer.subnet_cidr)[1]) <= 29, false)
-    ])
-    error_message = "Every load_balancers subnet_cidr must be a valid IPv4 CIDR written with its network address and be /29 or larger."
+    condition     = length(var.load_balancers) == 0 || var.subnet_cidrs.load_balancers != null
+    error_message = "Set subnet_cidrs.load_balancers to the range shared by every load balancer frontend (/29 or larger)."
   }
 
   # Azure reserves the first four addresses and the last address of a subnet.
   validation {
-    condition = alltrue([
+    condition = var.subnet_cidrs.load_balancers == null || alltrue([
       for load_balancer in values(var.load_balancers) : load_balancer.private_ip_address == null ? true : try(
         can(regex("^(25[0-5]|2[0-4][0-9]|1?[0-9]?[0-9])(\\.(25[0-5]|2[0-4][0-9]|1?[0-9]?[0-9])){3}$", load_balancer.private_ip_address)) &&
         sum([
           for index, octet in split(".", load_balancer.private_ip_address) :
           tonumber(octet) * pow(256, 3 - index)
           ]) >= sum([
-          for index, octet in split(".", cidrhost(load_balancer.subnet_cidr, 0)) :
+          for index, octet in split(".", cidrhost(var.subnet_cidrs.load_balancers, 0)) :
           tonumber(octet) * pow(256, 3 - index)
         ]) + 4 &&
         sum([
           for index, octet in split(".", load_balancer.private_ip_address) :
           tonumber(octet) * pow(256, 3 - index)
           ]) <= sum([
-          for index, octet in split(".", cidrhost(load_balancer.subnet_cidr, 0)) :
+          for index, octet in split(".", cidrhost(var.subnet_cidrs.load_balancers, 0)) :
           tonumber(octet) * pow(256, 3 - index)
-        ]) + pow(2, 32 - tonumber(split("/", load_balancer.subnet_cidr)[1])) - 2,
+        ]) + pow(2, 32 - tonumber(split("/", var.subnet_cidrs.load_balancers)[1])) - 2,
         false
       )
     ])
-    error_message = "Every load_balancers private_ip_address must be a usable address in that entry's subnet_cidr: not one of the first four addresses or the last address."
+    error_message = "Every load_balancers private_ip_address must be a usable address in subnet_cidrs.load_balancers: not one of the first four addresses or the last address."
+  }
+
+  validation {
+    condition = length(distinct([
+      for load_balancer in values(var.load_balancers) : load_balancer.private_ip_address
+      if load_balancer.private_ip_address != null
+      ])) == length([
+      for load_balancer in values(var.load_balancers) : load_balancer.private_ip_address
+      if load_balancer.private_ip_address != null
+    ])
+    error_message = "Load balancers share one frontend subnet, so their static private_ip_address values must be unique."
   }
 }
 
@@ -529,9 +571,8 @@ variable "azure_sql_servers" {
 }
 
 variable "container_apps_environments" {
-  description = "Internal Container Apps environments keyed by a stable logical name. Each environment gets its own delegated subnet (/27 or larger), private DNS zone, optional dedicated workload profiles, and zero or more Container Apps. Defaults to none."
+  description = "Internal Container Apps environments keyed by a stable logical name. Each environment uses the subnet_cidrs.container_apps range with the same key as its own delegated subnet, and gets its own private DNS zone, optional dedicated workload profiles, and zero or more Container Apps. Defaults to none."
   type = map(object({
-    subnet_cidr = string
     dedicated_workload_profiles = optional(map(object({
       workload_profile_type = optional(string, "D4")
       minimum_count         = optional(number, 0)
@@ -554,16 +595,12 @@ variable "container_apps_environments" {
     error_message = "container_apps_environments keys must be 1-12 lowercase alphanumeric or hyphen characters, start with a letter, end with a letter or digit, and not contain consecutive hyphens."
   }
 
-  # A workload profiles environment needs at least a /27; the /23 minimum
-  # applies only to Consumption-only environments, which this lab doesn't create.
   validation {
     condition = alltrue([
-      for environment in values(var.container_apps_environments) :
-      can(cidrnetmask(environment.subnet_cidr)) &&
-      try(cidrhost(environment.subnet_cidr, 0) == split("/", environment.subnet_cidr)[0], false) &&
-      try(tonumber(split("/", environment.subnet_cidr)[1]) <= 27, false)
+      for key in keys(var.container_apps_environments) :
+      contains(keys(var.subnet_cidrs.container_apps), key)
     ])
-    error_message = "Every container_apps_environments subnet_cidr must be a valid IPv4 CIDR written with its network address and be /27 or larger."
+    error_message = "Every container_apps_environments key needs a subnet_cidrs.container_apps entry with the same key, for example subnet_cidrs = { container_apps = { primary = \"10.42.2.0/27\" } }."
   }
 
   validation {

@@ -91,6 +91,17 @@ subnet_cidrs = {
   postgresql           = "10.42.5.0/24"
   mysql                = "10.42.6.0/24"
   sql_managed_instance = "10.42.7.0/27"
+
+  # One range per Container Apps environment, keyed by the environment key in
+  # container_apps_environments below; /27 or larger, and it can't be resized
+  # after the environment is created. Unused keys stay reserved for later.
+  container_apps = {
+    primary = "10.42.2.0/27"
+    # jobs  = "10.42.2.32/27"
+  }
+
+  # One range shared by every load balancer frontend IP; /29 or larger.
+  load_balancers = "10.42.9.0/26"
 }
 
 # Enable only the services needed by this environment.
@@ -220,15 +231,14 @@ virtual_machine_scale_sets = {}
 # }
 
 # One entry per internal Standard load balancer; an empty map creates none.
-# Each needs its own non-overlapping subnet_cidr, /29 or larger, that holds only
-# the frontend IP. VMs and scale sets join by setting load_balancer = "<key>".
+# Every frontend IP sits in subnet_cidrs.load_balancers. VMs and scale sets join
+# by setting load_balancer = "<key>".
 # Keys are stable logical names; changing a key replaces that load balancer.
 load_balancers = {}
 
 # load_balancers = {
 #   web = {
-#     subnet_cidr        = "10.42.9.0/28"
-#     private_ip_address = null # Or a usable address such as "10.42.9.4".
+#     private_ip_address = null # Or a usable address in subnet_cidrs.load_balancers, such as "10.42.9.4".
 #     zones              = ["1", "2", "3"]
 #
 #     probes = {
@@ -385,14 +395,12 @@ mysql = {
 }
 
 # One entry per internal Container Apps environment; an empty map creates none.
-# Each environment needs its own non-overlapping subnet_cidr, /27 or larger,
-# that can't be resized later. Environment keys are 1-12 characters and app
-# keys 1-8; changing a key replaces that environment or app. The smoke test
-# uses environment "primary" and app "hello" by default.
+# Each environment uses the subnet_cidrs.container_apps range with the same key
+# (add one there before adding an environment here). Environment keys are 1-12
+# characters and app keys 1-8; changing a key replaces that environment or app.
+# The smoke test uses environment "primary" and app "hello" by default.
 container_apps_environments = {
   primary = {
-    subnet_cidr = "10.42.2.0/27"
-
     # Empty means Consumption-only. Uncomment one or more profiles as needed.
     # Keys are stable logical labels; Azure profile names are generated centrally.
     # Counts are dedicated NODES, not app replicas; review billing/region support.
@@ -420,7 +428,6 @@ container_apps_environments = {
   }
 
   # jobs = {
-  #   subnet_cidr = "10.42.3.0/27"
   #   apps = {
   #     worker = {}
   #   }

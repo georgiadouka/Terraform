@@ -134,8 +134,7 @@ override_module {
       "container_apps/primary"      = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Network/virtualNetworks/vnet-test/subnets/apps-primary"
       "container_apps/jobs"         = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Network/virtualNetworks/vnet-test/subnets/apps-jobs"
       "container_apps/longenvname1" = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Network/virtualNetworks/vnet-test/subnets/apps-long"
-      "load_balancers/web"          = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Network/virtualNetworks/vnet-test/subnets/lb-web"
-      "load_balancers/data"         = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Network/virtualNetworks/vnet-test/subnets/lb-data"
+      load_balancers                = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Network/virtualNetworks/vnet-test/subnets/lb"
     }
   }
 }
@@ -232,6 +231,7 @@ run "linux_defaults" {
         postgresql           = "snet-psql-metlen-lab-test1"
         mysql                = "snet-mysql-metlen-lab-test1"
         sql_managed_instance = "snet-sqlmi-metlen-lab-test1"
+        load_balancers       = "snet-lb-metlen-lab-test1"
       }
     )
     error_message = "Linux defaults must retain SSH credentials without a Windows password and use abbreviated subnet roles with full deployment context."
@@ -907,11 +907,14 @@ run "reject_shared_key_provider_with_keyless_account" {
 run "container_apps_single_environment" {
   command = plan
   variables {
-    container_apps_environments = {
-      primary = {
-        subnet_cidr = "10.42.2.0/27"
-        apps        = { hello = {} }
+    subnet_cidrs = merge(var.subnet_cidrs, {
+      container_apps = {
+        primary = "10.42.2.0/27"
+        spare   = "10.42.3.0/27"
       }
+    })
+    container_apps_environments = {
+      primary = { apps = { hello = {} } }
     }
   }
   assert {
@@ -926,11 +929,13 @@ run "container_apps_single_environment" {
       local.subnets["container_apps/primary"].address_prefixes == ["10.42.2.0/27"] &&
       local.subnets["container_apps/primary"].delegation.service == "Microsoft.App/environments" &&
       local.planned_subnet_address_prefixes["container_apps/primary"] == ["10.42.2.0/27"] &&
+      !contains(keys(local.subnets), "container_apps/spare") &&
+      local.planned_subnet_address_prefixes["container_apps/spare"] == ["10.42.3.0/27"] &&
       contains(local.nat_gateway_subnet_keys, "container_apps/primary") &&
       length(output.container_apps_environments["primary"].dedicated_workload_profile_names) == 0 &&
       output.container_apps_environments["primary"].apps["hello"].workload_profile_name == "Consumption"
     )
-    error_message = "One environment must get its own delegated subnet behind the NAT Gateway, the shared workspace, and a Consumption app."
+    error_message = "An environment must use the subnet_cidrs.container_apps range with its own key, behind the NAT Gateway, while unused ranges are only reserved."
   }
 }
 
@@ -938,16 +943,20 @@ run "multiple_container_apps_environments" {
   command = plan
   variables {
     virtual_machines = {}
+    subnet_cidrs = merge(var.subnet_cidrs, {
+      container_apps = {
+        primary = "10.42.2.0/27"
+        jobs    = "10.42.3.0/24"
+      }
+    })
     container_apps_environments = {
       primary = {
-        subnet_cidr = "10.42.2.0/27"
         apps = {
           hello = {}
           api   = { target_port = 8080 }
         }
       }
       jobs = {
-        subnet_cidr = "10.42.3.0/24"
         dedicated_workload_profiles = {
           general = { workload_profile_type = "D4" }
         }
@@ -963,6 +972,7 @@ run "multiple_container_apps_environments" {
       length(module.log_analytics) == 1 &&
       local.nat_gateway_required &&
       toset(local.nat_gateway_subnet_keys) == toset(["container_apps/primary", "container_apps/jobs"]) &&
+      local.subnets["container_apps/primary"].address_prefixes == ["10.42.2.0/27"] &&
       local.subnets["container_apps/jobs"].address_prefixes == ["10.42.3.0/24"] &&
       local.subnets["container_apps/primary"].name != local.subnets["container_apps/jobs"].name &&
       local.resource_names.container_apps_environments["jobs"].name == "cae-jobs-metlen-lab-test1" &&
@@ -975,16 +985,16 @@ run "multiple_container_apps_environments" {
       output.container_apps_environments["jobs"].apps["worker"].workload_profile_name == "wp-general01" &&
       output.container_apps_environments["primary"].apps["api"].workload_profile_name == "Consumption"
     )
-    error_message = "Each environment must get its own subnet, DNS link, workload profiles, and apps, and share one workspace and the NAT Gateway."
+    error_message = "Each environment must get the range matching its key, its own DNS link, workload profiles, and apps, and share one workspace and the NAT Gateway."
   }
 }
 
 run "container_apps_multiple_profiles" {
   command = plan
   variables {
+    subnet_cidrs = merge(var.subnet_cidrs, { container_apps = { primary = "10.42.2.0/23" } })
     container_apps_environments = {
       primary = {
-        subnet_cidr = "10.42.2.0/23"
         dedicated_workload_profiles = {
           general = { workload_profile_type = "D4", minimum_count = 0, maximum_count = 3 }
           memory  = { workload_profile_type = "E4", minimum_count = 1, maximum_count = 2 }
@@ -1013,9 +1023,9 @@ run "container_apps_long_profile_prefix" {
       unique_suffix = "test1"
       prefixes      = { container_apps_profile = "longprefix" }
     }
+    subnet_cidrs = merge(var.subnet_cidrs, { container_apps = { primary = "10.42.2.0/27" } })
     container_apps_environments = {
       primary = {
-        subnet_cidr = "10.42.2.0/27"
         dedicated_workload_profiles = {
           general = { workload_profile_type = "D4" }
           memory  = { workload_profile_type = "E4" }
@@ -1043,11 +1053,9 @@ run "container_app_name_at_maximum_length" {
       unique_suffix = "abcde"
       prefixes      = { container_app = "abcd" }
     }
+    subnet_cidrs = merge(var.subnet_cidrs, { container_apps = { longenvname1 = "10.42.2.0/27" } })
     container_apps_environments = {
-      longenvname1 = {
-        subnet_cidr = "10.42.2.0/27"
-        apps        = { longapp1 = {} }
-      }
+      longenvname1 = { apps = { longapp1 = {} } }
     }
   }
   assert {
@@ -1060,21 +1068,39 @@ run "container_app_name_at_maximum_length" {
   }
 }
 
-run "reject_small_container_apps_subnet" {
+run "reject_container_apps_environment_without_range" {
   command = plan
   variables {
+    subnet_cidrs = merge(var.subnet_cidrs, { container_apps = { primary = "10.42.2.0/27" } })
     container_apps_environments = {
-      primary = { subnet_cidr = "10.42.2.0/28" }
+      jobs = {}
     }
   }
   expect_failures = [var.container_apps_environments]
 }
 
+run "reject_small_container_apps_subnet" {
+  command = plan
+  variables {
+    subnet_cidrs = merge(var.subnet_cidrs, { container_apps = { primary = "10.42.2.0/28" } })
+  }
+  expect_failures = [var.subnet_cidrs]
+}
+
+run "reject_invalid_container_apps_range_key" {
+  command = plan
+  variables {
+    subnet_cidrs = merge(var.subnet_cidrs, { container_apps = { "Primary_1" = "10.42.2.0/27" } })
+  }
+  expect_failures = [var.subnet_cidrs]
+}
+
 run "reject_invalid_container_apps_environment_key" {
   command = plan
   variables {
+    subnet_cidrs = merge(var.subnet_cidrs, { container_apps = { primary = "10.42.2.0/27" } })
     container_apps_environments = {
-      "primary-" = { subnet_cidr = "10.42.2.0/27" }
+      "primary-" = {}
     }
   }
   expect_failures = [var.container_apps_environments]
@@ -1083,11 +1109,9 @@ run "reject_invalid_container_apps_environment_key" {
 run "reject_overlong_container_app_key" {
   command = plan
   variables {
+    subnet_cidrs = merge(var.subnet_cidrs, { container_apps = { primary = "10.42.2.0/27" } })
     container_apps_environments = {
-      primary = {
-        subnet_cidr = "10.42.2.0/27"
-        apps        = { ninechars = {} }
-      }
+      primary = { apps = { ninechars = {} } }
     }
   }
   expect_failures = [var.container_apps_environments]
@@ -1096,15 +1120,15 @@ run "reject_overlong_container_app_key" {
 run "reject_colliding_container_app_names" {
   command = plan
   variables {
+    subnet_cidrs = merge(var.subnet_cidrs, {
+      container_apps = {
+        c     = "10.42.2.0/27"
+        "b-c" = "10.42.3.0/27"
+      }
+    })
     container_apps_environments = {
-      c = {
-        subnet_cidr = "10.42.2.0/27"
-        apps        = { "a-b" = {} }
-      }
-      "b-c" = {
-        subnet_cidr = "10.42.3.0/27"
-        apps        = { a = {} }
-      }
+      c     = { apps = { "a-b" = {} } }
+      "b-c" = { apps = { a = {} } }
     }
   }
   expect_failures = [var.container_apps_environments]
@@ -1113,6 +1137,7 @@ run "reject_colliding_container_app_names" {
 run "load_balancer_with_vm_and_vmss_members" {
   command = plan
   variables {
+    subnet_cidrs = merge(var.subnet_cidrs, { load_balancers = "10.42.9.0/26" })
     virtual_machines = {
       primary = { load_balancer = "web" }
       worker  = { data_disks = {} }
@@ -1122,9 +1147,8 @@ run "load_balancer_with_vm_and_vmss_members" {
     }
     load_balancers = {
       web = {
-        subnet_cidr = "10.42.9.0/28"
-        probes      = { http = { protocol = "Http", port = 80, request_path = "/" } }
-        rules       = { http = { probe = "http", frontend_port = 80, backend_port = 80 } }
+        probes = { http = { protocol = "Http", port = 80, request_path = "/" } }
+        rules  = { http = { probe = "http", frontend_port = 80, backend_port = 80 } }
       }
     }
   }
@@ -1136,28 +1160,28 @@ run "load_balancer_with_vm_and_vmss_members" {
       local.resource_names.load_balancers["web"].backend_address_pool_name == "lbbe-web-metlen-lab-test1" &&
       local.resource_names.load_balancers["web"].probes["http"] == "lbprobe-http-metlen-lab-test1" &&
       local.resource_names.load_balancers["web"].rules["http"] == "lbrule-http-metlen-lab-test1" &&
-      local.subnets["load_balancers/web"].name == "snet-lbi-web-metlen-lab-test1" &&
-      local.subnets["load_balancers/web"].address_prefixes == ["10.42.9.0/28"] &&
-      !can(local.subnets["load_balancers/web"].delegation) &&
-      local.planned_subnet_address_prefixes["load_balancers/web"] == ["10.42.9.0/28"] &&
-      !contains(local.nat_gateway_subnet_keys, "load_balancers/web") &&
+      local.subnets["load_balancers"].name == "snet-lb-metlen-lab-test1" &&
+      local.subnets["load_balancers"].address_prefixes == ["10.42.9.0/26"] &&
+      !can(local.subnets["load_balancers"].delegation) &&
+      local.planned_subnet_address_prefixes["load_balancers"] == ["10.42.9.0/26"] &&
+      !contains(local.nat_gateway_subnet_keys, "load_balancers") &&
       output.load_balancers["web"].virtual_machines == tolist(["primary"]) &&
       output.load_balancers["web"].virtual_machine_scale_sets == tolist(["app"])
     )
-    error_message = "A load balancer must get its own undelegated subnet outside the NAT Gateway, generated names, and the VMs and scale sets that reference its key."
+    error_message = "A load balancer must use the shared undelegated subnet outside the NAT Gateway, generated names, and the VMs and scale sets that reference its key."
   }
 }
 
-run "multiple_load_balancers" {
+run "multiple_load_balancers_share_one_subnet" {
   command = plan
   variables {
+    subnet_cidrs = merge(var.subnet_cidrs, { load_balancers = "10.42.9.0/26" })
     virtual_machines = {
       primary = { load_balancer = "web" }
       db      = { load_balancer = "data" }
     }
     load_balancers = {
       web = {
-        subnet_cidr = "10.42.9.0/28"
         probes = {
           http = { protocol = "Http", port = 80, request_path = "/" }
           tcp  = { port = 443 }
@@ -1168,7 +1192,6 @@ run "multiple_load_balancers" {
         }
       }
       data = {
-        subnet_cidr        = "10.42.9.16/29"
         private_ip_address = "10.42.9.20"
         zones              = []
         probes             = { sql = { port = 1433 } }
@@ -1180,14 +1203,38 @@ run "multiple_load_balancers" {
     condition = (
       length(module.load_balancer) == 2 &&
       length(local.resource_names.load_balancers["web"].rules) == 2 &&
-      local.subnets["load_balancers/web"].name != local.subnets["load_balancers/data"].name &&
-      local.subnets["load_balancers/data"].address_prefixes == ["10.42.9.16/29"] &&
+      length([for key in keys(local.subnets) : key if startswith(key, "load_balancers")]) == 1 &&
+      output.load_balancers["web"].subnet_id == output.load_balancers["data"].subnet_id &&
       output.load_balancers["web"].virtual_machines == tolist(["primary"]) &&
       output.load_balancers["data"].virtual_machines == tolist(["db"]) &&
       length(output.load_balancers["data"].virtual_machine_scale_sets) == 0
     )
-    error_message = "Each load balancer must get its own subnet, probes, rules, and members."
+    error_message = "Load balancers must share the one load balancer subnet while keeping their own probes, rules, and members."
   }
+}
+
+run "no_load_balancer_subnet_without_load_balancers" {
+  command = plan
+  variables {
+    subnet_cidrs = merge(var.subnet_cidrs, { load_balancers = "10.42.9.0/26" })
+  }
+  assert {
+    condition = (
+      !contains(keys(local.subnets), "load_balancers") &&
+      local.planned_subnet_address_prefixes["load_balancers"] == ["10.42.9.0/26"]
+    )
+    error_message = "The load balancer range must be reserved but not created until a load balancer exists."
+  }
+}
+
+run "reject_load_balancers_without_range" {
+  command = plan
+  variables {
+    load_balancers = {
+      web = {}
+    }
+  }
+  expect_failures = [var.load_balancers]
 }
 
 run "reject_unknown_load_balancer_on_vm" {
@@ -1213,18 +1260,17 @@ run "reject_unknown_load_balancer_on_vmss" {
 run "reject_load_balancer_subnet_smaller_than_29" {
   command = plan
   variables {
-    load_balancers = {
-      web = { subnet_cidr = "10.42.9.0/30" }
-    }
+    subnet_cidrs = merge(var.subnet_cidrs, { load_balancers = "10.42.9.0/30" })
   }
-  expect_failures = [var.load_balancers]
+  expect_failures = [var.subnet_cidrs]
 }
 
 run "reject_reserved_load_balancer_ip" {
   command = plan
   variables {
+    subnet_cidrs = merge(var.subnet_cidrs, { load_balancers = "10.42.9.0/28" })
     load_balancers = {
-      web = { subnet_cidr = "10.42.9.0/28", private_ip_address = "10.42.9.3" }
+      web = { private_ip_address = "10.42.9.3" }
     }
   }
   expect_failures = [var.load_balancers]
@@ -1233,8 +1279,9 @@ run "reject_reserved_load_balancer_ip" {
 run "reject_broadcast_load_balancer_ip" {
   command = plan
   variables {
+    subnet_cidrs = merge(var.subnet_cidrs, { load_balancers = "10.42.9.0/28" })
     load_balancers = {
-      web = { subnet_cidr = "10.42.9.0/28", private_ip_address = "10.42.9.15" }
+      web = { private_ip_address = "10.42.9.15" }
     }
   }
   expect_failures = [var.load_balancers]
@@ -1243,8 +1290,21 @@ run "reject_broadcast_load_balancer_ip" {
 run "reject_load_balancer_ip_outside_subnet" {
   command = plan
   variables {
+    subnet_cidrs = merge(var.subnet_cidrs, { load_balancers = "10.42.9.0/28" })
     load_balancers = {
-      web = { subnet_cidr = "10.42.9.0/28", private_ip_address = "10.42.10.4" }
+      web = { private_ip_address = "10.42.10.4" }
+    }
+  }
+  expect_failures = [var.load_balancers]
+}
+
+run "reject_duplicate_load_balancer_ips" {
+  command = plan
+  variables {
+    subnet_cidrs = merge(var.subnet_cidrs, { load_balancers = "10.42.9.0/28" })
+    load_balancers = {
+      web = { private_ip_address = "10.42.9.4" }
+      api = { private_ip_address = "10.42.9.4" }
     }
   }
   expect_failures = [var.load_balancers]
@@ -1253,8 +1313,9 @@ run "reject_load_balancer_ip_outside_subnet" {
 run "reject_invalid_load_balancer_key" {
   command = plan
   variables {
+    subnet_cidrs = merge(var.subnet_cidrs, { load_balancers = "10.42.9.0/28" })
     load_balancers = {
-      "web-" = { subnet_cidr = "10.42.9.0/28" }
+      "web-" = {}
     }
   }
   expect_failures = [var.load_balancers]
@@ -1263,11 +1324,11 @@ run "reject_invalid_load_balancer_key" {
 run "reject_invalid_load_balancer_rule_key" {
   command = plan
   variables {
+    subnet_cidrs = merge(var.subnet_cidrs, { load_balancers = "10.42.9.0/28" })
     load_balancers = {
       web = {
-        subnet_cidr = "10.42.9.0/28"
-        probes      = { http = { port = 80 } }
-        rules       = { "Http_Rule" = { probe = "http", frontend_port = 80, backend_port = 80 } }
+        probes = { http = { port = 80 } }
+        rules  = { "Http_Rule" = { probe = "http", frontend_port = 80, backend_port = 80 } }
       }
     }
   }

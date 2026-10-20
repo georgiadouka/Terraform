@@ -99,6 +99,7 @@ locals {
       postgresql           = "${local.naming_prefixes.subnet}-psql-${local.name_stem}"
       mysql                = "${local.naming_prefixes.subnet}-mysql-${local.name_stem}"
       sql_managed_instance = "${local.naming_prefixes.subnet}-sqlmi-${local.name_stem}"
+      load_balancers       = "${local.naming_prefixes.subnet}-lb-${local.name_stem}"
     }
 
     subnet_delegations = {
@@ -117,7 +118,6 @@ locals {
     load_balancers = {
       for key, load_balancer in var.load_balancers : key => {
         name                           = "${local.naming_prefixes.load_balancer}-${key}-${local.name_stem}"
-        subnet_name                    = "${local.naming_prefixes.subnet}-${local.naming_prefixes.load_balancer}-${key}-${local.name_stem}"
         frontend_ip_configuration_name = "${local.naming_prefixes.load_balancer_frontend}-${key}-${local.name_stem}"
         backend_address_pool_name      = "${local.naming_prefixes.load_balancer_backend_pool}-${key}-${local.name_stem}"
         probes = {
@@ -490,6 +490,7 @@ locals {
     postgresql           = var.services.postgresql
     mysql                = var.services.mysql
     sql_managed_instance = var.services.sql_managed_instance
+    load_balancers       = length(var.load_balancers) > 0
   }
 
   subnet_definitions = {
@@ -552,30 +553,26 @@ locals {
         ]
       }
     }
+    # Shared by every load balancer frontend IP; no delegation or NAT association.
+    load_balancers = {
+      name             = local.resource_names.subnets.load_balancers
+      address_prefixes = [var.subnet_cidrs.load_balancers]
+    }
   }
 
   # One dedicated subnet per Container Apps environment, keyed
-  # container_apps/<environment key>.
+  # container_apps/<environment key>, using the subnet_cidrs.container_apps
+  # range with the same key.
   container_apps_subnets = {
-    for environment_key, environment in var.container_apps_environments :
+    for environment_key in keys(var.container_apps_environments) :
     "container_apps/${environment_key}" => {
       name             = local.resource_names.container_apps_environments[environment_key].subnet_name
-      address_prefixes = [environment.subnet_cidr]
+      address_prefixes = [var.subnet_cidrs.container_apps[environment_key]]
       delegation = {
         name    = local.resource_names.container_apps_environments[environment_key].subnet_delegation_name
         service = "Microsoft.App/environments"
         actions = ["Microsoft.Network/virtualNetworks/subnets/join/action"]
       }
-    }
-  }
-
-  # One frontend subnet per load balancer, keyed load_balancers/<key>. It holds
-  # only the frontend IP, so it needs no delegation or NAT association.
-  load_balancer_subnets = {
-    for key, load_balancer in var.load_balancers :
-    "load_balancers/${key}" => {
-      name             = local.resource_names.load_balancers[key].subnet_name
-      address_prefixes = [load_balancer.subnet_cidr]
     }
   }
 
@@ -585,16 +582,21 @@ locals {
       subnet_key => subnet
       if local.subnet_enabled[subnet_key]
     },
-    local.container_apps_subnets,
-    local.load_balancer_subnets
+    local.container_apps_subnets
   )
 
-  # Every subnet the lab could create, so the network module checks planned
-  # ranges for overlap even when their services are off.
+  # Every configured range, including unused ones, so the network module checks
+  # the whole address plan for overlap and containment.
   planned_subnet_address_prefixes = merge(
-    { for subnet_key, cidr in var.subnet_cidrs : subnet_key => [cidr] },
-    { for subnet_key, subnet in local.container_apps_subnets : subnet_key => subnet.address_prefixes },
-    { for subnet_key, subnet in local.load_balancer_subnets : subnet_key => subnet.address_prefixes }
+    {
+      for subnet_key, subnet in local.subnet_definitions :
+      subnet_key => subnet.address_prefixes
+      if subnet.address_prefixes[0] != null
+    },
+    {
+      for environment_key, cidr in var.subnet_cidrs.container_apps :
+      "container_apps/${environment_key}" => [cidr]
+    }
   )
 
   private_dns_zones = setunion(
@@ -712,7 +714,7 @@ module "load_balancer" {
   backend_address_pool_name      = local.resource_names.load_balancers[each.key].backend_address_pool_name
   resource_group_name            = module.resource_group.name
   location                       = module.resource_group.location
-  subnet_id                      = module.network.subnet_ids["load_balancers/${each.key}"]
+  subnet_id                      = module.network.subnet_ids["load_balancers"]
   private_ip_address             = each.value.private_ip_address
   zones                          = each.value.zones
   probes = {

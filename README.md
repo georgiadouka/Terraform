@@ -74,8 +74,9 @@ database. Each server gets its own Private Endpoint, and all servers share the
 connectivity is configured on the logical server.
 
 Container Apps environments are opt-in through the `container_apps_environments`
-map. Each entry creates one internal environment on its own delegated subnet
-(`subnet_cidr`, /27 or larger), its own private DNS zone, Consumption plus
+map. Each entry creates one internal environment on its own delegated subnet,
+using the `subnet_cidrs.container_apps` range with the same key (/27 or larger),
+plus its own private DNS zone, Consumption plus
 optional dedicated workload profiles, and the Container Apps listed in its
 `apps` map. All environments send logs to one shared Log Analytics workspace
 and use the shared NAT Gateway for outbound traffic. Two environments, one
@@ -145,9 +146,30 @@ The full lab configuration in `lab.tfvars.example` creates:
 - Key Vault, standard blob/file storage, and Premium Azure Files.
 
 Environment owners can override the VNet address spaces and every subnet CIDR
-through `address_space` and `subnet_cidrs` in their `.tfvars` file. Terraform
+through `address_space` and `subnet_cidrs` in their `.tfvars` file. All address
+planning lives in `subnet_cidrs`: services never take a CIDR themselves.
+`subnet_cidrs.container_apps` maps each Container Apps environment key to its
+own range, and `subnet_cidrs.load_balancers` is one range shared by every load
+balancer frontend:
+
+```hcl
+subnet_cidrs = {
+  private_endpoints    = "10.42.0.0/24"
+  virtual_machines     = "10.42.1.0/24"
+  # ...other shared subnets...
+  container_apps = {
+    primary = "10.42.2.0/27"   # used by container_apps_environments.primary
+    jobs    = "10.42.2.32/27"  # used by container_apps_environments.jobs
+  }
+  load_balancers = "10.42.9.0/26"
+}
+```
+
+Terraform
 validates the complete current and future address plan for VNet containment and
-overlap, but creates only the subnets required by enabled services. The shared
+overlap, but creates only the subnets required by enabled services. Unused
+ranges, such as a `container_apps` key with no environment yet, stay reserved
+and are checked but not created. The shared
 Private Endpoint subnet is created while at least one Key Vault, storage
 account, Premium Files account, container registry, Cosmos DB account, or Azure
 SQL server is configured, or Web App or Function App is enabled. Enabling a
@@ -394,14 +416,19 @@ application health signal that this workload-agnostic module cannot infer.
 
 ### Internal load balancers
 
-Each `load_balancers` entry creates one internal Standard load balancer whose
-frontend IP sits on its own subnet. VMs and scale sets join its single backend
-pool by setting `load_balancer` to the entry's key:
+Each `load_balancers` entry creates one internal Standard load balancer. All
+frontend IPs share the `subnet_cidrs.load_balancers` range. VMs and scale sets
+join a load balancer's single backend pool by setting `load_balancer` to the
+entry's key:
 
 ```hcl
+subnet_cidrs = {
+  # ...
+  load_balancers = "10.42.9.0/26"
+}
+
 load_balancers = {
   web = {
-    subnet_cidr = "10.42.9.0/28"
     probes = {
       http = { protocol = "Http", port = 80, request_path = "/" }
     }
@@ -423,13 +450,15 @@ virtual_machine_scale_sets = {
 
 - The frontend is private only: there is no public IP. Clients reach it from
   inside the VNet (or a peered or connected network).
-- Each load balancer gets its own subnet, `snet-lbi-<key>-…`, /29 or larger
-  (the Azure minimum). It holds only the frontend IP, so it has no delegation
-  and no NAT Gateway association. Terraform checks it for overlap with every
-  other lab subnet. Backends stay on the shared VM subnet.
+- Every load balancer's frontend IP goes in one shared subnet,
+  `snet-lb-…`, created from `subnet_cidrs.load_balancers` (/29 or larger, the
+  Azure minimum) once the first load balancer exists. It holds only frontend
+  IPs, so it has no delegation and no NAT Gateway association. Backends stay on
+  the shared VM subnet.
 - The frontend IP is dynamic by default. Set `private_ip_address` to a usable
-  address in that subnet for a static IP; the first four and the last address
-  are rejected because Azure reserves them.
+  address in `subnet_cidrs.load_balancers` for a static IP; Azure's reserved
+  addresses (the first four and the last) and duplicates across load balancers
+  are rejected.
 - The frontend is zone-redundant (`zones = ["1", "2", "3"]`) by default. Set
   `zones = []` in regions without availability zones. Changing zones replaces
   the load balancer.
@@ -451,21 +480,28 @@ virtual_machine_scale_sets = {
 ### Container Apps environments, apps, and workload profiles
 
 Each `container_apps_environments` entry is one environment with its own
-subnet. Set the following in the environment variables file to create two
+subnet, whose range comes from the `subnet_cidrs.container_apps` entry with the
+same key. Set the following in the environment variables file to create two
 environments: `primary` with two Consumption apps, and `jobs` with a dedicated
 general-purpose profile that hosts one app:
 
 ```hcl
+subnet_cidrs = {
+  # ...
+  container_apps = {
+    primary = "10.42.2.0/27"
+    jobs    = "10.42.3.0/24"
+  }
+}
+
 container_apps_environments = {
   primary = {
-    subnet_cidr = "10.42.2.0/27"
     apps = {
       hello = {}
       api   = { image = "mcr.microsoft.com/k8se/quickstart:latest", target_port = 80 }
     }
   }
   jobs = {
-    subnet_cidr = "10.42.3.0/24"
     dedicated_workload_profiles = {
       general = {
         workload_profile_type = "D4"
@@ -480,12 +516,15 @@ container_apps_environments = {
 }
 ```
 
+- Environments are matched to ranges by key, not by order, so adding or
+  removing one environment never moves another to a different subnet. An
+  environment without a matching range is rejected at plan time.
 - Each environment needs a subnet to itself: Azure delegates it to
   `Microsoft.App/environments` and no other resource can use it. These are
   workload profiles environments, so the minimum is /27 (18 usable addresses
   after Azure's reservations, up to 90 Consumption replicas or 9 dedicated
   nodes). Subnet size can't change after creation, so size for growth. Terraform
-  checks every environment subnet for overlap with the other lab subnets.
+  checks every range for overlap with the other lab subnets.
 - Environment keys are 1-12 characters and app keys 1-8 characters: lowercase
   letters, digits, or hyphens, starting with a letter and ending with a letter
   or digit. App names are `<prefix>-<app key>-<environment key>-<suffix>`, for
