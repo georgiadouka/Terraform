@@ -28,6 +28,13 @@ param(
     [ValidatePattern("^[a-z][a-z0-9-]{0,11}$")]
     [string]$SmokeTestCosmosDbAccountKey = "primary",
 
+    [ValidatePattern("^[a-z][a-z0-9-]{0,11}$")]
+    [string]$SmokeTestContainerAppsEnvironmentKey = "primary",
+
+    # App key within the environment selected above.
+    [ValidatePattern("^[a-z][a-z0-9-]{0,7}$")]
+    [string]$SmokeTestContainerAppKey = "hello",
+
     # Relative paths resolve against environments\lab.
     [ValidateNotNullOrEmpty()]
     [string]$VarFile = "lab.tfvars"
@@ -112,6 +119,15 @@ try {
         throw "The configured smoke-test Azure SQL server key '$SmokeTestAzureSqlServerKey' was not found."
     }
 
+    $smokeTestContainerAppsEnvironment = $outputs.container_apps_environments.value.PSObject.Properties[$SmokeTestContainerAppsEnvironmentKey].Value
+    if ($null -eq $smokeTestContainerAppsEnvironment) {
+        throw "The configured smoke-test Container Apps environment key '$SmokeTestContainerAppsEnvironmentKey' was not found."
+    }
+    $smokeTestContainerApp = $smokeTestContainerAppsEnvironment.apps.PSObject.Properties[$SmokeTestContainerAppKey].Value
+    if ($null -eq $smokeTestContainerApp) {
+        throw "The configured smoke-test Container App key '$SmokeTestContainerAppKey' was not found in environment '$SmokeTestContainerAppsEnvironmentKey'."
+    }
+
     $cosmosDbAccounts = @($outputs.cosmos_db_accounts.value.PSObject.Properties)
     $smokeTestCosmosDbHost = $null
     if ($cosmosDbAccounts.Count -gt 0) {
@@ -133,7 +149,7 @@ try {
         "FUNCTION_APP_HOST=$($outputs.function_app_hostname.value)",
         "WEB_APP_HOST=$($outputs.web_app_hostname.value)",
         "CONTAINER_REGISTRY_HOST=$($smokeTestContainerRegistry.login_server)",
-        "CONTAINER_APP_HOST=$($outputs.container_app_fqdn.value)"
+        "CONTAINER_APP_HOST=$($smokeTestContainerApp.fqdn)"
     )
 
     # Run Command drops empty parameters, which would shift the Linux script's

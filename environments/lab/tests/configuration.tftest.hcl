@@ -95,6 +95,7 @@ mock_provider "azurerm" {
     }
   }
   mock_resource "azurerm_log_analytics_workspace" {
+    override_during = plan
     defaults = {
       id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.OperationalInsights/workspaces/log-test"
     }
@@ -126,11 +127,13 @@ override_module {
   outputs = {
     id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Network/virtualNetworks/vnet-test"
     subnet_ids = {
-      virtual_machines     = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Network/virtualNetworks/vnet-test/subnets/vms"
-      private_endpoints    = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Network/virtualNetworks/vnet-test/subnets/endpoints"
-      web_app_integration  = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Network/virtualNetworks/vnet-test/subnets/web-app"
-      function_integration = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Network/virtualNetworks/vnet-test/subnets/functions"
-      container_apps       = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Network/virtualNetworks/vnet-test/subnets/apps"
+      virtual_machines              = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Network/virtualNetworks/vnet-test/subnets/vms"
+      private_endpoints             = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Network/virtualNetworks/vnet-test/subnets/endpoints"
+      web_app_integration           = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Network/virtualNetworks/vnet-test/subnets/web-app"
+      function_integration          = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Network/virtualNetworks/vnet-test/subnets/functions"
+      "container_apps/primary"      = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Network/virtualNetworks/vnet-test/subnets/apps-primary"
+      "container_apps/jobs"         = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Network/virtualNetworks/vnet-test/subnets/apps-jobs"
+      "container_apps/longenvname1" = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Network/virtualNetworks/vnet-test/subnets/apps-long"
     }
   }
 }
@@ -162,12 +165,12 @@ override_module {
 # Every lab input is pinned here so results never depend on a local
 # terraform.tfvars or *.auto.tfvars, which terraform test loads automatically.
 variables {
-  subscription_id = "00000000-0000-0000-0000-000000000000"
-  tenant_id       = "22222222-2222-2222-2222-222222222222"
-  naming          = { unique_suffix = "test1" }
-  container_apps  = {}
-  web_app         = {}
-  function_app    = {}
+  subscription_id             = "00000000-0000-0000-0000-000000000000"
+  tenant_id                   = "22222222-2222-2222-2222-222222222222"
+  naming                      = { unique_suffix = "test1" }
+  container_apps_environments = {}
+  web_app                     = {}
+  function_app                = {}
   virtual_machines = {
     primary = {}
   }
@@ -177,7 +180,6 @@ variables {
     sql_managed_instance = false
     postgresql           = false
     mysql                = false
-    container_apps       = false
     web_app              = false
     function_app         = true
   }
@@ -189,7 +191,6 @@ variables {
   subnet_cidrs = {
     private_endpoints    = "10.42.0.0/24"
     virtual_machines     = "10.42.1.0/24"
-    container_apps       = "10.42.2.0/23"
     web_app_integration  = "10.42.8.0/26"
     function_integration = "10.42.4.0/24"
     postgresql           = "10.42.5.0/24"
@@ -223,7 +224,6 @@ run "linux_defaults" {
       output.generated_resource_names.subnets == {
         private_endpoints    = "snet-pe-metlen-lab-test1"
         virtual_machines     = "snet-vm-metlen-lab-test1"
-        container_apps       = "snet-aca-metlen-lab-test1"
         web_app_integration  = "snet-app-metlen-lab-test1"
         function_integration = "snet-func-metlen-lab-test1"
         postgresql           = "snet-psql-metlen-lab-test1"
@@ -387,7 +387,6 @@ run "vmss_only_keeps_shared_network" {
       sql_managed_instance = false
       postgresql           = false
       mysql                = false
-      container_apps       = false
       web_app              = false
       function_app         = false
     }
@@ -412,7 +411,6 @@ run "disabled_services" {
       sql_managed_instance = false
       postgresql           = false
       mysql                = false
-      container_apps       = false
       web_app              = false
       function_app         = false
     }
@@ -434,8 +432,8 @@ run "disabled_services" {
       output.function_app_hostname == null &&
       length(output.container_registries) == 0 &&
       output.web_app_id == null &&
-      length(output.container_app_dedicated_workload_profile_names) == 0 &&
-      output.container_app_workload_profile_name == null
+      length(output.container_apps_environments) == 0 &&
+      output.log_analytics_workspace_id == null
     )
     error_message = "Disabled services must not generate VM credentials or a Function App."
   }
@@ -903,87 +901,210 @@ run "reject_shared_key_provider_with_keyless_account" {
   expect_failures = [var.storage_use_azuread]
 }
 
-run "container_apps_consumption" {
+run "container_apps_single_environment" {
   command = plan
   variables {
-    services = merge(var.services, { container_apps = true })
-  }
-  assert {
-    condition = (
-      length(output.container_app_dedicated_workload_profile_names) == 0 &&
-      output.container_app_workload_profile_name == "Consumption"
-    )
-    error_message = "The root default must retain Consumption-only placement."
-  }
-}
-
-run "container_apps_single_profile" {
-  command = plan
-  variables {
-    services = merge(var.services, { container_apps = true })
-    container_apps = {
-      dedicated_workload_profiles = { general = { workload_profile_type = "D4" } }
-      app_workload_profile        = "general"
+    container_apps_environments = {
+      primary = {
+        subnet_cidr = "10.42.2.0/27"
+        apps        = { hello = {} }
+      }
     }
   }
   assert {
     condition = (
-      output.container_app_dedicated_workload_profile_names["general"] == "wp-general01" &&
-      output.container_app_workload_profile_name == output.container_app_dedicated_workload_profile_names["general"]
+      length(module.container_apps) == 1 &&
+      length(module.log_analytics) == 1 &&
+      output.log_analytics_workspace_id == "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.OperationalInsights/workspaces/log-test" &&
+      local.resource_names.container_apps_environments["primary"].name == "cae-primary-metlen-lab-test1" &&
+      local.resource_names.container_apps_environments["primary"].apps["hello"] == "ca-hello-primary-test1" &&
+      local.resource_names.container_apps_environments["primary"].private_dns_link_name == "pdnslink-container-apps-primary-metlen-lab-test1" &&
+      local.subnets["container_apps/primary"].name == "snet-aca-primary-metlen-lab-test1" &&
+      local.subnets["container_apps/primary"].address_prefixes == ["10.42.2.0/27"] &&
+      local.subnets["container_apps/primary"].delegation.service == "Microsoft.App/environments" &&
+      local.planned_subnet_address_prefixes["container_apps/primary"] == ["10.42.2.0/27"] &&
+      contains(local.nat_gateway_subnet_keys, "container_apps/primary") &&
+      length(output.container_apps_environments["primary"].dedicated_workload_profile_names) == 0 &&
+      output.container_apps_environments["primary"].apps["hello"].workload_profile_name == "Consumption"
     )
-    error_message = "A single dedicated profile must use its deterministic Azure name and remain selectable through tfvars."
+    error_message = "One environment must get its own delegated subnet behind the NAT Gateway, the shared workspace, and a Consumption app."
+  }
+}
+
+run "multiple_container_apps_environments" {
+  command = plan
+  variables {
+    virtual_machines = {}
+    container_apps_environments = {
+      primary = {
+        subnet_cidr = "10.42.2.0/27"
+        apps = {
+          hello = {}
+          api   = { target_port = 8080 }
+        }
+      }
+      jobs = {
+        subnet_cidr = "10.42.3.0/24"
+        dedicated_workload_profiles = {
+          general = { workload_profile_type = "D4" }
+        }
+        apps = {
+          worker = { workload_profile = "general" }
+        }
+      }
+    }
+  }
+  assert {
+    condition = (
+      length(module.container_apps) == 2 &&
+      length(module.log_analytics) == 1 &&
+      local.nat_gateway_required &&
+      toset(local.nat_gateway_subnet_keys) == toset(["container_apps/primary", "container_apps/jobs"]) &&
+      local.subnets["container_apps/jobs"].address_prefixes == ["10.42.3.0/24"] &&
+      local.subnets["container_apps/primary"].name != local.subnets["container_apps/jobs"].name &&
+      local.resource_names.container_apps_environments["jobs"].name == "cae-jobs-metlen-lab-test1" &&
+      local.resource_names.container_apps_environments["primary"].private_dns_link_name != local.resource_names.container_apps_environments["jobs"].private_dns_link_name &&
+      local.resource_names.container_apps_environments["primary"].apps["api"] == "ca-api-primary-test1" &&
+      local.resource_names.container_apps_environments["jobs"].apps["worker"] == "ca-worker-jobs-test1" &&
+      length(output.container_apps_environments["primary"].apps) == 2 &&
+      length(output.container_apps_environments["primary"].dedicated_workload_profile_names) == 0 &&
+      output.container_apps_environments["jobs"].dedicated_workload_profile_names["general"] == "wp-general01" &&
+      output.container_apps_environments["jobs"].apps["worker"].workload_profile_name == "wp-general01" &&
+      output.container_apps_environments["primary"].apps["api"].workload_profile_name == "Consumption"
+    )
+    error_message = "Each environment must get its own subnet, DNS link, workload profiles, and apps, and share one workspace and the NAT Gateway."
   }
 }
 
 run "container_apps_multiple_profiles" {
   command = plan
   variables {
-    services = merge(var.services, { container_apps = true })
-    container_apps = {
-      dedicated_workload_profiles = {
-        general = { workload_profile_type = "D4", minimum_count = 0, maximum_count = 3 }
-        memory  = { workload_profile_type = "E4", minimum_count = 1, maximum_count = 2 }
+    container_apps_environments = {
+      primary = {
+        subnet_cidr = "10.42.2.0/23"
+        dedicated_workload_profiles = {
+          general = { workload_profile_type = "D4", minimum_count = 0, maximum_count = 3 }
+          memory  = { workload_profile_type = "E4", minimum_count = 1, maximum_count = 2 }
+        }
+        apps = {
+          hello = { workload_profile = "memory" }
+          api   = { workload_profile = "general" }
+        }
       }
-      app_workload_profile = "memory"
     }
   }
   assert {
     condition = (
-      output.container_app_workload_profile_name == output.container_app_dedicated_workload_profile_names["memory"] &&
-      output.container_app_dedicated_workload_profile_names["general"] == "wp-general01" &&
-      output.container_app_dedicated_workload_profile_names["memory"] == "wp-memory01" &&
-      output.container_app_dedicated_workload_profile_names["general"] == run.container_apps_single_profile.container_app_dedicated_workload_profile_names["general"] &&
-      length(distinct(values(output.container_app_dedicated_workload_profile_names))) == 2 &&
-      alltrue([for name in values(output.container_app_dedicated_workload_profile_names) : length(name) <= 15])
+      output.container_apps_environments["primary"].dedicated_workload_profile_names == { general = "wp-general01", memory = "wp-memory01" } &&
+      output.container_apps_environments["primary"].apps["hello"].workload_profile_name == "wp-memory01" &&
+      output.container_apps_environments["primary"].apps["api"].workload_profile_name == "wp-general01"
     )
-    error_message = "Root configuration must pass logical placement and generate the requested deterministic Azure profile names."
+    error_message = "Root configuration must pass logical placement per app and generate deterministic Azure profile names."
   }
 }
 
 run "container_apps_long_profile_prefix" {
   command = plan
   variables {
-    services = merge(var.services, { container_apps = true })
     naming = {
       unique_suffix = "test1"
       prefixes      = { container_apps_profile = "longprefix" }
     }
-    container_apps = {
-      dedicated_workload_profiles = {
-        general = { workload_profile_type = "D4" }
-        memory  = { workload_profile_type = "E4" }
+    container_apps_environments = {
+      primary = {
+        subnet_cidr = "10.42.2.0/27"
+        dedicated_workload_profiles = {
+          general = { workload_profile_type = "D4" }
+          memory  = { workload_profile_type = "E4" }
+        }
       }
     }
   }
   assert {
     condition = (
-      output.container_app_dedicated_workload_profile_names["general"] == "lon-${substr(sha1("general"), 0, 8)}01" &&
-      output.container_app_dedicated_workload_profile_names["memory"] == "lon-${substr(sha1("memory"), 0, 8)}01" &&
-      length(distinct(values(output.container_app_dedicated_workload_profile_names))) == 2 &&
-      alltrue([for name in values(output.container_app_dedicated_workload_profile_names) : length(name) <= 15])
+      output.container_apps_environments["primary"].dedicated_workload_profile_names["general"] == "lon-${substr(sha1("general"), 0, 8)}01" &&
+      output.container_apps_environments["primary"].dedicated_workload_profile_names["memory"] == "lon-${substr(sha1("memory"), 0, 8)}01" &&
+      alltrue([for name in values(output.container_apps_environments["primary"].dedicated_workload_profile_names) : length(name) <= 15]) &&
+      length(output.container_apps_environments["primary"].apps) == 0
     )
     error_message = "Long profile prefixes must fall back to unique deterministic names within Azure's 15-character limit."
   }
+}
+
+run "container_app_name_at_maximum_length" {
+  command = plan
+  variables {
+    project_name = "abcdefghijkl"
+    environment  = "abcdefgh"
+    naming = {
+      unique_suffix = "abcde"
+      prefixes      = { container_app = "abcd" }
+    }
+    container_apps_environments = {
+      longenvname1 = {
+        subnet_cidr = "10.42.2.0/27"
+        apps        = { longapp1 = {} }
+      }
+    }
+  }
+  assert {
+    condition = (
+      length(local.resource_names.container_apps_environments["longenvname1"].apps["longapp1"]) == 32 &&
+      can(regex("^[a-z][a-z0-9-]{0,30}[a-z0-9]$", local.resource_names.container_apps_environments["longenvname1"].apps["longapp1"])) &&
+      length(local.resource_names.container_apps_environments["longenvname1"].name) <= 60
+    )
+    error_message = "The longest possible Container App name must stay within Azure's 32-character limit and the environment name within 60."
+  }
+}
+
+run "reject_small_container_apps_subnet" {
+  command = plan
+  variables {
+    container_apps_environments = {
+      primary = { subnet_cidr = "10.42.2.0/28" }
+    }
+  }
+  expect_failures = [var.container_apps_environments]
+}
+
+run "reject_invalid_container_apps_environment_key" {
+  command = plan
+  variables {
+    container_apps_environments = {
+      "primary-" = { subnet_cidr = "10.42.2.0/27" }
+    }
+  }
+  expect_failures = [var.container_apps_environments]
+}
+
+run "reject_overlong_container_app_key" {
+  command = plan
+  variables {
+    container_apps_environments = {
+      primary = {
+        subnet_cidr = "10.42.2.0/27"
+        apps        = { ninechars = {} }
+      }
+    }
+  }
+  expect_failures = [var.container_apps_environments]
+}
+
+run "reject_colliding_container_app_names" {
+  command = plan
+  variables {
+    container_apps_environments = {
+      c = {
+        subnet_cidr = "10.42.2.0/27"
+        apps        = { "a-b" = {} }
+      }
+      "b-c" = {
+        subnet_cidr = "10.42.3.0/27"
+        apps        = { a = {} }
+      }
+    }
+  }
+  expect_failures = [var.container_apps_environments]
 }
 
 run "windows_function_app" {

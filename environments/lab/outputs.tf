@@ -153,19 +153,24 @@ output "cosmos_db_accounts" {
   }
 }
 
-output "container_app_fqdn" {
-  description = "Private Container App FQDN when enabled."
-  value       = try(module.container_apps[0].fqdn, null)
+output "container_apps_environments" {
+  description = "Container Apps environments keyed by logical name, with their dedicated workload profile names and Container Apps."
+  value = {
+    for key, environment in module.container_apps : key => {
+      id                               = environment.environment_id
+      name                             = environment.environment_name
+      default_domain                   = environment.default_domain
+      static_ip_address                = environment.static_ip_address
+      subnet_id                        = module.network.subnet_ids["container_apps/${key}"]
+      dedicated_workload_profile_names = environment.dedicated_workload_profile_names
+      apps                             = environment.apps
+    }
+  }
 }
 
-output "container_app_dedicated_workload_profile_names" {
-  description = "Dedicated Azure profile names keyed by logical label, or an empty map when disabled."
-  value       = try(module.container_apps[0].dedicated_workload_profile_names, {})
-}
-
-output "container_app_workload_profile_name" {
-  description = "Workload profile used by the sample Container App when enabled."
-  value       = try(module.container_apps[0].app_workload_profile_name, null)
+output "log_analytics_workspace_id" {
+  description = "Shared Log Analytics workspace ID when any Container Apps environment exists."
+  value       = try(module.log_analytics[0].id, null)
 }
 
 output "function_app_hostname" {

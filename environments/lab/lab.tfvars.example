@@ -81,7 +81,6 @@ address_space = ["10.42.0.0/20"]
 subnet_cidrs = {
   private_endpoints    = "10.42.0.0/24"
   virtual_machines     = "10.42.1.0/24"
-  container_apps       = "10.42.2.0/23"
   web_app_integration  = "10.42.8.0/26"
   function_integration = "10.42.4.0/24"
   postgresql           = "10.42.5.0/24"
@@ -94,7 +93,6 @@ services = {
   sql_managed_instance      = false
   postgresql                = true
   mysql                     = true
-  container_apps            = true
   web_app                   = true
   function_app              = true
 }
@@ -210,8 +208,8 @@ virtual_machine_scale_sets = {}
 #   }
 # }
 
-# One shared gateway is created when VM, VMSS, or Container Apps is enabled and is
-# associated with whichever of those service subnets are active.
+# One shared gateway is created when VM, VMSS, or Container Apps is configured and is
+# associated with the VM subnet and every Container Apps environment subnet.
 nat_gateway = {
   idle_timeout_in_minutes = 4
 }
@@ -340,27 +338,47 @@ mysql = {
   }
 }
 
-container_apps = {
-  image       = "mcr.microsoft.com/azuredocs/containerapps-helloworld:latest"
-  target_port = 80
+# One entry per internal Container Apps environment; an empty map creates none.
+# Each environment needs its own non-overlapping subnet_cidr, /27 or larger,
+# that can't be resized later. Environment keys are 1-12 characters and app
+# keys 1-8; changing a key replaces that environment or app. The smoke test
+# uses environment "primary" and app "hello" by default.
+container_apps_environments = {
+  primary = {
+    subnet_cidr = "10.42.2.0/27"
 
-  # Empty means Consumption-only. Uncomment one or more profiles as needed.
-  # Keys are stable logical labels; Azure profile names are generated centrally.
-  dedicated_workload_profiles = {
-    # general = {
-    #   workload_profile_type = "D4"
-    #   minimum_count         = 0
-    #   maximum_count         = 3
-    # }
-    # memory = {
-    #   workload_profile_type = "E4"
-    #   minimum_count         = 0
-    #   maximum_count         = 2
-    # }
+    # Empty means Consumption-only. Uncomment one or more profiles as needed.
+    # Keys are stable logical labels; Azure profile names are generated centrally.
+    # Counts are dedicated NODES, not app replicas; review billing/region support.
+    dedicated_workload_profiles = {
+      # general = {
+      #   workload_profile_type = "D4"
+      #   minimum_count         = 0
+      #   maximum_count         = 3
+      # }
+      # memory = {
+      #   workload_profile_type = "E4"
+      #   minimum_count         = 0
+      #   maximum_count         = 2
+      # }
+    }
+
+    apps = {
+      hello = {
+        image       = "mcr.microsoft.com/azuredocs/containerapps-helloworld:latest"
+        target_port = 80
+        # Use "general" or "memory" after enabling that profile above.
+        workload_profile = "Consumption"
+      }
+    }
   }
-  # Use "general" or "memory" after enabling that profile above.
-  app_workload_profile = "Consumption"
-  # Counts above are dedicated NODES, not app replicas; review billing/region support.
+
+  # jobs = {
+  #   subnet_cidr = "10.42.3.0/27"
+  #   apps = {
+  #     worker = {}
+  #   }
+  # }
 }
 
 # One entry per Cosmos DB account; an empty map creates none. Each entry picks

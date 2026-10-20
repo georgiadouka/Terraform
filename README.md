@@ -47,7 +47,8 @@ versioning lifecycle.
 | `postgresql-flexible` | PostgreSQL Flexible Server and database with optional HA | Delegated subnet and Private DNS |
 | `mysql-flexible` | MySQL Flexible Server and database with optional HA | Delegated subnet and Private DNS |
 | `cosmos-db` | NoSQL, MongoDB, Cassandra, Gremlin, or Table account with serverless/manual/autoscale throughput | Public network disabled; API-specific Private Endpoint and DNS |
-| `container-apps` | Internal Container Apps environment with Consumption and optional dedicated workload profiles | Internal load balancer and private wildcard DNS |
+| `container-apps` | Internal Container Apps environment with Consumption, optional dedicated workload profiles, and zero or more Container Apps | Dedicated delegated subnet, internal load balancer, and private wildcard DNS |
+| `log-analytics-workspace` | Log Analytics workspace shared by every Container Apps environment | N/A |
 | `web-app` | Linux code, Windows code, or Linux container App Service Web App | Public network disabled; Private Endpoint and outbound VNet integration |
 | `function-app` | Linux or Windows Elastic Premium Function App | Inbound Private Endpoint and outbound VNet integration |
 
@@ -71,11 +72,13 @@ database. Each server gets its own Private Endpoint, and all servers share the
 `privatelink.database.windows.net` zone; neither changes with pooling because
 connectivity is configured on the logical server.
 
-Container Apps retains Consumption by default. Environment owners can add one
-or more dedicated profiles through `container_apps.dedicated_workload_profiles`
-and select app placement with `container_apps.app_workload_profile`. The map is
-empty by default to avoid dedicated-profile charges. The multi-profile path has
-mocked Terraform plan coverage; it has not been deployed to Azure.
+Container Apps environments are opt-in through the `container_apps_environments`
+map. Each entry creates one internal environment on its own delegated subnet
+(`subnet_cidr`, /27 or larger), its own private DNS zone, Consumption plus
+optional dedicated workload profiles, and the Container Apps listed in its
+`apps` map. All environments send logs to one shared Log Analytics workspace
+and use the shared NAT Gateway for outbound traffic. The dedicated-profile path
+has mocked Terraform plan coverage; it has not been deployed to Azure.
 
 Cosmos DB accounts are opt-in through the `cosmos_db_accounts` map. Each entry
 creates one classic RU-based API account with its own `api_type`: NoSQL,
@@ -122,9 +125,10 @@ and `TransactionOptimized`.
 The full lab configuration in `lab.tfvars.example` creates:
 
 - one resource group and one `10.42.0.0/20` VNet;
-- separate subnets for the enabled Private Endpoint consumers, VMs, Container
-  Apps, Web App VNet integration, Function VNet integration, PostgreSQL, and
-  MySQL; SQL Managed Instance adds its dedicated subnet only when enabled;
+- separate subnets for the enabled Private Endpoint consumers, VMs, each
+  Container Apps environment, Web App VNet integration, Function VNet
+  integration, PostgreSQL, and MySQL; SQL Managed Instance adds its dedicated
+  subnet only when enabled;
 - twelve approved Private Endpoints;
 - centralized Private DNS zones for enabled services linked to the VNet;
 - one private VM with a managed data disk;
@@ -132,7 +136,8 @@ The full lab configuration in `lab.tfvars.example` creates:
 - one shared NAT Gateway and static public IP for VM/VMSS and Container Apps
   outbound internet traffic;
 - standalone or elastic-pooled Azure SQL Database, PostgreSQL, and MySQL;
-- an internal Container App on Consumption or an optional dedicated profile;
+- internal Container Apps environments, each with its own apps on Consumption
+  or an optional dedicated profile;
 - a private Linux code, Windows code, or Linux container Web App;
 - a private Function App with private host storage;
 - Key Vault, standard blob/file storage, and Premium Azure Files.
@@ -385,49 +390,71 @@ quota, and the cost of the configured maximum before applying. `Manual` is the
 default upgrade mode because health-aware rolling upgrades require an
 application health signal that this workload-agnostic module cannot infer.
 
-### Container Apps workload profiles
+### Container Apps environments, apps, and workload profiles
 
-Set the following in the environment variables file to create two dedicated
-profiles and place the single sample Container App on the general-purpose one:
+Each `container_apps_environments` entry is one environment with its own
+subnet. Set the following in the environment variables file to create two
+environments: `primary` with two Consumption apps, and `jobs` with a dedicated
+general-purpose profile that hosts one app:
 
 ```hcl
-container_apps = {
-  dedicated_workload_profiles = {
-    general = {
-      workload_profile_type = "D4"
-      minimum_count         = 0
-      maximum_count         = 3
-    }
-    memory = {
-      workload_profile_type = "E4"
-      minimum_count         = 0
-      maximum_count         = 2
+container_apps_environments = {
+  primary = {
+    subnet_cidr = "10.42.2.0/27"
+    apps = {
+      hello = {}
+      api   = { image = "mcr.microsoft.com/k8se/quickstart:latest", target_port = 80 }
     }
   }
-  app_workload_profile = "general"
+  jobs = {
+    subnet_cidr = "10.42.3.0/24"
+    dedicated_workload_profiles = {
+      general = {
+        workload_profile_type = "D4"
+        minimum_count         = 0
+        maximum_count         = 3
+      }
+    }
+    apps = {
+      worker = { workload_profile = "general" }
+    }
+  }
 }
 ```
 
-- An empty map means Consumption-only. Consumption remains available even
-  when dedicated profiles are configured.
-- Set `app_workload_profile` to `"Consumption"` or a configured map key.
-  Omission/null defaults to Consumption with the new interface. The composition
-  still creates **one app**, placed on one profile; profiles do not create apps.
-- Keys are stable logical labels: 1-20 lowercase letters, digits, or hyphens,
-  starting with a letter; `consumption` is reserved. Azure profile names are
-  generated centrally. Retrieve the label-to-name map with
-  `terraform output container_app_dedicated_workload_profile_names`; the selected
-  Azure name is `container_app_workload_profile_name`.
+- Each environment needs a subnet to itself: Azure delegates it to
+  `Microsoft.App/environments` and no other resource can use it. These are
+  workload profiles environments, so the minimum is /27 (18 usable addresses
+  after Azure's reservations, up to 90 Consumption replicas or 9 dedicated
+  nodes). Subnet size can't change after creation, so size for growth. Terraform
+  checks every environment subnet for overlap with the other lab subnets.
+- Environment keys are 1-12 characters and app keys 1-8 characters: lowercase
+  letters, digits, or hyphens, starting with a letter and ending with a letter
+  or digit. App names are `<prefix>-<app key>-<environment key>-<suffix>`, for
+  example `ca-hello-primary-it6hp`, which keeps the longest name within Azure's
+  32-character limit.
+- An empty `apps` map creates the environment without apps. Each app runs one
+  container with 0.25 vCPU, 0.5 GiB, and 0-1 replicas.
+- `dedicated_workload_profiles` is empty by default (Consumption-only).
+  Consumption remains available when dedicated profiles are configured. Set an
+  app's `workload_profile` to `"Consumption"` (the default) or a profile key in
+  the same environment; profiles do not create apps.
+- Profile keys are stable logical labels: 1-20 lowercase letters, digits, or
+  hyphens, starting with a letter; `consumption` is reserved. Azure profile
+  names are generated centrally and are scoped to their environment. Retrieve
+  them with `terraform output container_apps_environments`, which also lists
+  each app's FQDN and selected profile.
 - Minimum/maximum counts are **compute nodes**, not app replicas. Node counts
   must be whole numbers with `0 <= minimum_count <= maximum_count` and a maximum
-  of at least one. App replica limits remain unchanged (0-1).
+  of at least one.
 - Check regional profile availability, quota, and dedicated billing before
   applying. A positive minimum keeps nodes allocated; zero minimum does not
   guarantee zero dedicated charges. See the
-  [Microsoft workload profile documentation](https://learn.microsoft.com/azure/container-apps/workload-profiles-overview).
+  [Microsoft workload profile documentation](https://learn.microsoft.com/azure/container-apps/workload-profiles-overview)
+  and [subnet requirements](https://learn.microsoft.com/azure/container-apps/custom-virtual-networks).
 
-Changing a map key renames that profile; changing counts or adding another key
-does not rename existing entries.
+Changing an environment, app, or profile key renames and replaces that
+resource; adding or removing other entries does not rename existing ones.
 
 ### App Service Web App modes
 
@@ -584,7 +611,8 @@ terraform -chdir=modules\container-apps test
 The tests use mocked Azure providers and plan-only runs; they do not deploy
 resources or exercise real database failover. The environment tests override
 network/storage plumbing to focus on configuration, credential selection, Web
-App mode selection, and Container Apps profile naming/placement. Workload
+App mode selection, and Container Apps environment, app, and profile
+naming/placement. Workload
 profile tests cover defaults, multiple profiles, and invalid inputs. Separate
 lab tests confirm that every service is opt-in and lock in Private Endpoint
 targets, subresources, DNS zones, and names.
@@ -643,10 +671,15 @@ form. Storage account names contain no hyphens and stay within 24 characters;
 Azure Container Registry names contain no hyphens and include a logical-key token, and Key Vault names keep
 the suffix and a logical-key token within 24 characters; Cosmos DB account
 names keep a logical-key token within 44 characters, and database/container names are compact alphanumeric identifiers compatible with
-all supported APIs. Map-based Container Apps workload profile names use
-`<prefix up to 3 characters>-<4-character SHA-1 of logical key>-<suffix>`, staying
-within Azure's 15-character limit. The key hash makes names independent of map
-ordering; conflicting shortened hashes are rejected. Azure-owned or
+all supported APIs. Container App names use
+`<prefix>-<app key>-<environment key>-<suffix>` within Azure's 32-character
+limit; the project and environment labels are left out because App names only
+need to be unique within the resource group. Map-based Container Apps workload
+profile names use `<prefix>-<logical key>01`, such as `wp-general01`; when that
+exceeds Azure's 15-character limit they fall back to
+`<prefix up to 3 characters>-<8-character SHA-1 of logical key>01`. Profile
+names are scoped to their environment, so every environment reuses them.
+Azure-owned or
 protocol-defined names cannot be changed, including Private DNS zone FQDNs, `@`/`*` DNS records,
 and the Container Apps `Consumption` profile.
 

@@ -116,7 +116,7 @@ cost, capacity, or data layout:
 | Key Vault | SKU and purge protection |
 | Storage | Terraform authentication, Shared Key policy, workload RBAC, redundancy, containers, shares, quotas, and access tiers |
 | Databases | Versions, SKUs, storage, PostgreSQL/MySQL HA and zones, throughput, and API-specific schema |
-| Container Apps | Image, port, dedicated workload profile map, and app placement selector |
+| Container Apps | Environments keyed by name, each with its own subnet CIDR, dedicated workload profile map, and apps (image, port, profile placement) |
 | Web App | Linux code, Windows code, or Linux container mode; plan SKU, runtime, image, port, and app settings |
 | Function App | Linux/Windows OS, Elastic Premium plan SKU, language runtime and version |
 
@@ -135,11 +135,12 @@ Important rules:
 - `environment` must be 2-8 lowercase alphanumeric or hyphen characters and
   cannot end in a hyphen or contain consecutive hyphens.
 - `address_space` accepts one or more IPv4 VNet CIDRs.
-- `subnet_cidrs` is the complete current and future address plan. Terraform
-  validates every prefix, including disabled services, and rejects prefixes
-  outside the VNet or overlapping prefixes.
-- The Container Apps allocation must be `/23` or larger. The planned SQL
-  Managed Instance allocation must be `/27` or larger.
+- `subnet_cidrs` is the complete current and future address plan for the
+  shared subnets. Terraform validates every prefix, including disabled
+  services, together with every Container Apps environment `subnet_cidr`, and
+  rejects prefixes outside the VNet or overlapping prefixes.
+- Each Container Apps environment `subnet_cidr` must be `/27` or larger. The
+  planned SQL Managed Instance allocation must be `/27` or larger.
 - Terraform creates only the subnets required by enabled services and nonempty
   resource collections. Adding a service or collection entry later creates its
   subnet and delegation before creating the resource.
@@ -202,10 +203,14 @@ Important rules:
   database is standalone while that entry's `elastic_pool.enabled = false`; set
   it to `true` to create a pool on that server and attach the database, and
   `database_sku_name` is then ignored.
-- Container Apps always retains Consumption. Add dedicated profiles under
-  `container_apps.dedicated_workload_profiles` and select `"Consumption"` or a
-  configured key with `container_apps.app_workload_profile`. An empty map is
-  Consumption-only.
+- `container_apps_environments` is a map keyed by stable logical names and
+  defaults to empty; there is no `services` switch for Container Apps. Each
+  entry creates one internal environment on its own delegated subnet
+  (`subnet_cidr`), its own private DNS zone, and the apps in its `apps` map.
+  Every environment keeps Consumption; add dedicated profiles under that
+  entry's `dedicated_workload_profiles` and set each app's `workload_profile`
+  to `"Consumption"` (the default) or a profile key from the same environment.
+  All environments share one Log Analytics workspace.
 - `cosmos_db_accounts` is a map keyed by stable logical names and defaults to
   empty. Each entry creates one account with its own classic RU-based API
   (`api_type`) and one API-specific database/container pair, or one table for
@@ -220,7 +225,7 @@ Subnet creation follows the enabled service graph:
 |---|---|
 | `private_endpoints` | Web App or Function App is enabled, or `azure_sql_servers`/`container_registries`/`cosmos_db_accounts`/`key_vaults`/`storage_accounts`/`premium_file_accounts` is nonempty |
 | `virtual_machines` | `virtual_machines` or `virtual_machine_scale_sets` is non-empty |
-| `container_apps` | `services.container_apps` is `true` |
+| `container_apps/<key>` | One per `container_apps_environments` entry, using that entry's `subnet_cidr` |
 | `web_app_integration` | `services.web_app` is `true` |
 | `function_integration` | `services.function_app` is `true` |
 | `postgresql` | `services.postgresql` is `true` |
@@ -287,12 +292,12 @@ Azure platform dependencies, and application calls to public APIs. An internal C
 restricts inbound access; it does not remove the need for outbound traffic.
 
 When `virtual_machines` is non-empty, or
-`virtual_machine_scale_sets` is non-empty or `services.container_apps` is `true`,
+`virtual_machine_scale_sets` or `container_apps_environments` is non-empty,
 Terraform creates one shared Standard NAT Gateway and one Standard static
-public IPv4 address. It associates that gateway with whichever of the
-`virtual_machines` and `container_apps` subnets are active. When both services
-are enabled, they share the same predictable public egress address. Neither the
-VM NIC nor the internal Container Apps environment receives a directly
+public IPv4 address. It associates that gateway with the `virtual_machines`
+subnet when active and with every Container Apps environment subnet. All of
+them share the same predictable public egress address. Neither the
+VM NIC nor an internal Container Apps environment receives a directly
 reachable public ingress address.
 
 Configure the TCP idle timeout in `lab.tfvars`:
@@ -366,7 +371,8 @@ compact alphanumeric values for compatibility with all five supported APIs.
 With the default prefix, map-based Container Apps workload profiles use
 `<prefix>-<logical key>01`, such as `wp-general01`. A deterministic hash form
 is used only when a custom prefix or key would exceed Azure's 15-character
-limit.
+limit. Container App names use `<prefix>-<app key>-<environment key>-<suffix>`,
+such as `ca-hello-primary-001`, to fit Azure's 32-character limit.
 
 Only Azure-owned or protocol-defined names are exempt: service Private DNS zone
 FQDNs, the `@` and `*` DNS records, and the required Container Apps
@@ -440,24 +446,35 @@ server's Private Endpoint and the shared `privatelink.database.windows.net` DNS
 zone are associated with the logical server and work for both standalone and
 pooled databases.
 
-Configure one or more dedicated Container Apps profiles in the environment
-variables file:
+Configure Container Apps environments, their apps, and optional dedicated
+workload profiles in the environment variables file. Each environment needs its
+own `/27` or larger subnet that doesn't overlap any other lab subnet:
 
 ```hcl
-container_apps = {
-  dedicated_workload_profiles = {
-    general = {
-      workload_profile_type = "D4"
-      minimum_count         = 0
-      maximum_count         = 3
+container_apps_environments = {
+  primary = {
+    subnet_cidr = "10.42.2.0/27"
+    apps        = { hello = {} }
+  }
+  jobs = {
+    subnet_cidr = "10.42.3.0/24"
+    dedicated_workload_profiles = {
+      general = {
+        workload_profile_type = "D4"
+        minimum_count         = 0
+        maximum_count         = 3
+      }
+      memory = {
+        workload_profile_type = "E4"
+        minimum_count         = 0
+        maximum_count         = 2
+      }
     }
-    memory = {
-      workload_profile_type = "E4"
-      minimum_count         = 0
-      maximum_count         = 2
+    apps = {
+      worker = { workload_profile = "general" }
+      cache  = { workload_profile = "memory" }
     }
   }
-  app_workload_profile = "general"
 }
 ```
 
@@ -483,19 +500,20 @@ terraform -chdir=environments\lab plan `
   -out="container-apps-dedicated.tfplan"
 ```
 
-Set `app_workload_profile = "Consumption"` to leave the single sample app on
-Consumption while dedicated profiles exist. With the map interface, an omitted
-or null selector also means Consumption. A non-Consumption selector must match
-a configured logical key, not the generated Azure profile name. Profiles do
-not create additional apps; the existing app replica range remains 0-1.
+An app's `workload_profile` defaults to `"Consumption"`. Any other value must
+match a logical profile key in the same environment, not the generated Azure
+profile name. Profiles do not create apps; each app keeps a replica range of
+0-1.
 
-Inspect `container_app_dedicated_workload_profile_names` for the label-to-Azure
-name map and `container_app_workload_profile_name` for the selected Azure name.
-Keys must start with a lowercase letter, contain only lowercase letters, digits,
-and hyphens, and be at most 20 characters; `consumption` is reserved.
+Inspect `terraform output container_apps_environments` for each environment's
+label-to-Azure profile name map and each app's FQDN and selected profile.
+Profile keys must start with a lowercase letter, contain only lowercase
+letters, digits, and hyphens, and be at most 20 characters; `consumption` is
+reserved. Environment keys are at most 12 characters and app keys at most 8.
 
-Renaming a key changes its Azure profile name: review removal/addition and app
-placement before applying.
+Renaming an environment, app, or profile key replaces that resource: review
+removal/addition and app placement before applying. Subnet size can't change
+after an environment is created.
 
 Multi-profile behavior is covered by mocked Terraform plans, not a live Azure
 deployment. Review expected charges before applying. See
@@ -675,7 +693,8 @@ public IP. It verifies private DNS resolution for:
 - Premium Azure Files;
 - Function host storage;
 - Function App;
-- Container App.
+- Container App (select it with `-SmokeTestContainerAppsEnvironmentKey`,
+  default `primary`, and `-SmokeTestContainerAppKey`, default `hello`).
 - SQL Managed Instance, when enabled.
 - Cosmos DB, when `cosmos_db_accounts` is nonempty (select the account with
   `-SmokeTestCosmosDbAccountKey`, default `primary`).
@@ -877,9 +896,9 @@ quota, and re-plan.
 
 ### Container Apps subnet delegation error
 
-The Container Apps subnet must remain delegated to
-`Microsoft.App/environments`. Do not reuse it for other resources or Private
-Endpoints.
+Each Container Apps environment subnet must remain delegated to
+`Microsoft.App/environments` and belong to that environment only. Do not reuse
+it for another environment, other resources, or Private Endpoints.
 
 ### Function App content-share error
 

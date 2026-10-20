@@ -31,7 +31,6 @@ module "lab" {
   subnet_cidrs = {
     private_endpoints    = "10.43.0.0/24"
     virtual_machines     = "10.43.1.0/24"
-    container_apps       = "10.43.2.0/23"
     web_app_integration  = "10.43.8.0/26"
     function_integration = "10.43.4.0/24"
     postgresql           = "10.43.5.0/24"

@@ -3,11 +3,6 @@ variable "environment_name" {
   type        = string
 }
 
-variable "app_name" {
-  description = "Container App name."
-  type        = string
-}
-
 variable "resource_group_name" {
   description = "Resource group name."
   type        = string
@@ -28,45 +23,14 @@ variable "virtual_network_id" {
   type        = string
 }
 
-variable "log_analytics_workspace_name" {
-  description = "Log Analytics workspace name."
+variable "log_analytics_workspace_id" {
+  description = "Log Analytics workspace ID that receives the environment's logs. Several environments can share one workspace."
   type        = string
 }
 
 variable "private_dns_link_name" {
   description = "Private DNS VNet link name."
   type        = string
-}
-
-variable "container_name" {
-  description = "Container name within the Container App."
-  type        = string
-}
-
-variable "image" {
-  description = "Container image."
-  type        = string
-  default     = "mcr.microsoft.com/azuredocs/containerapps-helloworld:latest"
-
-  validation {
-    condition     = trimspace(var.image) != ""
-    error_message = "image must be nonempty."
-  }
-}
-
-variable "target_port" {
-  description = "Container ingress target port."
-  type        = number
-  default     = 80
-
-  validation {
-    condition = (
-      var.target_port >= 1 &&
-      var.target_port <= 65535 &&
-      var.target_port == floor(var.target_port)
-    )
-    error_message = "target_port must be a whole number from 1 through 65535."
-  }
 }
 
 variable "dedicated_workload_profiles" {
@@ -108,16 +72,58 @@ variable "dedicated_workload_profiles" {
   }
 }
 
-variable "app_workload_profile" {
-  description = "Consumption or a key in dedicated_workload_profiles. Null defaults to Consumption."
-  type        = string
-  default     = null
+variable "apps" {
+  description = "Container Apps in this environment, keyed by stable logical name. Names are Azure resource names; workload_profile is Consumption or a key in dedicated_workload_profiles."
+  type = map(object({
+    name             = string
+    container_name   = string
+    image            = optional(string, "mcr.microsoft.com/azuredocs/containerapps-helloworld:latest")
+    target_port      = optional(number, 80)
+    workload_profile = optional(string, "Consumption")
+  }))
+  default  = {}
+  nullable = false
 
   validation {
-    condition = var.app_workload_profile == null ? true : (
-      var.app_workload_profile == "Consumption" || contains(keys(var.dedicated_workload_profiles), var.app_workload_profile)
-    )
-    error_message = "app_workload_profile must be Consumption or a configured dedicated_workload_profiles key."
+    condition = alltrue([
+      for app in values(var.apps) : try(trimspace(app.image) != "", false)
+    ])
+    error_message = "Every app image must be nonempty."
+  }
+
+  validation {
+    condition = alltrue([
+      for app in values(var.apps) : try(
+        app.target_port >= 1 &&
+        app.target_port <= 65535 &&
+        app.target_port == floor(app.target_port),
+        false
+      )
+    ])
+    error_message = "Every app target_port must be a whole number from 1 through 65535."
+  }
+
+  validation {
+    condition = alltrue([
+      for app in values(var.apps) : try(
+        app.workload_profile == "Consumption" || contains(keys(var.dedicated_workload_profiles), app.workload_profile),
+        false
+      )
+    ])
+    error_message = "Every app workload_profile must be Consumption or a configured dedicated_workload_profiles key."
+  }
+
+  validation {
+    condition = alltrue([
+      for app in values(var.apps) :
+      can(regex("^[a-z][a-z0-9-]{0,30}[a-z0-9]$", app.name)) && !strcontains(app.name, "--")
+    ])
+    error_message = "Every app name must be 2-32 lowercase alphanumeric or hyphen characters, start with a letter, end with an alphanumeric character, and not contain consecutive hyphens."
+  }
+
+  validation {
+    condition     = length(distinct([for app in values(var.apps) : app.name])) == length(var.apps)
+    error_message = "App names must be unique."
   }
 }
 
@@ -131,17 +137,6 @@ locals {
   dedicated_workload_profile_names = {
     for key, profile in var.dedicated_workload_profiles : key => profile.name
   }
-  app_workload_profile = coalesce(var.app_workload_profile, "Consumption")
-}
-
-resource "azurerm_log_analytics_workspace" "this" {
-  name                = var.log_analytics_workspace_name
-  resource_group_name = var.resource_group_name
-  location            = var.location
-  sku                 = "PerGB2018"
-  retention_in_days   = 30
-  daily_quota_gb      = 0.1
-  tags                = var.tags
 }
 
 resource "azurerm_container_app_environment" "this" {
@@ -152,7 +147,7 @@ resource "azurerm_container_app_environment" "this" {
   internal_load_balancer_enabled = true
   public_network_access          = "Disabled"
   logs_destination               = "log-analytics"
-  log_analytics_workspace_id     = azurerm_log_analytics_workspace.this.id
+  log_analytics_workspace_id     = var.log_analytics_workspace_id
   tags                           = var.tags
 
   workload_profile {
@@ -208,14 +203,16 @@ resource "azurerm_private_dns_a_record" "environment_wildcard" {
 }
 
 resource "azurerm_container_app" "this" {
-  name                         = var.app_name
+  for_each = var.apps
+
+  name                         = each.value.name
   resource_group_name          = var.resource_group_name
   container_app_environment_id = azurerm_container_app_environment.this.id
   revision_mode                = "Single"
   workload_profile_name = (
-    local.app_workload_profile == "Consumption"
+    each.value.workload_profile == "Consumption"
     ? "Consumption"
-    : lookup(local.dedicated_workload_profile_names, local.app_workload_profile, null)
+    : lookup(local.dedicated_workload_profile_names, each.value.workload_profile, null)
   )
   tags = var.tags
 
@@ -226,7 +223,7 @@ resource "azurerm_container_app" "this" {
   ingress {
     external_enabled           = true
     allow_insecure_connections = false
-    target_port                = var.target_port
+    target_port                = each.value.target_port
     transport                  = "auto"
 
     traffic_weight {
@@ -240,8 +237,8 @@ resource "azurerm_container_app" "this" {
     max_replicas = 1
 
     container {
-      name   = var.container_name
-      image  = var.image
+      name   = each.value.container_name
+      image  = each.value.image
       cpu    = 0.25
       memory = "0.5Gi"
     }
@@ -259,14 +256,14 @@ output "environment_id" {
   value       = azurerm_container_app_environment.this.id
 }
 
-output "app_id" {
-  description = "Container App ID."
-  value       = azurerm_container_app.this.id
+output "environment_name" {
+  description = "Container Apps environment name."
+  value       = azurerm_container_app_environment.this.name
 }
 
-output "fqdn" {
-  description = "Container App ingress FQDN."
-  value       = azurerm_container_app.this.ingress[0].fqdn
+output "default_domain" {
+  description = "Environment default domain, which is also the name of its private DNS zone."
+  value       = azurerm_container_app_environment.this.default_domain
 }
 
 output "static_ip_address" {
@@ -279,7 +276,14 @@ output "dedicated_workload_profile_names" {
   value       = local.dedicated_workload_profile_names
 }
 
-output "app_workload_profile_name" {
-  description = "Workload profile used by the sample Container App."
-  value       = azurerm_container_app.this.workload_profile_name
+output "apps" {
+  description = "Container Apps keyed by logical name."
+  value = {
+    for key, app in azurerm_container_app.this : key => {
+      id                    = app.id
+      name                  = app.name
+      fqdn                  = app.ingress[0].fqdn
+      workload_profile_name = app.workload_profile_name
+    }
+  }
 }

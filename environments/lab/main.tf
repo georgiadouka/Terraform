@@ -94,7 +94,6 @@ locals {
     subnets = {
       private_endpoints    = "${local.naming_prefixes.subnet}-pe-${local.name_stem}"
       virtual_machines     = "${local.naming_prefixes.subnet}-vm-${local.name_stem}"
-      container_apps       = "${local.naming_prefixes.subnet}-aca-${local.name_stem}"
       web_app_integration  = "${local.naming_prefixes.subnet}-app-${local.name_stem}"
       function_integration = "${local.naming_prefixes.subnet}-func-${local.name_stem}"
       postgresql           = "${local.naming_prefixes.subnet}-psql-${local.name_stem}"
@@ -103,7 +102,6 @@ locals {
     }
 
     subnet_delegations = {
-      container_apps       = "${local.naming_prefixes.subnet_delegation}-container-apps-${local.name_stem}"
       web_app_integration  = "${local.naming_prefixes.subnet_delegation}-web-app-integration-${local.name_stem}"
       function_integration = "${local.naming_prefixes.subnet_delegation}-function-integration-${local.name_stem}"
       postgresql           = "${local.naming_prefixes.subnet_delegation}-postgresql-${local.name_stem}"
@@ -249,22 +247,37 @@ locals {
       48
     )
 
-    container_apps_environment = "${local.naming_prefixes.container_apps_environment}-${local.name_stem}"
-    container_app              = "${local.naming_prefixes.container_app}-${local.name_stem}"
-    container_app_container    = "${local.naming_prefixes.container_app_container}-${local.name_stem}"
-    container_apps_profiles = {
-      for key in keys(var.container_apps.dedicated_workload_profiles) : key => (
-        length("${local.naming_prefixes.container_apps_profile}-${key}01") <= 15
-        ? "${local.naming_prefixes.container_apps_profile}-${key}01"
-        : format(
-          "%s-%s01",
-          substr(local.naming_prefixes.container_apps_profile, 0, 3),
-          substr(sha1(key), 0, 8)
-        )
-      )
+    # Each environment has its own subnet, private DNS zone link, and workload
+    # profile names (profile names are scoped to their environment). App names
+    # are unique per resource group and capped at 32 characters, so they use
+    # <prefix>-<app key>-<environment key>-<suffix> without the project and
+    # environment labels; the key limits keep the longest name at 32.
+    container_apps_environments = {
+      for environment_key, environment in var.container_apps_environments : environment_key => {
+        name                   = "${local.naming_prefixes.container_apps_environment}-${environment_key}-${local.name_stem}"
+        subnet_name            = "${local.naming_prefixes.subnet}-aca-${environment_key}-${local.name_stem}"
+        subnet_delegation_name = "${local.naming_prefixes.subnet_delegation}-container-apps-${environment_key}-${local.name_stem}"
+        private_dns_link_name  = "${local.naming_prefixes.private_dns_link}-container-apps-${environment_key}-${local.name_stem}"
+        workload_profiles = {
+          for profile_key in keys(environment.dedicated_workload_profiles) : profile_key => (
+            length("${local.naming_prefixes.container_apps_profile}-${profile_key}01") <= 15
+            ? "${local.naming_prefixes.container_apps_profile}-${profile_key}01"
+            : format(
+              "%s-%s01",
+              substr(local.naming_prefixes.container_apps_profile, 0, 3),
+              substr(sha1(profile_key), 0, 8)
+            )
+          )
+        }
+        apps = {
+          for app_key in keys(environment.apps) :
+          app_key => "${local.naming_prefixes.container_app}-${app_key}-${environment_key}-${local.naming_suffix}"
+        }
+      }
     }
+    # Container names are scoped to their app, so every app reuses this name.
+    container_app_container = "${local.naming_prefixes.container_app_container}-${local.name_stem}"
     log_analytics_workspace = "${local.naming_prefixes.log_analytics_workspace}-${local.name_stem}"
-    container_apps_dns_link = "${local.naming_prefixes.private_dns_link}-container-apps-${local.name_stem}"
 
     web_app              = "${local.naming_prefixes.web_app}-${local.name_stem}"
     web_app_service_plan = "${local.naming_prefixes.web_app_service_plan}-${local.name_stem}"
@@ -442,12 +455,17 @@ locals {
 
   virtual_machine_subnet_required = length(var.virtual_machines) > 0 || length(var.virtual_machine_scale_sets) > 0
 
-  nat_gateway_required = local.virtual_machine_subnet_required || var.services.container_apps
+  nat_gateway_required = local.virtual_machine_subnet_required || length(var.container_apps_environments) > 0
+
+  # Subnets whose outbound traffic leaves through the NAT Gateway.
+  nat_gateway_subnet_keys = concat(
+    local.virtual_machine_subnet_required ? ["virtual_machines"] : [],
+    [for environment_key in keys(var.container_apps_environments) : "container_apps/${environment_key}"]
+  )
 
   subnet_enabled = {
     private_endpoints    = local.private_endpoints_required
     virtual_machines     = local.virtual_machine_subnet_required
-    container_apps       = var.services.container_apps
     web_app_integration  = var.services.web_app
     function_integration = var.services.function_app
     postgresql           = var.services.postgresql
@@ -464,15 +482,6 @@ locals {
     virtual_machines = {
       name             = local.resource_names.subnets.virtual_machines
       address_prefixes = [var.subnet_cidrs.virtual_machines]
-    }
-    container_apps = {
-      name             = local.resource_names.subnets.container_apps
-      address_prefixes = [var.subnet_cidrs.container_apps]
-      delegation = {
-        name    = local.resource_names.subnet_delegations.container_apps
-        service = "Microsoft.App/environments"
-        actions = ["Microsoft.Network/virtualNetworks/subnets/join/action"]
-      }
     }
     web_app_integration = {
       name             = local.resource_names.subnets.web_app_integration
@@ -526,11 +535,36 @@ locals {
     }
   }
 
-  subnets = {
-    for subnet_key, subnet in local.subnet_definitions :
-    subnet_key => subnet
-    if local.subnet_enabled[subnet_key]
+  # One dedicated subnet per Container Apps environment, keyed
+  # container_apps/<environment key>.
+  container_apps_subnets = {
+    for environment_key, environment in var.container_apps_environments :
+    "container_apps/${environment_key}" => {
+      name             = local.resource_names.container_apps_environments[environment_key].subnet_name
+      address_prefixes = [environment.subnet_cidr]
+      delegation = {
+        name    = local.resource_names.container_apps_environments[environment_key].subnet_delegation_name
+        service = "Microsoft.App/environments"
+        actions = ["Microsoft.Network/virtualNetworks/subnets/join/action"]
+      }
+    }
   }
+
+  subnets = merge(
+    {
+      for subnet_key, subnet in local.subnet_definitions :
+      subnet_key => subnet
+      if local.subnet_enabled[subnet_key]
+    },
+    local.container_apps_subnets
+  )
+
+  # Every subnet the lab could create, so the network module checks planned
+  # ranges for overlap even when their services are off.
+  planned_subnet_address_prefixes = merge(
+    { for subnet_key, cidr in var.subnet_cidrs : subnet_key => [cidr] },
+    { for subnet_key, subnet in local.container_apps_subnets : subnet_key => subnet.address_prefixes }
+  )
 
   private_dns_zones = setunion(
     toset([
@@ -558,16 +592,13 @@ module "resource_group" {
 module "network" {
   source = "../../modules/network"
 
-  name                = local.resource_names.virtual_network
-  resource_group_name = module.resource_group.name
-  location            = module.resource_group.location
-  address_space       = var.address_space
-  subnets             = local.subnets
-  planned_subnet_address_prefixes = {
-    for subnet_key, cidr in var.subnet_cidrs :
-    subnet_key => [cidr]
-  }
-  tags = local.common_tags
+  name                            = local.resource_names.virtual_network
+  resource_group_name             = module.resource_group.name
+  location                        = module.resource_group.location
+  address_space                   = var.address_space
+  subnets                         = local.subnets
+  planned_subnet_address_prefixes = local.planned_subnet_address_prefixes
+  tags                            = local.common_tags
 }
 
 module "private_dns" {
@@ -643,14 +674,10 @@ module "nat_gateway" {
   public_ip_name      = local.resource_names.nat_public_ip
   resource_group_name = module.resource_group.name
   location            = module.resource_group.location
-  subnet_ids = merge(
-    local.virtual_machine_subnet_required ? {
-      virtual_machines = module.network.subnet_ids["virtual_machines"]
-    } : {},
-    var.services.container_apps ? {
-      container_apps = module.network.subnet_ids["container_apps"]
-    } : {}
-  )
+  subnet_ids = {
+    for subnet_key in local.nat_gateway_subnet_keys :
+    subnet_key => module.network.subnet_ids[subnet_key]
+  }
   idle_timeout_in_minutes = var.nat_gateway.idle_timeout_in_minutes
   tags                    = local.common_tags
 }
@@ -816,29 +843,44 @@ module "cosmos_db" {
   tags                          = local.common_tags
 }
 
-module "container_apps" {
-  count  = var.services.container_apps ? 1 : 0
-  source = "../../modules/container-apps"
+# One workspace shared by every Container Apps environment.
+module "log_analytics" {
+  count  = length(var.container_apps_environments) > 0 ? 1 : 0
+  source = "../../modules/log-analytics-workspace"
 
-  environment_name             = local.resource_names.container_apps_environment
-  app_name                     = local.resource_names.container_app
-  log_analytics_workspace_name = local.resource_names.log_analytics_workspace
-  private_dns_link_name        = local.resource_names.container_apps_dns_link
-  container_name               = local.resource_names.container_app_container
-  resource_group_name          = module.resource_group.name
-  location                     = module.resource_group.location
-  infrastructure_subnet_id     = module.network.subnet_ids["container_apps"]
-  virtual_network_id           = module.network.id
-  image                        = var.container_apps.image
-  target_port                  = var.container_apps.target_port
+  name                = local.resource_names.log_analytics_workspace
+  resource_group_name = module.resource_group.name
+  location            = module.resource_group.location
+  tags                = local.common_tags
+}
+
+module "container_apps" {
+  for_each = var.container_apps_environments
+  source   = "../../modules/container-apps"
+
+  environment_name           = local.resource_names.container_apps_environments[each.key].name
+  log_analytics_workspace_id = module.log_analytics[0].id
+  private_dns_link_name      = local.resource_names.container_apps_environments[each.key].private_dns_link_name
+  resource_group_name        = module.resource_group.name
+  location                   = module.resource_group.location
+  infrastructure_subnet_id   = module.network.subnet_ids["container_apps/${each.key}"]
+  virtual_network_id         = module.network.id
   dedicated_workload_profiles = {
-    for key, profile in var.container_apps.dedicated_workload_profiles : key => merge(
+    for profile_key, profile in each.value.dedicated_workload_profiles : profile_key => merge(
       profile,
-      { name = local.resource_names.container_apps_profiles[key] }
+      { name = local.resource_names.container_apps_environments[each.key].workload_profiles[profile_key] }
     )
   }
-  app_workload_profile = var.container_apps.app_workload_profile
-  tags                 = local.common_tags
+  apps = {
+    for app_key, app in each.value.apps : app_key => merge(
+      app,
+      {
+        name           = local.resource_names.container_apps_environments[each.key].apps[app_key]
+        container_name = local.resource_names.container_app_container
+      }
+    )
+  }
+  tags = local.common_tags
 
   depends_on = [module.nat_gateway]
 }

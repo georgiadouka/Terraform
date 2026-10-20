@@ -22,11 +22,11 @@ override_module {
   outputs = {
     id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Network/virtualNetworks/vnet-test"
     subnet_ids = {
-      private_endpoints    = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Network/virtualNetworks/vnet-test/subnets/pe"
-      virtual_machines     = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Network/virtualNetworks/vnet-test/subnets/vm"
-      container_apps       = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Network/virtualNetworks/vnet-test/subnets/aca"
-      web_app_integration  = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Network/virtualNetworks/vnet-test/subnets/web"
-      function_integration = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Network/virtualNetworks/vnet-test/subnets/func"
+      private_endpoints        = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Network/virtualNetworks/vnet-test/subnets/pe"
+      virtual_machines         = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Network/virtualNetworks/vnet-test/subnets/vm"
+      "container_apps/primary" = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Network/virtualNetworks/vnet-test/subnets/aca"
+      web_app_integration      = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Network/virtualNetworks/vnet-test/subnets/web"
+      function_integration     = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Network/virtualNetworks/vnet-test/subnets/func"
     }
   }
 }
@@ -118,9 +118,9 @@ variables {
   container_registries = {
     primary = {}
   }
-  container_apps = {}
-  web_app        = {}
-  function_app   = {}
+  container_apps_environments = {}
+  web_app                     = {}
+  function_app                = {}
   cosmos_db_accounts = {
     primary = {}
   }
@@ -137,7 +137,6 @@ variables {
   subnet_cidrs = {
     private_endpoints    = "10.42.0.0/24"
     virtual_machines     = "10.42.1.0/24"
-    container_apps       = "10.42.2.0/23"
     web_app_integration  = "10.42.8.0/26"
     function_integration = "10.42.4.0/24"
     postgresql           = "10.42.5.0/24"

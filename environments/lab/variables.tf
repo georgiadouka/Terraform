@@ -131,7 +131,7 @@ variable "naming" {
 
   validation {
     condition     = length(var.naming.prefixes.container_app) <= 4
-    error_message = "naming.prefixes.container_app must be no more than four characters so generated Container App names remain within Azure's 32-character limit."
+    error_message = "naming.prefixes.container_app must be no more than four characters so generated Container App names (<prefix>-<app key>-<environment key>-<suffix>) remain within Azure's 32-character limit."
   }
 
   validation {
@@ -160,11 +160,10 @@ variable "address_space" {
 }
 
 variable "subnet_cidrs" {
-  description = "CIDR prefix assigned to each lab subnet."
+  description = "CIDR prefix assigned to each shared lab subnet. Container Apps environments set their own subnet_cidr."
   type = object({
     private_endpoints    = string
     virtual_machines     = string
-    container_apps       = string
     web_app_integration  = optional(string, "10.42.8.0/26")
     function_integration = string
     postgresql           = string
@@ -174,7 +173,6 @@ variable "subnet_cidrs" {
   default = {
     private_endpoints    = "10.42.0.0/24"
     virtual_machines     = "10.42.1.0/24"
-    container_apps       = "10.42.2.0/23"
     web_app_integration  = "10.42.8.0/26"
     function_integration = "10.42.4.0/24"
     postgresql           = "10.42.5.0/24"
@@ -190,11 +188,6 @@ variable "subnet_cidrs" {
       try(cidrhost(prefix, 0) == split("/", prefix)[0], false)
     ])
     error_message = "Every subnet_cidrs value must be a valid IPv4 CIDR written with its network address."
-  }
-
-  validation {
-    condition     = can(tonumber(split("/", var.subnet_cidrs.container_apps)[1])) && tonumber(split("/", var.subnet_cidrs.container_apps)[1]) <= 23
-    error_message = "The Container Apps subnet must be /23 or larger."
   }
 
   validation {
@@ -430,19 +423,66 @@ variable "azure_sql_servers" {
   }
 }
 
-variable "container_apps" {
-  description = "Container Apps environment and workload profile configuration."
-  type = object({
-    image       = optional(string, "mcr.microsoft.com/azuredocs/containerapps-helloworld:latest")
-    target_port = optional(number, 80)
+variable "container_apps_environments" {
+  description = "Internal Container Apps environments keyed by a stable logical name. Each environment gets its own delegated subnet (/27 or larger), private DNS zone, optional dedicated workload profiles, and zero or more Container Apps. Defaults to none."
+  type = map(object({
+    subnet_cidr = string
     dedicated_workload_profiles = optional(map(object({
       workload_profile_type = optional(string, "D4")
       minimum_count         = optional(number, 0)
       maximum_count         = optional(number, 3)
     })), {})
-    app_workload_profile = optional(string)
-  })
-  default = {}
+    apps = optional(map(object({
+      image            = optional(string, "mcr.microsoft.com/azuredocs/containerapps-helloworld:latest")
+      target_port      = optional(number, 80)
+      workload_profile = optional(string, "Consumption")
+    })), {})
+  }))
+  default  = {}
+  nullable = false
+
+  validation {
+    condition = alltrue([
+      for key in keys(var.container_apps_environments) :
+      can(regex("^[a-z]([a-z0-9-]{0,10}[a-z0-9])?$", key)) && !strcontains(key, "--")
+    ])
+    error_message = "container_apps_environments keys must be 1-12 lowercase alphanumeric or hyphen characters, start with a letter, end with a letter or digit, and not contain consecutive hyphens."
+  }
+
+  # A workload profiles environment needs at least a /27; the /23 minimum
+  # applies only to Consumption-only environments, which this lab doesn't create.
+  validation {
+    condition = alltrue([
+      for environment in values(var.container_apps_environments) :
+      can(cidrnetmask(environment.subnet_cidr)) &&
+      try(cidrhost(environment.subnet_cidr, 0) == split("/", environment.subnet_cidr)[0], false) &&
+      try(tonumber(split("/", environment.subnet_cidr)[1]) <= 27, false)
+    ])
+    error_message = "Every container_apps_environments subnet_cidr must be a valid IPv4 CIDR written with its network address and be /27 or larger."
+  }
+
+  validation {
+    condition = alltrue(flatten([
+      for environment in values(var.container_apps_environments) : [
+        for app_key in keys(environment.apps) :
+        can(regex("^[a-z]([a-z0-9-]{0,6}[a-z0-9])?$", app_key)) && !strcontains(app_key, "--")
+      ]
+    ]))
+    error_message = "App keys must be 1-8 lowercase alphanumeric or hyphen characters, start with a letter, end with a letter or digit, and not contain consecutive hyphens, so generated Container App names fit Azure's 32-character limit."
+  }
+
+  # App names are <prefix>-<app key>-<environment key>-<suffix>, so keys
+  # containing hyphens could produce the same name in two environments.
+  validation {
+    condition = length(distinct(flatten([
+      for environment_key, environment in var.container_apps_environments : [
+        for app_key in keys(environment.apps) : "${app_key}-${environment_key}"
+      ]
+      ]))) == length(flatten([
+      for environment in values(var.container_apps_environments) : keys(environment.apps)
+    ]))
+    error_message = "Every app key and environment key combination must produce a distinct Container App name; avoid pairs such as app a-b in environment c and app a in environment b-c."
+  }
 }
 
 variable "cosmos_db_accounts" {
@@ -597,7 +637,6 @@ variable "services" {
     sql_managed_instance = optional(bool, false)
     postgresql           = optional(bool, false)
     mysql                = optional(bool, false)
-    container_apps       = optional(bool, false)
     web_app              = optional(bool, false)
     function_app         = optional(bool, false)
   })

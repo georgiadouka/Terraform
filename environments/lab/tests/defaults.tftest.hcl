@@ -26,26 +26,25 @@ variables {
   subnet_cidrs = {
     private_endpoints    = "10.42.0.0/24"
     virtual_machines     = "10.42.1.0/24"
-    container_apps       = "10.42.2.0/23"
     web_app_integration  = "10.42.8.0/26"
     function_integration = "10.42.4.0/24"
     postgresql           = "10.42.5.0/24"
     mysql                = "10.42.6.0/24"
     sql_managed_instance = "10.42.7.0/27"
   }
-  virtual_machine_scale_sets = {}
-  nat_gateway                = {}
-  key_vaults                 = {}
-  container_registries       = {}
-  azure_sql_servers          = {}
-  container_apps             = {}
-  cosmos_db_accounts         = {}
-  sql_managed_instance       = {}
-  postgresql                 = {}
-  mysql                      = {}
-  function_app               = {}
-  web_app                    = {}
-  tags                       = {}
+  virtual_machine_scale_sets  = {}
+  nat_gateway                 = {}
+  key_vaults                  = {}
+  container_registries        = {}
+  azure_sql_servers           = {}
+  container_apps_environments = {}
+  cosmos_db_accounts          = {}
+  sql_managed_instance        = {}
+  postgresql                  = {}
+  mysql                       = {}
+  function_app                = {}
+  web_app                     = {}
+  tags                        = {}
 }
 
 run "services_are_opt_in" {
@@ -64,6 +63,7 @@ run "services_are_opt_in" {
       length(module.postgresql) == 0 &&
       length(module.mysql) == 0 &&
       length(module.container_apps) == 0 &&
+      length(module.log_analytics) == 0 &&
       length(module.cosmos_db) == 0 &&
       length(module.web_app) == 0 &&
       length(module.function_app) == 0 &&

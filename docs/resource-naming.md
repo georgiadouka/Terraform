@@ -117,8 +117,8 @@ Examples using the example suffix:
 | Azure SQL server | `sql` + key + stem | `sql-primary-metlen-lab-it6hp` |
 | Azure SQL database | `sqldb` + key + stem | `sqldb-primary-metlen-lab-it6hp` |
 | Azure SQL elastic pool | `sqlep` + key + stem | `sqlep-primary-metlen-lab-it6hp` |
-| Container Apps Environment | `cae` + stem | `cae-metlen-lab-it6hp` |
-| Container App | `ca` + stem | `ca-metlen-lab-it6hp` |
+| Container Apps Environment | `cae` + key + stem | `cae-primary-metlen-lab-it6hp` |
+| Container App | `ca` + app key + environment key + suffix | `ca-hello-primary-it6hp` |
 | Log Analytics workspace | `log` + stem | `log-metlen-lab-it6hp` |
 | Function App | `func` + stem | `func-metlen-lab-it6hp` |
 | Web App | `app` + stem | `app-metlen-lab-it6hp` |
@@ -131,25 +131,35 @@ Azure SQL server names are globally unique and at most 63 characters; with the
 readable key they are at most 51 characters, so no hash token is needed.
 Database and elastic pool names are scoped to their server.
 
-For example, the Container Apps Environment name is calculated as:
+Container Apps environment names include the key from
+`container_apps_environments`. Container App names must be unique within the
+resource group and at most 32 characters, so they use
+`<prefix>-<app key>-<environment key>-<suffix>` without the project and
+environment labels. With the prefix capped at four characters, environment keys
+at 12, and app keys at 8, the longest name is exactly 32 characters. Plan-time
+validation rejects key pairs that would produce the same name, such as app
+`a-b` in environment `c` and app `a` in environment `b-c`. The one shared Log
+Analytics workspace keeps the plain stem.
+
+For example, the Container Apps Environment name for the `primary` key is
+calculated as:
 
 ```hcl
-container_apps_environment = (
-  "${local.naming_prefixes.container_apps_environment}-${local.name_stem}"
-)
+name = "${local.naming_prefixes.container_apps_environment}-${environment_key}-${local.name_stem}"
 ```
 
 This becomes:
 
 ```text
-cae-metlen-lab-it6hp
+cae-primary-metlen-lab-it6hp
 ```
 
 The environment passes that name to the module:
 
 ```hcl
 module "container_apps" {
-  environment_name = local.resource_names.container_apps_environment
+  for_each         = var.container_apps_environments
+  environment_name = local.resource_names.container_apps_environments[each.key].name
 }
 ```
 
@@ -175,7 +185,7 @@ Examples:
 |---|---|
 | Private Endpoints subnet | `snet-pe-metlen-lab-it6hp` |
 | VM subnet | `snet-vm-metlen-lab-it6hp` |
-| Container Apps subnet | `snet-aca-metlen-lab-it6hp` |
+| Container Apps subnet (environment `primary`) | `snet-aca-primary-metlen-lab-it6hp` |
 | Web App integration subnet | `snet-app-metlen-lab-it6hp` |
 | Function integration subnet | `snet-func-metlen-lab-it6hp` |
 | PostgreSQL subnet | `snet-psql-metlen-lab-it6hp` |
@@ -196,7 +206,7 @@ retaining the project, environment, and deployment suffix:
 |---|---|
 | `private_endpoints` | `pe` |
 | `virtual_machines` | `vm` |
-| `container_apps` | `aca` |
+| `container_apps/<environment key>` | `aca-<environment key>` |
 | `web_app_integration` | `app` |
 | `function_integration` | `func` |
 | `postgresql` | `psql` |
@@ -403,8 +413,9 @@ short name such as `lon-dfe2169801`.
 Both forms use only input values that Terraform knows during planning. The
 random deployment suffix is intentionally excluded because AzureRM models
 workload profiles as a set and must correlate the same complete names between
-plan and apply. The Container Apps Environment and globally named resources
-continue to use the random suffix.
+plan and apply. Profile names are scoped to their environment, so two
+environments with a `general` key both use `wp-general01`. The Container Apps
+Environment and globally named resources continue to use the random suffix.
 
 ## 10. Random versus deterministic behavior
 
