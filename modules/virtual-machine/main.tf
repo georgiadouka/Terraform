@@ -237,6 +237,13 @@ variable "tags" {
   default     = {}
 }
 
+variable "load_balancer_backend_address_pool_ids" {
+  description = "Load balancer backend pools the NIC's primary IP configuration joins, keyed by a stable logical name so the set of pools is known at plan time."
+  type        = map(string)
+  default     = {}
+  nullable    = false
+}
+
 resource "azurerm_network_interface" "this" {
   name                = var.network_interface_name
   resource_group_name = var.resource_group_name
@@ -248,6 +255,14 @@ resource "azurerm_network_interface" "this" {
     subnet_id                     = var.subnet_id
     private_ip_address_allocation = "Dynamic"
   }
+}
+
+resource "azurerm_network_interface_backend_address_pool_association" "this" {
+  for_each = var.load_balancer_backend_address_pool_ids
+
+  network_interface_id    = azurerm_network_interface.this.id
+  ip_configuration_name   = "primary"
+  backend_address_pool_id = each.value
 }
 
 resource "azurerm_linux_virtual_machine" "this" {

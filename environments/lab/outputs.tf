@@ -78,6 +78,23 @@ output "nat_gateway_id" {
   value       = try(module.nat_gateway[0].id, null)
 }
 
+output "load_balancers" {
+  description = "Internal load balancers keyed by logical name, with their frontend IP, backend pool, and the VMs and scale sets that joined it."
+  value = {
+    for key, load_balancer in module.load_balancer : key => {
+      id                          = load_balancer.id
+      name                        = load_balancer.name
+      frontend_private_ip_address = load_balancer.frontend_private_ip_address
+      backend_address_pool_id     = load_balancer.backend_address_pool_id
+      subnet_id                   = module.network.subnet_ids["load_balancers/${key}"]
+      probe_ids                   = load_balancer.probe_ids
+      rule_ids                    = load_balancer.rule_ids
+      virtual_machines            = sort([for vm_key, vm in var.virtual_machines : vm_key if vm.load_balancer == key])
+      virtual_machine_scale_sets  = sort([for vmss_key, scale_set in var.virtual_machine_scale_sets : vmss_key if scale_set.load_balancer == key])
+    }
+  }
+}
+
 output "nat_gateway_public_ip_address" {
   description = "Shared static outbound IPv4 address for the VM/VMSS and Container Apps subnets."
   value       = try(module.nat_gateway[0].public_ip_address, null)

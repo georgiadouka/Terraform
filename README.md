@@ -36,6 +36,7 @@ versioning lifecycle.
 | `private-dns` | Central Private DNS zones and VNet links | Yes |
 | `private-endpoint` | Reusable Private Endpoint and DNS zone group | Yes |
 | `nat-gateway` | Shared static outbound internet egress for VM/VMSS and Container Apps subnets | Standard NAT Gateway and static public IP |
+| `load-balancer` | Internal Standard load balancer with one backend pool, health probes, and load-balancing rules | Private frontend IP on a dedicated subnet; no public IP |
 | `virtual-machine` | Linux or Windows VM, NIC, OS disk, and configurable data disks | No VM public IP; outbound through NAT Gateway |
 | `virtual-machine-scale-set` | Linux or Windows VMSS with configurable images/disks and fixed or CPU-autoscaled capacity | No instance public IP; outbound through NAT Gateway |
 | `key-vault` | RBAC-enabled Key Vault | Public network disabled; Private Endpoint |
@@ -391,6 +392,62 @@ quota, and the cost of the configured maximum before applying. `Manual` is the
 default upgrade mode because health-aware rolling upgrades require an
 application health signal that this workload-agnostic module cannot infer.
 
+### Internal load balancers
+
+Each `load_balancers` entry creates one internal Standard load balancer whose
+frontend IP sits on its own subnet. VMs and scale sets join its single backend
+pool by setting `load_balancer` to the entry's key:
+
+```hcl
+load_balancers = {
+  web = {
+    subnet_cidr = "10.42.9.0/28"
+    probes = {
+      http = { protocol = "Http", port = 80, request_path = "/" }
+    }
+    rules = {
+      http = { probe = "http", frontend_port = 80, backend_port = 80 }
+    }
+  }
+}
+
+virtual_machines = {
+  web1 = { load_balancer = "web" }
+  web2 = { load_balancer = "web" }
+}
+
+virtual_machine_scale_sets = {
+  app = { load_balancer = "web" }
+}
+```
+
+- The frontend is private only: there is no public IP. Clients reach it from
+  inside the VNet (or a peered or connected network).
+- Each load balancer gets its own subnet, `snet-lbi-<key>-…`, /29 or larger
+  (the Azure minimum). It holds only the frontend IP, so it has no delegation
+  and no NAT Gateway association. Terraform checks it for overlap with every
+  other lab subnet. Backends stay on the shared VM subnet.
+- The frontend IP is dynamic by default. Set `private_ip_address` to a usable
+  address in that subnet for a static IP; the first four and the last address
+  are rejected because Azure reserves them.
+- The frontend is zone-redundant (`zones = ["1", "2", "3"]`) by default. Set
+  `zones = []` in regions without availability zones. Changing zones replaces
+  the load balancer.
+- Probes support `Tcp`, `Http`, and `Https`; `Http` and `Https` need a
+  `request_path`. Every rule must reference a probe. Rules support `Tcp`,
+  `Udp`, and HA ports (`protocol = "All"` with both ports `0`), plus idle
+  timeout, session persistence (`load_distribution`), floating IP, and TCP
+  reset (on by default).
+- The load balancer handles inbound traffic only. Outbound traffic from the
+  backends still leaves through the shared NAT Gateway.
+- Backend VMs must allow the probe and rule ports. NSGs allow Azure Load
+  Balancer probes by default through the `AzureLoadBalancer` service tag.
+- A scale set with the default `Manual` upgrade mode applies backend pool
+  changes only to new instances; run `az vmss update-instances` to update
+  existing ones. VMs join through their NIC and update immediately.
+- `load_balancer_backend_address_pool_ids` on a scale set still accepts pools
+  outside the lab; they are combined with the `load_balancer` key's pool.
+
 ### Container Apps environments, apps, and workload profiles
 
 Each `container_apps_environments` entry is one environment with its own
@@ -606,6 +663,7 @@ terraform -chdir=modules\function-app test
 terraform -chdir=modules\postgresql-flexible test
 terraform -chdir=modules\mysql-flexible test
 terraform -chdir=modules\container-apps test
+terraform -chdir=modules\load-balancer test
 .\scripts\tests\private-connectivity-smoke.Tests.ps1
 ```
 

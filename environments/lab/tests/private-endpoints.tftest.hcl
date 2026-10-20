@@ -119,6 +119,7 @@ variables {
     primary = {}
   }
   container_apps_environments = {}
+  load_balancers              = {}
   web_app                     = {}
   function_app                = {}
   cosmos_db_accounts = {

@@ -35,6 +35,11 @@ naming = {
     data_disk                  = "disk"
     autoscale_setting          = "autoscale"
     nat_gateway                = "nat"
+    load_balancer              = "lbi"
+    load_balancer_frontend     = "lbfe"
+    load_balancer_backend_pool = "lbbe"
+    load_balancer_probe        = "lbprobe"
+    load_balancer_rule         = "lbrule"
     public_ip                  = "pip"
     key_vault                  = "kv"
     container_registry         = "cr"
@@ -136,6 +141,9 @@ virtual_machines = {
         caching              = "ReadWrite"
       }
     }
+
+    # Optional: join the backend pool of a load_balancers entry by key.
+    # load_balancer = "web"
   }
 
   # Add more independently configured VMs with stable logical keys:
@@ -205,6 +213,44 @@ virtual_machine_scale_sets = {}
 #           cooldown_minutes    = 5
 #         }
 #       }
+#
+#       # Optional: join the backend pool of a load_balancers entry by key.
+#       # load_balancer = "web"
+#   }
+# }
+
+# One entry per internal Standard load balancer; an empty map creates none.
+# Each needs its own non-overlapping subnet_cidr, /29 or larger, that holds only
+# the frontend IP. VMs and scale sets join by setting load_balancer = "<key>".
+# Keys are stable logical names; changing a key replaces that load balancer.
+load_balancers = {}
+
+# load_balancers = {
+#   web = {
+#     subnet_cidr        = "10.42.9.0/28"
+#     private_ip_address = null # Or a usable address such as "10.42.9.4".
+#     zones              = ["1", "2", "3"]
+#
+#     probes = {
+#       http = {
+#         protocol            = "Http" # Tcp, Http, or Https.
+#         port                = 80
+#         request_path        = "/"
+#         interval_in_seconds = 5
+#         probe_threshold     = 1
+#       }
+#     }
+#
+#     rules = {
+#       http = {
+#         probe                   = "http"
+#         protocol                = "Tcp" # Tcp, Udp, or All with ports 0 (HA ports).
+#         frontend_port           = 80
+#         backend_port            = 80
+#         idle_timeout_in_minutes = 4
+#         load_distribution       = "Default" # Or SourceIP, SourceIPProtocol.
+#       }
+#     }
 #   }
 # }
 

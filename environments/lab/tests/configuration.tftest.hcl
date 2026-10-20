@@ -134,6 +134,8 @@ override_module {
       "container_apps/primary"      = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Network/virtualNetworks/vnet-test/subnets/apps-primary"
       "container_apps/jobs"         = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Network/virtualNetworks/vnet-test/subnets/apps-jobs"
       "container_apps/longenvname1" = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Network/virtualNetworks/vnet-test/subnets/apps-long"
+      "load_balancers/web"          = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Network/virtualNetworks/vnet-test/subnets/lb-web"
+      "load_balancers/data"         = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Network/virtualNetworks/vnet-test/subnets/lb-data"
     }
   }
 }
@@ -169,6 +171,7 @@ variables {
   tenant_id                   = "22222222-2222-2222-2222-222222222222"
   naming                      = { unique_suffix = "test1" }
   container_apps_environments = {}
+  load_balancers              = {}
   web_app                     = {}
   function_app                = {}
   virtual_machines = {
@@ -1105,6 +1108,170 @@ run "reject_colliding_container_app_names" {
     }
   }
   expect_failures = [var.container_apps_environments]
+}
+
+run "load_balancer_with_vm_and_vmss_members" {
+  command = plan
+  variables {
+    virtual_machines = {
+      primary = { load_balancer = "web" }
+      worker  = { data_disks = {} }
+    }
+    virtual_machine_scale_sets = {
+      app = { load_balancer = "web" }
+    }
+    load_balancers = {
+      web = {
+        subnet_cidr = "10.42.9.0/28"
+        probes      = { http = { protocol = "Http", port = 80, request_path = "/" } }
+        rules       = { http = { probe = "http", frontend_port = 80, backend_port = 80 } }
+      }
+    }
+  }
+  assert {
+    condition = (
+      length(module.load_balancer) == 1 &&
+      local.resource_names.load_balancers["web"].name == "lbi-web-metlen-lab-test1" &&
+      local.resource_names.load_balancers["web"].frontend_ip_configuration_name == "lbfe-web-metlen-lab-test1" &&
+      local.resource_names.load_balancers["web"].backend_address_pool_name == "lbbe-web-metlen-lab-test1" &&
+      local.resource_names.load_balancers["web"].probes["http"] == "lbprobe-http-metlen-lab-test1" &&
+      local.resource_names.load_balancers["web"].rules["http"] == "lbrule-http-metlen-lab-test1" &&
+      local.subnets["load_balancers/web"].name == "snet-lbi-web-metlen-lab-test1" &&
+      local.subnets["load_balancers/web"].address_prefixes == ["10.42.9.0/28"] &&
+      !can(local.subnets["load_balancers/web"].delegation) &&
+      local.planned_subnet_address_prefixes["load_balancers/web"] == ["10.42.9.0/28"] &&
+      !contains(local.nat_gateway_subnet_keys, "load_balancers/web") &&
+      output.load_balancers["web"].virtual_machines == tolist(["primary"]) &&
+      output.load_balancers["web"].virtual_machine_scale_sets == tolist(["app"])
+    )
+    error_message = "A load balancer must get its own undelegated subnet outside the NAT Gateway, generated names, and the VMs and scale sets that reference its key."
+  }
+}
+
+run "multiple_load_balancers" {
+  command = plan
+  variables {
+    virtual_machines = {
+      primary = { load_balancer = "web" }
+      db      = { load_balancer = "data" }
+    }
+    load_balancers = {
+      web = {
+        subnet_cidr = "10.42.9.0/28"
+        probes = {
+          http = { protocol = "Http", port = 80, request_path = "/" }
+          tcp  = { port = 443 }
+        }
+        rules = {
+          http  = { probe = "http", frontend_port = 80, backend_port = 80 }
+          https = { probe = "tcp", frontend_port = 443, backend_port = 443 }
+        }
+      }
+      data = {
+        subnet_cidr        = "10.42.9.16/29"
+        private_ip_address = "10.42.9.20"
+        zones              = []
+        probes             = { sql = { port = 1433 } }
+        rules              = { sql = { probe = "sql", frontend_port = 1433, backend_port = 1433 } }
+      }
+    }
+  }
+  assert {
+    condition = (
+      length(module.load_balancer) == 2 &&
+      length(local.resource_names.load_balancers["web"].rules) == 2 &&
+      local.subnets["load_balancers/web"].name != local.subnets["load_balancers/data"].name &&
+      local.subnets["load_balancers/data"].address_prefixes == ["10.42.9.16/29"] &&
+      output.load_balancers["web"].virtual_machines == tolist(["primary"]) &&
+      output.load_balancers["data"].virtual_machines == tolist(["db"]) &&
+      length(output.load_balancers["data"].virtual_machine_scale_sets) == 0
+    )
+    error_message = "Each load balancer must get its own subnet, probes, rules, and members."
+  }
+}
+
+run "reject_unknown_load_balancer_on_vm" {
+  command = plan
+  variables {
+    virtual_machines = {
+      primary = { load_balancer = "missing" }
+    }
+  }
+  expect_failures = [var.virtual_machines]
+}
+
+run "reject_unknown_load_balancer_on_vmss" {
+  command = plan
+  variables {
+    virtual_machine_scale_sets = {
+      app = { load_balancer = "missing" }
+    }
+  }
+  expect_failures = [var.virtual_machine_scale_sets]
+}
+
+run "reject_load_balancer_subnet_smaller_than_29" {
+  command = plan
+  variables {
+    load_balancers = {
+      web = { subnet_cidr = "10.42.9.0/30" }
+    }
+  }
+  expect_failures = [var.load_balancers]
+}
+
+run "reject_reserved_load_balancer_ip" {
+  command = plan
+  variables {
+    load_balancers = {
+      web = { subnet_cidr = "10.42.9.0/28", private_ip_address = "10.42.9.3" }
+    }
+  }
+  expect_failures = [var.load_balancers]
+}
+
+run "reject_broadcast_load_balancer_ip" {
+  command = plan
+  variables {
+    load_balancers = {
+      web = { subnet_cidr = "10.42.9.0/28", private_ip_address = "10.42.9.15" }
+    }
+  }
+  expect_failures = [var.load_balancers]
+}
+
+run "reject_load_balancer_ip_outside_subnet" {
+  command = plan
+  variables {
+    load_balancers = {
+      web = { subnet_cidr = "10.42.9.0/28", private_ip_address = "10.42.10.4" }
+    }
+  }
+  expect_failures = [var.load_balancers]
+}
+
+run "reject_invalid_load_balancer_key" {
+  command = plan
+  variables {
+    load_balancers = {
+      "web-" = { subnet_cidr = "10.42.9.0/28" }
+    }
+  }
+  expect_failures = [var.load_balancers]
+}
+
+run "reject_invalid_load_balancer_rule_key" {
+  command = plan
+  variables {
+    load_balancers = {
+      web = {
+        subnet_cidr = "10.42.9.0/28"
+        probes      = { http = { port = 80 } }
+        rules       = { "Http_Rule" = { probe = "http", frontend_port = 80, backend_port = 80 } }
+      }
+    }
+  }
+  expect_failures = [var.load_balancers]
 }
 
 run "windows_function_app" {

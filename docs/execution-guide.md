@@ -111,8 +111,9 @@ cost, capacity, or data layout:
 | Naming | Resource abbreviations and optional deterministic suffix |
 | Network | VNet address space, each service subnet, and NAT idle timeout |
 | Services | Enable or disable each deployable service |
-| Virtual machine | Linux/Windows, Marketplace image, size, administrator username, OS disk, and named data disks |
-| Virtual Machine Scale Set | Linux/Windows, Marketplace image, size, per-instance disks, zones, upgrade mode, and fixed or CPU-autoscaled capacity |
+| Virtual machine | Linux/Windows, Marketplace image, size, administrator username, OS disk, named data disks, and load balancer membership |
+| Virtual Machine Scale Set | Linux/Windows, Marketplace image, size, per-instance disks, zones, upgrade mode, fixed or CPU-autoscaled capacity, and load balancer membership |
+| Load balancers | Internal Standard load balancers keyed by name, each with its own frontend subnet, optional static IP, zones, health probes, and rules |
 | Key Vault | SKU and purge protection |
 | Storage | Terraform authentication, Shared Key policy, workload RBAC, redundancy, containers, shares, quotas, and access tiers |
 | Databases | Versions, SKUs, storage, PostgreSQL/MySQL HA and zones, throughput, and API-specific schema |
@@ -226,6 +227,7 @@ Subnet creation follows the enabled service graph:
 | `private_endpoints` | Web App or Function App is enabled, or `azure_sql_servers`/`container_registries`/`cosmos_db_accounts`/`key_vaults`/`storage_accounts`/`premium_file_accounts` is nonempty |
 | `virtual_machines` | `virtual_machines` or `virtual_machine_scale_sets` is non-empty |
 | `container_apps/<key>` | One per `container_apps_environments` entry, using that entry's `subnet_cidr` |
+| `load_balancers/<key>` | One per `load_balancers` entry, using that entry's `subnet_cidr` |
 | `web_app_integration` | `services.web_app` is `true` |
 | `function_integration` | `services.function_app` is `true` |
 | `postgresql` | `services.postgresql` is `true` |
@@ -281,8 +283,48 @@ Before applying:
 Use `Manual` upgrade mode unless the workload has a separate health-aware
 upgrade process. `Automatic` is available, but can update instances without an
 application-specific health gate. Rolling upgrades and automatic repairs are
-deferred until a load-balancer probe or Application Health extension is
-available.
+deferred until the module wires a load-balancer probe or Application Health
+extension into the scale set.
+
+### Configure internal load balancers
+
+Add one `load_balancers` entry per internal load balancer, and set
+`load_balancer` on the VMs and scale sets that should join its backend pool:
+
+```hcl
+load_balancers = {
+  web = {
+    subnet_cidr        = "10.42.9.0/28"
+    private_ip_address = "10.42.9.4" # Optional; omit for a dynamic IP.
+    probes = {
+      http = { protocol = "Http", port = 80, request_path = "/" }
+    }
+    rules = {
+      http = { probe = "http", frontend_port = 80, backend_port = 80 }
+    }
+  }
+}
+
+virtual_machines = {
+  web1 = { load_balancer = "web" }
+}
+```
+
+Each load balancer gets its own `/29` or larger frontend subnet that must not
+overlap any other lab subnet; Terraform rejects overlaps and reserved static
+IPs at plan time. A `load_balancer` value that isn't a key in `load_balancers`
+is also rejected. The frontend is internal only and zone-redundant by default.
+Outbound traffic from the backends continues through the NAT Gateway.
+
+With `Manual` upgrade mode, a scale set applies a new backend pool only to new
+instances. Update existing instances after changing membership:
+
+```powershell
+az vmss update-instances --resource-group <resource-group> --name <scale-set> --instance-ids "*"
+```
+
+Inspect frontend IPs and members with
+`terraform -chdir=environments\lab output load_balancers`.
 
 ### Configure outbound internet egress
 

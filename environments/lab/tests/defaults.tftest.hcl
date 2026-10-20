@@ -38,6 +38,7 @@ variables {
   container_registries        = {}
   azure_sql_servers           = {}
   container_apps_environments = {}
+  load_balancers              = {}
   cosmos_db_accounts          = {}
   sql_managed_instance        = {}
   postgresql                  = {}
@@ -63,6 +64,7 @@ run "services_are_opt_in" {
       length(module.postgresql) == 0 &&
       length(module.mysql) == 0 &&
       length(module.container_apps) == 0 &&
+      length(module.load_balancer) == 0 &&
       length(module.log_analytics) == 0 &&
       length(module.cosmos_db) == 0 &&
       length(module.web_app) == 0 &&

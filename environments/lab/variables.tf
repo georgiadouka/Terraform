@@ -75,6 +75,11 @@ variable "naming" {
       data_disk                  = optional(string, "disk")
       autoscale_setting          = optional(string, "autoscale")
       nat_gateway                = optional(string, "nat")
+      load_balancer              = optional(string, "lbi")
+      load_balancer_frontend     = optional(string, "lbfe")
+      load_balancer_backend_pool = optional(string, "lbbe")
+      load_balancer_probe        = optional(string, "lbprobe")
+      load_balancer_rule         = optional(string, "lbrule")
       public_ip                  = optional(string, "pip")
       key_vault                  = optional(string, "kv")
       container_registry         = optional(string, "cr")
@@ -226,6 +231,7 @@ variable "virtual_machines" {
         caching              = "ReadWrite"
       }
     })
+    load_balancer = optional(string)
   }))
   default = {}
 
@@ -236,6 +242,14 @@ variable "virtual_machines" {
       !strcontains(key, "--")
     ])
     error_message = "virtual_machines keys must be 1-12 lowercase alphanumeric or hyphen characters, start with a letter, and not contain consecutive hyphens."
+  }
+
+  validation {
+    condition = alltrue([
+      for vm in values(var.virtual_machines) :
+      vm.load_balancer == null || contains(keys(var.load_balancers), coalesce(vm.load_balancer, "-"))
+    ])
+    error_message = "Every virtual_machines load_balancer must be a key in load_balancers."
   }
 }
 
@@ -279,6 +293,7 @@ variable "virtual_machine_scale_sets" {
         cooldown_minutes    = optional(number, 5)
       }), {})
     }), {})
+    load_balancer                                = optional(string)
     load_balancer_backend_address_pool_ids       = optional(set(string), [])
     application_gateway_backend_address_pool_ids = optional(set(string), [])
   }))
@@ -291,6 +306,96 @@ variable "virtual_machine_scale_sets" {
       !strcontains(key, "--")
     ])
     error_message = "virtual_machine_scale_sets keys must be 1-12 lowercase alphanumeric or hyphen characters, start with a letter, and not contain consecutive hyphens."
+  }
+
+  validation {
+    condition = alltrue([
+      for scale_set in values(var.virtual_machine_scale_sets) :
+      scale_set.load_balancer == null || contains(keys(var.load_balancers), coalesce(scale_set.load_balancer, "-"))
+    ])
+    error_message = "Every virtual_machine_scale_sets load_balancer must be a key in load_balancers."
+  }
+}
+
+variable "load_balancers" {
+  description = "Internal Standard load balancers keyed by a stable logical name. Each gets its own frontend subnet (/29 or larger) and one backend pool; VMs and scale sets join by setting load_balancer to the key. Defaults to none."
+  type = map(object({
+    subnet_cidr        = string
+    private_ip_address = optional(string)
+    zones              = optional(set(string), ["1", "2", "3"])
+    probes = optional(map(object({
+      protocol            = optional(string, "Tcp")
+      port                = number
+      request_path        = optional(string)
+      interval_in_seconds = optional(number, 5)
+      probe_threshold     = optional(number, 1)
+    })), {})
+    rules = optional(map(object({
+      probe                   = string
+      protocol                = optional(string, "Tcp")
+      frontend_port           = number
+      backend_port            = number
+      idle_timeout_in_minutes = optional(number, 4)
+      load_distribution       = optional(string, "Default")
+      floating_ip_enabled     = optional(bool, false)
+      tcp_reset_enabled       = optional(bool, true)
+    })), {})
+  }))
+  default  = {}
+  nullable = false
+
+  validation {
+    condition = alltrue([
+      for key in keys(var.load_balancers) :
+      can(regex("^[a-z]([a-z0-9-]{0,10}[a-z0-9])?$", key)) && !strcontains(key, "--")
+    ])
+    error_message = "load_balancers keys must be 1-12 lowercase alphanumeric or hyphen characters, start with a letter, end with a letter or digit, and not contain consecutive hyphens."
+  }
+
+  validation {
+    condition = alltrue(flatten([
+      for load_balancer in values(var.load_balancers) : [
+        for key in concat(keys(load_balancer.probes), keys(load_balancer.rules)) :
+        can(regex("^[a-z]([a-z0-9-]{0,18}[a-z0-9])?$", key)) && !strcontains(key, "--")
+      ]
+    ]))
+    error_message = "Probe and rule keys must be 1-20 lowercase alphanumeric or hyphen characters, start with a letter, end with a letter or digit, and not contain consecutive hyphens."
+  }
+
+  # Azure's smallest subnet is /29.
+  validation {
+    condition = alltrue([
+      for load_balancer in values(var.load_balancers) :
+      can(cidrnetmask(load_balancer.subnet_cidr)) &&
+      try(cidrhost(load_balancer.subnet_cidr, 0) == split("/", load_balancer.subnet_cidr)[0], false) &&
+      try(tonumber(split("/", load_balancer.subnet_cidr)[1]) <= 29, false)
+    ])
+    error_message = "Every load_balancers subnet_cidr must be a valid IPv4 CIDR written with its network address and be /29 or larger."
+  }
+
+  # Azure reserves the first four addresses and the last address of a subnet.
+  validation {
+    condition = alltrue([
+      for load_balancer in values(var.load_balancers) : load_balancer.private_ip_address == null ? true : try(
+        can(regex("^(25[0-5]|2[0-4][0-9]|1?[0-9]?[0-9])(\\.(25[0-5]|2[0-4][0-9]|1?[0-9]?[0-9])){3}$", load_balancer.private_ip_address)) &&
+        sum([
+          for index, octet in split(".", load_balancer.private_ip_address) :
+          tonumber(octet) * pow(256, 3 - index)
+          ]) >= sum([
+          for index, octet in split(".", cidrhost(load_balancer.subnet_cidr, 0)) :
+          tonumber(octet) * pow(256, 3 - index)
+        ]) + 4 &&
+        sum([
+          for index, octet in split(".", load_balancer.private_ip_address) :
+          tonumber(octet) * pow(256, 3 - index)
+          ]) <= sum([
+          for index, octet in split(".", cidrhost(load_balancer.subnet_cidr, 0)) :
+          tonumber(octet) * pow(256, 3 - index)
+        ]) + pow(2, 32 - tonumber(split("/", load_balancer.subnet_cidr)[1])) - 2,
+        false
+      )
+    ])
+    error_message = "Every load_balancers private_ip_address must be a usable address in that entry's subnet_cidr: not one of the first four addresses or the last address."
   }
 }
 

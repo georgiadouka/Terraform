@@ -111,6 +111,25 @@ locals {
 
     nat_gateway   = "${local.naming_prefixes.nat_gateway}-${local.name_stem}"
     nat_public_ip = "${local.naming_prefixes.public_ip}-nat-${local.name_stem}"
+
+    # Frontend, pool, probe, and rule names are scoped to their load balancer,
+    # so probe and rule names use only their own key.
+    load_balancers = {
+      for key, load_balancer in var.load_balancers : key => {
+        name                           = "${local.naming_prefixes.load_balancer}-${key}-${local.name_stem}"
+        subnet_name                    = "${local.naming_prefixes.subnet}-${local.naming_prefixes.load_balancer}-${key}-${local.name_stem}"
+        frontend_ip_configuration_name = "${local.naming_prefixes.load_balancer_frontend}-${key}-${local.name_stem}"
+        backend_address_pool_name      = "${local.naming_prefixes.load_balancer_backend_pool}-${key}-${local.name_stem}"
+        probes = {
+          for probe_key in keys(load_balancer.probes) :
+          probe_key => "${local.naming_prefixes.load_balancer_probe}-${probe_key}-${local.name_stem}"
+        }
+        rules = {
+          for rule_key in keys(load_balancer.rules) :
+          rule_key => "${local.naming_prefixes.load_balancer_rule}-${rule_key}-${local.name_stem}"
+        }
+      }
+    }
     # Instance hostnames use a 9-character prefix (the Windows limit) that is
     # unique per key, so scale sets in the same VNet never share hostnames.
     virtual_machine_scale_sets = {
@@ -550,20 +569,32 @@ locals {
     }
   }
 
+  # One frontend subnet per load balancer, keyed load_balancers/<key>. It holds
+  # only the frontend IP, so it needs no delegation or NAT association.
+  load_balancer_subnets = {
+    for key, load_balancer in var.load_balancers :
+    "load_balancers/${key}" => {
+      name             = local.resource_names.load_balancers[key].subnet_name
+      address_prefixes = [load_balancer.subnet_cidr]
+    }
+  }
+
   subnets = merge(
     {
       for subnet_key, subnet in local.subnet_definitions :
       subnet_key => subnet
       if local.subnet_enabled[subnet_key]
     },
-    local.container_apps_subnets
+    local.container_apps_subnets,
+    local.load_balancer_subnets
   )
 
   # Every subnet the lab could create, so the network module checks planned
   # ranges for overlap even when their services are off.
   planned_subnet_address_prefixes = merge(
     { for subnet_key, cidr in var.subnet_cidrs : subnet_key => [cidr] },
-    { for subnet_key, subnet in local.container_apps_subnets : subnet_key => subnet.address_prefixes }
+    { for subnet_key, subnet in local.container_apps_subnets : subnet_key => subnet.address_prefixes },
+    { for subnet_key, subnet in local.load_balancer_subnets : subnet_key => subnet.address_prefixes }
   )
 
   private_dns_zones = setunion(
@@ -631,7 +662,10 @@ module "virtual_machine" {
   admin_password         = each.value.os_type == "Windows" ? random_password.vm_windows[each.key].result : null
   os_disk                = each.value.os_disk
   data_disks             = each.value.data_disks
-  tags                   = local.common_tags
+  load_balancer_backend_address_pool_ids = each.value.load_balancer == null ? {} : {
+    (each.value.load_balancer) = module.load_balancer[each.value.load_balancer].backend_address_pool_id
+  }
+  tags = local.common_tags
 
   depends_on = [module.nat_gateway]
 }
@@ -640,30 +674,60 @@ module "virtual_machine_scale_set" {
   for_each = var.virtual_machine_scale_sets
   source   = "../../modules/virtual-machine-scale-set"
 
-  name                                         = local.resource_names.virtual_machine_scale_sets[each.key].name
-  autoscale_setting_name                       = local.resource_names.virtual_machine_scale_sets[each.key].autoscale_setting_name
-  network_interface_name                       = local.resource_names.virtual_machine_scale_sets[each.key].network_interface_name
-  computer_name_prefix                         = local.resource_names.virtual_machine_scale_sets[each.key].computer_name_prefix
-  resource_group_name                          = module.resource_group.name
-  location                                     = module.resource_group.location
-  subnet_id                                    = module.network.subnet_ids["virtual_machines"]
-  size                                         = each.value.size
-  admin_username                               = each.value.admin_username
-  os_type                                      = each.value.os_type
-  source_image_reference                       = each.value.source_image_reference
-  admin_ssh_public_key                         = each.value.os_type == "Linux" ? tls_private_key.vmss[each.key].public_key_openssh : null
-  admin_password                               = each.value.os_type == "Windows" ? random_password.vmss_windows[each.key].result : null
-  os_disk                                      = each.value.os_disk
-  data_disks                                   = each.value.data_disks
-  scaling                                      = each.value.scaling
-  zones                                        = each.value.zones
-  upgrade_mode                                 = each.value.upgrade_mode
-  enable_accelerated_networking                = each.value.enable_accelerated_networking
-  load_balancer_backend_address_pool_ids       = each.value.load_balancer_backend_address_pool_ids
+  name                          = local.resource_names.virtual_machine_scale_sets[each.key].name
+  autoscale_setting_name        = local.resource_names.virtual_machine_scale_sets[each.key].autoscale_setting_name
+  network_interface_name        = local.resource_names.virtual_machine_scale_sets[each.key].network_interface_name
+  computer_name_prefix          = local.resource_names.virtual_machine_scale_sets[each.key].computer_name_prefix
+  resource_group_name           = module.resource_group.name
+  location                      = module.resource_group.location
+  subnet_id                     = module.network.subnet_ids["virtual_machines"]
+  size                          = each.value.size
+  admin_username                = each.value.admin_username
+  os_type                       = each.value.os_type
+  source_image_reference        = each.value.source_image_reference
+  admin_ssh_public_key          = each.value.os_type == "Linux" ? tls_private_key.vmss[each.key].public_key_openssh : null
+  admin_password                = each.value.os_type == "Windows" ? random_password.vmss_windows[each.key].result : null
+  os_disk                       = each.value.os_disk
+  data_disks                    = each.value.data_disks
+  scaling                       = each.value.scaling
+  zones                         = each.value.zones
+  upgrade_mode                  = each.value.upgrade_mode
+  enable_accelerated_networking = each.value.enable_accelerated_networking
+  load_balancer_backend_address_pool_ids = setunion(
+    each.value.load_balancer_backend_address_pool_ids,
+    each.value.load_balancer == null ? [] : [module.load_balancer[each.value.load_balancer].backend_address_pool_id]
+  )
   application_gateway_backend_address_pool_ids = each.value.application_gateway_backend_address_pool_ids
   tags                                         = local.common_tags
 
   depends_on = [module.nat_gateway]
+}
+
+module "load_balancer" {
+  for_each = var.load_balancers
+  source   = "../../modules/load-balancer"
+
+  name                           = local.resource_names.load_balancers[each.key].name
+  frontend_ip_configuration_name = local.resource_names.load_balancers[each.key].frontend_ip_configuration_name
+  backend_address_pool_name      = local.resource_names.load_balancers[each.key].backend_address_pool_name
+  resource_group_name            = module.resource_group.name
+  location                       = module.resource_group.location
+  subnet_id                      = module.network.subnet_ids["load_balancers/${each.key}"]
+  private_ip_address             = each.value.private_ip_address
+  zones                          = each.value.zones
+  probes = {
+    for probe_key, probe in each.value.probes : probe_key => merge(
+      probe,
+      { name = local.resource_names.load_balancers[each.key].probes[probe_key] }
+    )
+  }
+  rules = {
+    for rule_key, rule in each.value.rules : rule_key => merge(
+      rule,
+      { name = local.resource_names.load_balancers[each.key].rules[rule_key] }
+    )
+  }
+  tags = local.common_tags
 }
 
 module "nat_gateway" {

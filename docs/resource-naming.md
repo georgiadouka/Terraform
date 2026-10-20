@@ -90,6 +90,11 @@ Prefixes are configured in
 | Container | `ctr` |
 | Workload profile | `wp` |
 | Log Analytics workspace | `log` |
+| Load balancer (internal) | `lbi` |
+| Load balancer frontend IP configuration | `lbfe` |
+| Load balancer backend pool | `lbbe` |
+| Load balancer health probe | `lbprobe` |
+| Load balancer rule | `lbrule` |
 | Private endpoint | `pe` |
 
 Every prefix must be 1-10 lowercase alphanumeric characters starting with a
@@ -114,6 +119,8 @@ Examples using the example suffix:
 | Virtual machine | `vm` + logical key + stem | `vm-primary-metlen-lab-it6hp` |
 | VM scale set | `vmss` + key + stem | `vmss-web-metlen-lab-it6hp` |
 | NAT Gateway | `nat` + stem | `nat-metlen-lab-it6hp` |
+| Load balancer | `lbi` + key + stem | `lbi-web-metlen-lab-it6hp` |
+| Load balancer frontend / backend pool | `lbfe` or `lbbe` + key + stem | `lbfe-web-metlen-lab-it6hp` |
 | Azure SQL server | `sql` + key + stem | `sql-primary-metlen-lab-it6hp` |
 | Azure SQL database | `sqldb` + key + stem | `sqldb-primary-metlen-lab-it6hp` |
 | Azure SQL elastic pool | `sqlep` + key + stem | `sqlep-primary-metlen-lab-it6hp` |
@@ -186,6 +193,7 @@ Examples:
 | Private Endpoints subnet | `snet-pe-metlen-lab-it6hp` |
 | VM subnet | `snet-vm-metlen-lab-it6hp` |
 | Container Apps subnet (environment `primary`) | `snet-aca-primary-metlen-lab-it6hp` |
+| Load balancer subnet (load balancer `web`) | `snet-lbi-web-metlen-lab-it6hp` |
 | Web App integration subnet | `snet-app-metlen-lab-it6hp` |
 | Function integration subnet | `snet-func-metlen-lab-it6hp` |
 | PostgreSQL subnet | `snet-psql-metlen-lab-it6hp` |
@@ -207,6 +215,7 @@ retaining the project, environment, and deployment suffix:
 | `private_endpoints` | `pe` |
 | `virtual_machines` | `vm` |
 | `container_apps/<environment key>` | `aca-<environment key>` |
+| `load_balancers/<load balancer key>` | `<load balancer prefix>-<load balancer key>`, such as `lbi-web` |
 | `web_app_integration` | `app` |
 | `function_integration` | `func` |
 | `postgresql` | `psql` |
@@ -326,6 +335,11 @@ Examples:
 | Blob container `archive` | `blob-archive-metlen-lab-it6hp` |
 | Premium share `premium` | `share-premium-metlen-lab-it6hp` |
 | Function content share | `share-function-content-metlen-lab-it6hp` |
+| Load balancer probe `http` | `lbprobe-http-metlen-lab-it6hp` |
+| Load balancer rule `http` | `lbrule-http-metlen-lab-it6hp` |
+
+Load balancer probe and rule names are scoped to their load balancer, so two
+load balancers can both have an `http` probe and rule.
 
 ## 8. Private endpoint names
 

@@ -62,6 +62,30 @@ run "linux_defaults" {
     )
     error_message = "Linux must retain SSH-only authentication, trusted launch, and shared outputs."
   }
+  assert {
+    condition     = length(azurerm_network_interface_backend_address_pool_association.this) == 0
+    error_message = "By default the NIC must not join any load balancer backend pool."
+  }
+}
+
+run "joins_load_balancer_backend_pool" {
+  command = plan
+
+  variables {
+    load_balancer_backend_address_pool_ids = {
+      web = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-vm-test/providers/Microsoft.Network/loadBalancers/lbi-web/backendAddressPools/lbbe-web"
+    }
+  }
+
+  assert {
+    condition = (
+      length(azurerm_network_interface_backend_address_pool_association.this) == 1 &&
+      azurerm_network_interface_backend_address_pool_association.this["web"].ip_configuration_name == "primary" &&
+      azurerm_network_interface_backend_address_pool_association.this["web"].network_interface_id == azurerm_network_interface.this.id &&
+      endswith(azurerm_network_interface_backend_address_pool_association.this["web"].backend_address_pool_id, "/backendAddressPools/lbbe-web")
+    )
+    error_message = "The NIC's primary IP configuration must join each configured backend pool."
+  }
 }
 
 run "linux_custom_image_and_disks" {
