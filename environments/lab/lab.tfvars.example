@@ -268,6 +268,50 @@ nat_gateway = {
   idle_timeout_in_minutes = 4
 }
 
+# NSGs are off. Each entry creates nsg-<key>-<stem> and associates it with the
+# listed subnet keys (virtual_machines, private_endpoints, web_app_integration,
+# function_integration, postgresql, mysql, load_balancers, or
+# container_apps/<environment key>). sql_managed_instance is managed by its own
+# module. A subnet may appear in only one NSG.
+network_security_groups = {}
+
+# network_security_groups = {
+#   compute = {
+#     subnets = ["virtual_machines"]
+#
+#     security_rules = {
+#       allow-ssh-from-vnet = {
+#         priority                   = 100
+#         direction                  = "Inbound"
+#         access                     = "Allow"
+#         protocol                   = "Tcp"
+#         destination_port_range     = "22"
+#         source_address_prefix      = "VirtualNetwork"
+#         destination_address_prefix = "*"
+#       }
+#     }
+#   }
+# }
+
+# Route tables are off. Each entry creates rt-<key>-<stem> and associates it
+# with the listed subnet keys (same keys as NSGs). A 0.0.0.0/0 route overrides
+# NAT Gateway egress for its subnets. A subnet may appear in only one table.
+route_tables = {}
+
+# route_tables = {
+#   egress = {
+#     subnets = ["virtual_machines"]
+#
+#     routes = {
+#       default-to-firewall = {
+#         address_prefix         = "0.0.0.0/0"
+#         next_hop_type          = "VirtualAppliance"
+#         next_hop_in_ip_address = "10.0.0.4"
+#       }
+#     }
+#   }
+# }
+
 # One entry per private Premium Azure Container Registry. Keys are stable
 # logical names; changing a key renames, and therefore replaces, that registry.
 container_registries = {

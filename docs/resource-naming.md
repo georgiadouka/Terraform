@@ -119,6 +119,8 @@ Examples using the example suffix:
 | Virtual machine | `vm` + logical key + stem | `vm-primary-metlen-lab-it6hp` |
 | VM scale set | `vmss` + key + stem | `vmss-web-metlen-lab-it6hp` |
 | NAT Gateway | `nat` + stem | `nat-metlen-lab-it6hp` |
+| Network security group | `nsg` + key + stem | `nsg-compute-metlen-lab-it6hp` |
+| Route table | `rt` + key + stem | `rt-egress-metlen-lab-it6hp` |
 | Load balancer | `lbi` + key + stem | `lbi-web-metlen-lab-it6hp` |
 | Load balancer frontend / backend pool | `lbfe` or `lbbe` + key + stem | `lbfe-web-metlen-lab-it6hp` |
 | Azure SQL server | `sql` + key + stem | `sql-primary-metlen-lab-it6hp` |

@@ -100,6 +100,30 @@ output "nat_gateway_public_ip_address" {
   value       = try(module.nat_gateway[0].public_ip_address, null)
 }
 
+output "network_security_groups" {
+  description = "Network security groups keyed by logical name, with their rule IDs and associated subnet keys."
+  value = {
+    for key, nsg in module.network_security_group : key => {
+      id                = nsg.id
+      name              = nsg.name
+      security_rule_ids = nsg.security_rule_ids
+      subnets           = var.network_security_groups[key].subnets
+    }
+  }
+}
+
+output "route_tables" {
+  description = "Route tables keyed by logical name, with their route IDs and associated subnet keys."
+  value = {
+    for key, route_table in module.route_table : key => {
+      id        = route_table.id
+      name      = route_table.name
+      route_ids = route_table.route_ids
+      subnets   = var.route_tables[key].subnets
+    }
+  }
+}
+
 output "key_vaults" {
   description = "Key Vault details keyed by the configured logical vault name."
   value = {

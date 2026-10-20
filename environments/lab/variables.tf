@@ -449,6 +449,97 @@ variable "nat_gateway" {
   default = {}
 }
 
+variable "network_security_groups" {
+  description = "Network security groups keyed by a stable logical name. Defaults to none. subnets lists the subnet keys (for example virtual_machines or container_apps/primary) to associate; a subnet can belong to only one group. The SQL Managed Instance subnet is excluded because its module manages its own group. Rule names are the security_rules keys."
+  type = map(object({
+    subnets = optional(list(string), [])
+    security_rules = optional(map(object({
+      priority                     = number
+      direction                    = string
+      access                       = string
+      protocol                     = string
+      description                  = optional(string)
+      source_port_range            = optional(string)
+      source_port_ranges           = optional(list(string))
+      destination_port_range       = optional(string)
+      destination_port_ranges      = optional(list(string))
+      source_address_prefix        = optional(string)
+      source_address_prefixes      = optional(list(string))
+      destination_address_prefix   = optional(string)
+      destination_address_prefixes = optional(list(string))
+    })), {})
+  }))
+  default = {}
+
+  validation {
+    condition = alltrue([
+      for key in keys(var.network_security_groups) :
+      can(regex("^[a-z][a-z0-9-]{0,11}$", key)) &&
+      !strcontains(key, "--")
+    ])
+    error_message = "network_security_groups keys must be 1-12 lowercase alphanumeric or hyphen characters, start with a letter, and not contain consecutive hyphens."
+  }
+
+  validation {
+    condition = alltrue(flatten([
+      for nsg in values(var.network_security_groups) : [
+        for subnet_key in nsg.subnets :
+        subnet_key != "sql_managed_instance" && contains(local.deployed_subnet_keys, subnet_key)
+      ]
+    ]))
+    error_message = "Every network_security_groups subnets entry must be a deployed subnet key other than sql_managed_instance. Deployed subnet keys: ${join(", ", local.deployed_subnet_keys)}."
+  }
+
+  validation {
+    condition = (
+      length(flatten([for nsg in values(var.network_security_groups) : nsg.subnets])) ==
+      length(distinct(flatten([for nsg in values(var.network_security_groups) : nsg.subnets])))
+    )
+    error_message = "A subnet can be listed only once across all network_security_groups entries."
+  }
+}
+
+variable "route_tables" {
+  description = "Route tables keyed by a stable logical name. Defaults to none. subnets lists the subnet keys (for example virtual_machines or container_apps/primary) to associate; a subnet can belong to only one table. The SQL Managed Instance subnet is excluded because its module manages its own table. Route names are the routes keys. A 0.0.0.0/0 route overrides NAT Gateway egress for its subnets."
+  type = map(object({
+    subnets                       = optional(list(string), [])
+    bgp_route_propagation_enabled = optional(bool, true)
+    routes = optional(map(object({
+      address_prefix         = string
+      next_hop_type          = string
+      next_hop_in_ip_address = optional(string)
+    })), {})
+  }))
+  default = {}
+
+  validation {
+    condition = alltrue([
+      for key in keys(var.route_tables) :
+      can(regex("^[a-z][a-z0-9-]{0,11}$", key)) &&
+      !strcontains(key, "--")
+    ])
+    error_message = "route_tables keys must be 1-12 lowercase alphanumeric or hyphen characters, start with a letter, and not contain consecutive hyphens."
+  }
+
+  validation {
+    condition = alltrue(flatten([
+      for route_table in values(var.route_tables) : [
+        for subnet_key in route_table.subnets :
+        subnet_key != "sql_managed_instance" && contains(local.deployed_subnet_keys, subnet_key)
+      ]
+    ]))
+    error_message = "Every route_tables subnets entry must be a deployed subnet key other than sql_managed_instance. Deployed subnet keys: ${join(", ", local.deployed_subnet_keys)}."
+  }
+
+  validation {
+    condition = (
+      length(flatten([for route_table in values(var.route_tables) : route_table.subnets])) ==
+      length(distinct(flatten([for route_table in values(var.route_tables) : route_table.subnets])))
+    )
+    error_message = "A subnet can be listed only once across all route_tables entries."
+  }
+}
+
 variable "container_registries" {
   description = "Private Premium Azure Container Registries keyed by a stable logical name. Defaults to none; add one entry per registry."
   type        = map(object({}))

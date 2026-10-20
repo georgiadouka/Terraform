@@ -36,6 +36,8 @@ versioning lifecycle.
 | `private-dns` | Central Private DNS zones and VNet links | Yes |
 | `private-endpoint` | Reusable Private Endpoint and DNS zone group | Yes |
 | `nat-gateway` | Shared static outbound internet egress for VM/VMSS and Container Apps subnets | Standard NAT Gateway and static public IP |
+| `network-security-group` | Optional NSGs with security rules, each associated with selected subnets | Subnet-level traffic filtering |
+| `route-table` | Optional route tables with user-defined routes, each associated with selected subnets | Subnet-level routing, such as forcing egress through a firewall |
 | `load-balancer` | Internal Standard load balancer with one backend pool, health probes, and load-balancing rules | Private frontend IP on a dedicated subnet; no public IP |
 | `virtual-machine` | Linux or Windows VM, NIC, OS disk, and configurable data disks | No VM public IP; outbound through NAT Gateway |
 | `virtual-machine-scale-set` | Linux or Windows VMSS with configurable images/disks and fixed or CPU-autoscaled capacity | No instance public IP; outbound through NAT Gateway |

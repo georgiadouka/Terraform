@@ -113,6 +113,17 @@ locals {
     nat_gateway   = "${local.naming_prefixes.nat_gateway}-${local.name_stem}"
     nat_public_ip = "${local.naming_prefixes.public_ip}-nat-${local.name_stem}"
 
+    # Rule and route names are scoped to their group or table, so they use
+    # only their own key.
+    network_security_groups = {
+      for key in keys(var.network_security_groups) :
+      key => "${local.naming_prefixes.network_security_group}-${key}-${local.name_stem}"
+    }
+    route_tables = {
+      for key in keys(var.route_tables) :
+      key => "${local.naming_prefixes.route_table}-${key}-${local.name_stem}"
+    }
+
     # Frontend, pool, probe, and rule names are scoped to their load balancer,
     # so probe and rule names use only their own key.
     load_balancers = {
@@ -508,6 +519,14 @@ locals {
     load_balancers       = length(var.load_balancers) > 0
   }
 
+  # Keys of every subnet the network module creates. Built without resource
+  # names so the network_security_groups and route_tables validations can use
+  # it without a dependency cycle.
+  deployed_subnet_keys = concat(
+    [for subnet_key, enabled in local.subnet_enabled : subnet_key if enabled],
+    [for environment_key in keys(var.container_apps_environments) : "container_apps/${environment_key}"]
+  )
+
   subnet_definitions = {
     private_endpoints = {
       name                              = local.resource_names.subnets.private_endpoints
@@ -761,6 +780,37 @@ module "nat_gateway" {
   }
   idle_timeout_in_minutes = var.nat_gateway.idle_timeout_in_minutes
   tags                    = local.common_tags
+}
+
+module "network_security_group" {
+  for_each = var.network_security_groups
+  source   = "../../modules/network-security-group"
+
+  name                = local.resource_names.network_security_groups[each.key]
+  resource_group_name = module.resource_group.name
+  location            = module.resource_group.location
+  security_rules      = each.value.security_rules
+  subnet_ids = {
+    for subnet_key in each.value.subnets :
+    subnet_key => module.network.subnet_ids[subnet_key]
+  }
+  tags = local.common_tags
+}
+
+module "route_table" {
+  for_each = var.route_tables
+  source   = "../../modules/route-table"
+
+  name                          = local.resource_names.route_tables[each.key]
+  resource_group_name           = module.resource_group.name
+  location                      = module.resource_group.location
+  bgp_route_propagation_enabled = each.value.bgp_route_propagation_enabled
+  routes                        = each.value.routes
+  subnet_ids = {
+    for subnet_key in each.value.subnets :
+    subnet_key => module.network.subnet_ids[subnet_key]
+  }
+  tags = local.common_tags
 }
 
 module "key_vault" {

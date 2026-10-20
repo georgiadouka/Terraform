@@ -109,7 +109,7 @@ cost, capacity, or data layout:
 |---|---|
 | Environment | Subscription, tenant, region, project name, environment, tags |
 | Naming | Resource abbreviations and optional deterministic suffix |
-| Network | VNet address space, every subnet range (including one per Container Apps environment and the shared load balancer range), and NAT idle timeout |
+| Network | VNet address space, every subnet range (including one per Container Apps environment and the shared load balancer range), NAT idle timeout, and optional NSGs and route tables with their subnet associations |
 | Services | Enable or disable each deployable service |
 | Virtual machine | Linux/Windows, Marketplace image, size, administrator username, OS disk, named data disks, and load balancer membership |
 | Virtual Machine Scale Set | Linux/Windows, Marketplace image, size, per-instance disks, zones, upgrade mode, fixed or CPU-autoscaled capacity, and load balancer membership |
@@ -381,6 +381,61 @@ separate egress identities or policies, use separate gateways instead of this
 shared lab pattern. Terraform ignores Public IP `ip_tags` because Azure or
 organizational policy may manage them outside this configuration; this avoids
 replacing the stable outbound IP solely because of externally managed IP tags.
+
+### Configure network security groups and route tables
+
+Both are off by default (`network_security_groups = {}` and
+`route_tables = {}`). Each entry is keyed by a stable 1-12 character name,
+creates `nsg-<key>-<stem>` or `rt-<key>-<stem>`, and is associated with the
+subnet keys in its `subnets` list:
+
+```hcl
+network_security_groups = {
+  compute = {
+    subnets = ["virtual_machines"]
+    security_rules = {
+      allow-ssh-from-vnet = {
+        priority                   = 100
+        direction                  = "Inbound"
+        access                     = "Allow"
+        protocol                   = "Tcp"
+        destination_port_range     = "22"
+        source_address_prefix      = "VirtualNetwork"
+        destination_address_prefix = "*"
+      }
+    }
+  }
+}
+
+route_tables = {
+  egress = {
+    subnets = ["virtual_machines"]
+    routes = {
+      default-to-firewall = {
+        address_prefix         = "0.0.0.0/0"
+        next_hop_type          = "VirtualAppliance"
+        next_hop_in_ip_address = "10.0.0.4"
+      }
+    }
+  }
+}
+```
+
+Valid subnet keys are `private_endpoints`, `virtual_machines`,
+`web_app_integration`, `function_integration`, `postgresql`, `mysql`,
+`load_balancers`, and `container_apps/<environment key>`. Plan-time validation
+rejects subnets that are not deployed, a subnet listed in more than one NSG or
+more than one route table, and `sql_managed_instance`, whose module manages its
+own NSG and route table. Rule and route names are their map keys. Port ranges
+default to `*`; each rule sets exactly one of the singular or plural source and
+destination address forms.
+
+A `0.0.0.0/0` route takes precedence over the NAT Gateway for its subnets, so
+outbound traffic then uses the configured next hop instead of the shared NAT
+public IP. Before associating an NSG with a delegated subnet (Container Apps,
+App Service integration, PostgreSQL, MySQL) or the load balancer subnet, allow
+the traffic those services require, including `AzureLoadBalancer` health
+probes.
 
 ### Configure resource naming
 
