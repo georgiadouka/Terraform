@@ -27,6 +27,24 @@ the lock file, example values, modules, and guide evolve together. Split a
 module into its own repository only when it needs an independent release and
 versioning lifecycle.
 
+### Lab configuration structure
+
+The lab root module keeps resource and module declarations in
+[`main.tf`](environments/lab/main.tf), with locals grouped by responsibility:
+
+| File | Responsibility |
+|---|---|
+| [`locals.naming.tf`](environments/lab/locals.naming.tf) | Shared naming inputs, logical-key tokens, and generated resource names |
+| [`locals.network.tf`](environments/lab/locals.network.tf) | Subnet enablement and definitions, address planning, and NAT requirements |
+| [`locals.private-connectivity.tf`](environments/lab/locals.private-connectivity.tf) | Private Endpoint catalog, target IDs, and shared Private DNS zones and links |
+| [`locals.tags.tf`](environments/lab/locals.tags.tf) | Common tags and environment overrides |
+
+Terraform evaluates all `.tf` files in this directory as one module. These
+files share the same local namespace; their filenames do not define evaluation
+order or create module boundaries. Function host storage endpoints remain
+separate from service endpoints so the Function App can depend on its storage
+connectivity without a dependency cycle.
+
 ## Implemented modules
 
 | Module | Purpose | Private connectivity |
@@ -206,7 +224,8 @@ enabled services; zones shared by multiple services remain while any consumer
 is enabled.
 
 All Private Endpoints are declared in one catalog,
-`local.private_endpoint_catalog` in `environments/lab/main.tf`. Each entry
+`local.private_endpoint_catalog` in
+[`locals.private-connectivity.tf`](environments/lab/locals.private-connectivity.tf). Each entry
 records whether it is enabled, its target, Private Link subresource, Private
 DNS zone, and name token. Endpoint names, the Private DNS zone set, and the
 Private Endpoint subnet are all derived from that catalog, and one

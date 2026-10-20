@@ -40,7 +40,7 @@ deployment therefore normally receives a different suffix.
 ## 2. Common name stem
 
 The central naming logic is in
-[`environments/lab/main.tf`](../environments/lab/main.tf):
+[`environments/lab/locals.naming.tf`](../environments/lab/locals.naming.tf):
 
 ```hcl
 naming_suffix = coalesce(
