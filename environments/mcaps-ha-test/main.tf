@@ -40,13 +40,14 @@ module "lab" {
 
   services = {
     postgresql = true
-    mysql      = true
   }
 
   virtual_machines = {
     primary = var.virtual_machine
   }
   postgresql = var.postgresql
-  mysql      = var.mysql
-  tags       = var.tags
+  mysql_servers = {
+    primary = var.mysql
+  }
+  tags = var.tags
 }

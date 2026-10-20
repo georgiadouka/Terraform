@@ -135,6 +135,7 @@ override_module {
       "container_apps/jobs"         = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Network/virtualNetworks/vnet-test/subnets/apps-jobs"
       "container_apps/longenvname1" = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Network/virtualNetworks/vnet-test/subnets/apps-long"
       load_balancers                = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Network/virtualNetworks/vnet-test/subnets/lb"
+      mysql                         = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Network/virtualNetworks/vnet-test/subnets/mysql"
     }
   }
 }
@@ -148,7 +149,7 @@ override_module {
   target = module.private_dns
   outputs = {
     zone_ids = {
-      for service in ["vaultcore.azure.net", "database.windows.net", "documents.azure.com", "gremlin.cosmos.azure.com", "azurecr.io", "blob.core.windows.net", "file.core.windows.net", "queue.core.windows.net", "table.core.windows.net", "azurewebsites.net"] :
+      for service in ["vaultcore.azure.net", "database.windows.net", "documents.azure.com", "gremlin.cosmos.azure.com", "azurecr.io", "blob.core.windows.net", "file.core.windows.net", "queue.core.windows.net", "table.core.windows.net", "azurewebsites.net", "mysql.database.azure.com"] :
       "privatelink.${service}" => "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Network/privateDnsZones/privatelink.${service}"
     }
   }
@@ -181,7 +182,6 @@ variables {
   services = {
     sql_managed_instance = false
     postgresql           = false
-    mysql                = false
     web_app              = false
     function_app         = true
   }
@@ -207,7 +207,7 @@ variables {
   cosmos_db_accounts         = {}
   sql_managed_instance       = {}
   postgresql                 = {}
-  mysql                      = {}
+  mysql_servers              = {}
   tags                       = {}
 }
 
@@ -389,7 +389,6 @@ run "vmss_only_keeps_shared_network" {
     services = {
       sql_managed_instance = false
       postgresql           = false
-      mysql                = false
       web_app              = false
       function_app         = false
     }
@@ -413,7 +412,6 @@ run "disabled_services" {
     services = {
       sql_managed_instance = false
       postgresql           = false
-      mysql                = false
       web_app              = false
       function_app         = false
     }
@@ -1333,6 +1331,112 @@ run "reject_invalid_load_balancer_rule_key" {
     }
   }
   expect_failures = [var.load_balancers]
+}
+
+run "multiple_mysql_servers" {
+  command = plan
+  variables {
+    mysql_servers = {
+      primary = {}
+      reports = {
+        sku_name          = "GP_Standard_D2ds_v4"
+        high_availability = { enabled = true }
+      }
+    }
+  }
+  assert {
+    condition = (
+      length(module.mysql) == 2 &&
+      length(random_password.mysql) == 2 &&
+      local.resource_names.mysql_servers["primary"].server_name == "mysql-primary-metlen-lab-test1" &&
+      local.resource_names.mysql_servers["primary"].database_name == "mysqldb-primary-metlen-lab-test1" &&
+      local.resource_names.mysql_servers["reports"].server_name == "mysql-reports-metlen-lab-test1" &&
+      local.subnet_enabled.mysql &&
+      local.subnets["mysql"].delegation.service == "Microsoft.DBforMySQL/flexibleServers" &&
+      length([for key in keys(local.subnets) : key if startswith(key, "mysql")]) == 1 &&
+      contains(local.private_dns_zones, "privatelink.mysql.database.azure.com") &&
+      output.mysql_servers["primary"].name == "mysql-primary-metlen-lab-test1" &&
+      output.mysql_servers["primary"].administrator_login == "mysqladminuser" &&
+      !output.mysql_servers["primary"].high_availability_enabled &&
+      output.mysql_servers["reports"].high_availability_enabled &&
+      toset(keys(output.mysql_administrator_passwords)) == toset(["primary", "reports"])
+    )
+    error_message = "Each mysql_servers entry must create its own named server, database, and password, while all servers share one delegated subnet and DNS zone."
+  }
+}
+
+run "mysql_is_opt_in" {
+  command = plan
+  assert {
+    condition = (
+      length(module.mysql) == 0 &&
+      length(random_password.mysql) == 0 &&
+      !local.subnet_enabled.mysql &&
+      !contains(local.private_dns_zones, "privatelink.mysql.database.azure.com") &&
+      length(output.mysql_servers) == 0
+    )
+    error_message = "An empty mysql_servers map must create no server, password, subnet, or DNS zone."
+  }
+}
+
+run "mysql_server_name_at_maximum_length" {
+  command = plan
+  variables {
+    project_name = "abcdefghijkl"
+    environment  = "abcdefgh"
+    naming = {
+      unique_suffix = "abcde"
+      prefixes      = { mysql_server = "abcdefghij", mysql_database = "abcdefghij" }
+    }
+    mysql_servers = {
+      longkeyname1 = {}
+    }
+  }
+  assert {
+    condition = (
+      length(local.resource_names.mysql_servers["longkeyname1"].server_name) == 51 &&
+      can(regex("^[a-z0-9][a-z0-9-]*[a-z0-9]$", local.resource_names.mysql_servers["longkeyname1"].server_name)) &&
+      length(local.resource_names.mysql_servers["longkeyname1"].database_name) <= 64
+    )
+    error_message = "The longest possible MySQL server name must stay within Azure's 63-character limit and the database name within 64."
+  }
+}
+
+run "reject_invalid_mysql_server_key" {
+  command = plan
+  variables {
+    mysql_servers = {
+      "primary-" = {}
+    }
+  }
+  expect_failures = [var.mysql_servers]
+}
+
+run "reject_mysql_subnet_too_small" {
+  command = plan
+  variables {
+    subnet_cidrs = merge(var.subnet_cidrs, { mysql = "10.42.6.0/29" })
+    mysql_servers = {
+      one = { sku_name = "GP_Standard_D2ds_v4", high_availability = { enabled = true } }
+      two = { sku_name = "GP_Standard_D2ds_v4", high_availability = { enabled = true } }
+    }
+  }
+  expect_failures = [var.mysql_servers]
+}
+
+run "mysql_subnet_exactly_full" {
+  command = plan
+  variables {
+    subnet_cidrs = merge(var.subnet_cidrs, { mysql = "10.42.6.0/29" })
+    mysql_servers = {
+      one = { sku_name = "GP_Standard_D2ds_v4", high_availability = { enabled = true } }
+      two = {}
+    }
+  }
+  assert {
+    condition     = length(module.mysql) == 2
+    error_message = "A /29 has three usable addresses, enough for one HA server (two) and one non-HA server (one)."
+  }
 }
 
 run "windows_function_app" {

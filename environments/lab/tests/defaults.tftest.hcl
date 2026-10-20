@@ -42,7 +42,7 @@ variables {
   cosmos_db_accounts          = {}
   sql_managed_instance        = {}
   postgresql                  = {}
-  mysql                       = {}
+  mysql_servers               = {}
   function_app                = {}
   web_app                     = {}
   tags                        = {}

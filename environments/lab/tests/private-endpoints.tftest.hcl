@@ -148,7 +148,7 @@ variables {
   nat_gateway                = {}
   sql_managed_instance       = {}
   postgresql                 = {}
-  mysql                      = {}
+  mysql_servers              = {}
   tags                       = {}
 }
 

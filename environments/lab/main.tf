@@ -15,7 +15,7 @@ resource "random_password" "postgresql" {
 }
 
 resource "random_password" "mysql" {
-  count = var.services.mysql ? 1 : 0
+  for_each = var.mysql_servers
 
   length           = 24
   special          = true
@@ -238,8 +238,16 @@ locals {
 
     postgresql_server   = "${local.naming_prefixes.postgresql_server}-${local.name_stem}"
     postgresql_database = "${local.naming_prefixes.postgresql_database}-${local.name_stem}"
-    mysql_server        = "${local.naming_prefixes.mysql_server}-${local.name_stem}"
-    mysql_database      = "${local.naming_prefixes.mysql_database}-${local.name_stem}"
+
+    # Server names are globally unique (<name>.mysql.database.azure.com) and at
+    # most 51 characters here, within the 63-character limit, so the readable
+    # key is used without hashing. Database names are scoped to their server.
+    mysql_servers = {
+      for key in keys(var.mysql_servers) : key => {
+        server_name   = "${local.naming_prefixes.mysql_server}-${key}-${local.name_stem}"
+        database_name = "${local.naming_prefixes.mysql_database}-${key}-${local.name_stem}"
+      }
+    }
 
     # <prefix>-<key token><project><environment>-<suffix>, within 44 characters.
     # Database and container names are scoped to each account, so every account
@@ -488,7 +496,7 @@ locals {
     web_app_integration  = var.services.web_app
     function_integration = var.services.function_app
     postgresql           = var.services.postgresql
-    mysql                = var.services.mysql
+    mysql                = length(var.mysql_servers) > 0
     sql_managed_instance = var.services.sql_managed_instance
     load_balancers       = length(var.load_balancers) > 0
   }
@@ -605,7 +613,7 @@ locals {
       if endpoint.enabled
     ]),
     var.services.postgresql ? toset(["privatelink.postgres.database.azure.com"]) : toset([]),
-    var.services.mysql ? toset(["privatelink.mysql.database.azure.com"]) : toset([])
+    length(var.mysql_servers) > 0 ? toset(["privatelink.mysql.database.azure.com"]) : toset([])
   )
 
   private_dns_link_names = {
@@ -869,21 +877,21 @@ module "postgresql" {
 }
 
 module "mysql" {
-  count  = var.services.mysql ? 1 : 0
-  source = "../../modules/mysql-flexible"
+  for_each = var.mysql_servers
+  source   = "../../modules/mysql-flexible"
 
-  name                   = local.resource_names.mysql_server
+  name                   = local.resource_names.mysql_servers[each.key].server_name
   resource_group_name    = module.resource_group.name
   location               = module.resource_group.location
   delegated_subnet_id    = module.network.subnet_ids["mysql"]
   private_dns_zone_id    = module.private_dns.zone_ids["privatelink.mysql.database.azure.com"]
-  administrator_password = random_password.mysql[0].result
-  database_name          = local.resource_names.mysql_database
-  administrator_login    = var.mysql.administrator_login
-  sku_name               = var.mysql.sku_name
-  version_number         = var.mysql.version_number
-  zone                   = var.mysql.zone
-  high_availability      = var.mysql.high_availability
+  administrator_password = random_password.mysql[each.key].result
+  database_name          = local.resource_names.mysql_servers[each.key].database_name
+  administrator_login    = each.value.administrator_login
+  sku_name               = each.value.sku_name
+  version_number         = each.value.version_number
+  zone                   = each.value.zone
+  high_availability      = each.value.high_availability
   tags                   = local.common_tags
 
   depends_on = [module.private_dns]

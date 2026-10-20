@@ -24,7 +24,7 @@ output "postgresql_fqdn" {
 }
 
 output "mysql_fqdn" {
-  value = module.lab.mysql_fqdn
+  value = module.lab.mysql_servers["primary"].fqdn
 }
 
 output "nat_gateway_public_ip_address" {

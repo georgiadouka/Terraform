@@ -124,6 +124,8 @@ Examples using the example suffix:
 | Azure SQL server | `sql` + key + stem | `sql-primary-metlen-lab-it6hp` |
 | Azure SQL database | `sqldb` + key + stem | `sqldb-primary-metlen-lab-it6hp` |
 | Azure SQL elastic pool | `sqlep` + key + stem | `sqlep-primary-metlen-lab-it6hp` |
+| MySQL server | `mysql` + key + stem | `mysql-primary-metlen-lab-it6hp` |
+| MySQL database | `mysqldb` + key + stem | `mysqldb-primary-metlen-lab-it6hp` |
 | Container Apps Environment | `cae` + key + stem | `cae-primary-metlen-lab-it6hp` |
 | Container App | `ca` + app key + environment key + suffix | `ca-hello-primary-it6hp` |
 | Log Analytics workspace | `log` + stem | `log-metlen-lab-it6hp` |
@@ -136,7 +138,10 @@ distinct Azure names. Storage account and storage Private Endpoint names also
 derive from the stable keys in `storage_accounts` and `premium_file_accounts`.
 Azure SQL server names are globally unique and at most 63 characters; with the
 readable key they are at most 51 characters, so no hash token is needed.
-Database and elastic pool names are scoped to their server.
+Database and elastic pool names are scoped to their server. MySQL server names
+follow the same pattern and are also globally unique
+(`<name>.mysql.database.azure.com`), at most 51 characters within the
+63-character limit.
 
 Container Apps environment names include the key from
 `container_apps_environments`. Container App names must be unique within the

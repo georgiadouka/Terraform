@@ -108,7 +108,6 @@ subnet_cidrs = {
 services = {
   sql_managed_instance      = false
   postgresql                = true
-  mysql                     = true
   web_app                   = true
   function_app              = true
 }
@@ -379,19 +378,31 @@ postgresql = {
   }
 }
 
-mysql = {
-  administrator_login = "mysqladminuser"
-  sku_name            = "B_Standard_B1ms"
-  version_number      = "8.0.21"
-  zone                = null
+# One entry per MySQL Flexible Server; an empty map creates none. Each server
+# gets one database and its own generated password, and all servers share the
+# delegated subnet_cidrs.mysql subnet (one address per server, two with HA) and
+# one private DNS zone. Keys are stable logical names; changing a key replaces
+# that server. The smoke test uses the "primary" server by default.
+mysql_servers = {
+  primary = {
+    administrator_login = "mysqladminuser"
+    sku_name            = "B_Standard_B1ms"
+    version_number      = "8.0.21"
+    zone                = null
 
-  # Before enabling HA, change sku_name from B_ to GP_ or MO_.
-  # Plan zone-redundant HA at server creation; review existing-server limitations.
-  high_availability = {
-    enabled                   = false
-    mode                      = "ZoneRedundant" # Or SameZone.
-    standby_availability_zone = null
+    # Before enabling HA, change sku_name from B_ to GP_ or MO_.
+    # Plan zone-redundant HA at server creation; review existing-server limitations.
+    high_availability = {
+      enabled                   = false
+      mode                      = "ZoneRedundant" # Or SameZone.
+      standby_availability_zone = null
+    }
   }
+
+  # reports = {
+  #   sku_name          = "GP_Standard_D2ds_v4"
+  #   high_availability = { enabled = true }
+  # }
 }
 
 # One entry per internal Container Apps environment; an empty map creates none.

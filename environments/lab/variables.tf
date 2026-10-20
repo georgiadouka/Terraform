@@ -725,9 +725,9 @@ variable "postgresql" {
   default = {}
 }
 
-variable "mysql" {
-  description = "MySQL Flexible Server version and compute settings."
-  type = object({
+variable "mysql_servers" {
+  description = "MySQL Flexible Servers keyed by a stable logical name. Each entry creates one server with one database and its own generated administrator password; all servers share the delegated mysql subnet and the privatelink.mysql.database.azure.com zone. Defaults to none."
+  type = map(object({
     administrator_login = optional(string, "mysqladminuser")
     sku_name            = optional(string, "B_Standard_B1ms")
     version_number      = optional(string, "8.0.21")
@@ -737,8 +737,28 @@ variable "mysql" {
       mode                      = optional(string, "ZoneRedundant")
       standby_availability_zone = optional(string)
     }), {})
-  })
-  default = {}
+  }))
+  default  = {}
+  nullable = false
+
+  validation {
+    condition = alltrue([
+      for key in keys(var.mysql_servers) :
+      can(regex("^[a-z]([a-z0-9-]{0,10}[a-z0-9])?$", key)) && !strcontains(key, "--")
+    ])
+    error_message = "mysql_servers keys must be 1-12 lowercase alphanumeric or hyphen characters, start with a letter, end with a letter or digit, and not contain consecutive hyphens."
+  }
+
+  # Each server takes one subnet address, or two with high availability; Azure
+  # reserves five addresses in every subnet.
+  validation {
+    condition = length(var.mysql_servers) == 0 || try(
+      sum([for server in values(var.mysql_servers) : server.high_availability.enabled ? 2 : 1]) <=
+      pow(2, 32 - tonumber(split("/", var.subnet_cidrs.mysql)[1])) - 5,
+      false
+    )
+    error_message = "subnet_cidrs.mysql is too small for mysql_servers: each server needs one address, or two with high availability, and Azure reserves five addresses per subnet."
+  }
 }
 
 variable "function_app" {
@@ -778,7 +798,6 @@ variable "services" {
   type = object({
     sql_managed_instance = optional(bool, false)
     postgresql           = optional(bool, false)
-    mysql                = optional(bool, false)
     web_app              = optional(bool, false)
     function_app         = optional(bool, false)
   })

@@ -149,9 +149,25 @@ output "postgresql_fqdn" {
   value       = try(module.postgresql[0].fqdn, null)
 }
 
-output "mysql_fqdn" {
-  description = "MySQL FQDN when enabled."
-  value       = try(module.mysql[0].fqdn, null)
+output "mysql_servers" {
+  description = "MySQL Flexible Server details keyed by the configured logical server name."
+  value = {
+    for key, server in module.mysql : key => {
+      id                        = server.id
+      name                      = server.name
+      fqdn                      = server.fqdn
+      database_id               = server.database_id
+      database_name             = server.database_name
+      administrator_login       = var.mysql_servers[key].administrator_login
+      high_availability_enabled = var.mysql_servers[key].high_availability.enabled
+    }
+  }
+}
+
+output "mysql_administrator_passwords" {
+  description = "Generated administrator passwords keyed by MySQL server name. Stored in Terraform state; retrieve only when needed."
+  value       = { for key, password in random_password.mysql : key => password.result }
+  sensitive   = true
 }
 
 output "cosmos_db_accounts" {
