@@ -39,7 +39,7 @@ variables {
   container_registries       = {}
   azure_sql                  = {}
   container_apps             = {}
-  cosmos_db                  = {}
+  cosmos_db_accounts         = {}
   sql_managed_instance       = {}
   postgresql                 = {}
   mysql                      = {}

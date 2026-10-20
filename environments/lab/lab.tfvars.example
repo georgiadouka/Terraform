@@ -96,7 +96,6 @@ services = {
   postgresql                = true
   mysql                     = true
   container_apps            = true
-  cosmos_db                 = false
   web_app                   = true
   function_app              = true
 }
@@ -361,17 +360,24 @@ container_apps = {
   # Counts above are dedicated NODES, not app replicas; review billing/region support.
 }
 
-cosmos_db = {
-  api_type          = "NoSQL"
-  consistency_level = "Session"
+# One entry per Cosmos DB account; an empty map creates none. Each entry picks
+# its own api_type. Uncomment the template below to deploy one. Keys are
+# stable logical names; changing a key replaces that account.
+cosmos_db_accounts = {}
 
-  throughput = {
-    mode  = "serverless"
-    scope = "container"
-  }
-
-  nosql_partition_key_paths = ["/partitionKey"]
-}
+# cosmos_db_accounts = {
+#   primary = {
+#       api_type          = "NoSQL"
+#       consistency_level = "Session"
+#
+#       throughput = {
+#         mode  = "serverless"
+#         scope = "container"
+#       }
+#
+#       nosql_partition_key_paths = ["/partitionKey"]
+#   }
+# }
 
 web_app = {
   # Select one mode: linux, windows, or container.

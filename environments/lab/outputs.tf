@@ -137,24 +137,20 @@ output "mysql_fqdn" {
   value       = try(module.mysql[0].fqdn, null)
 }
 
-output "cosmos_db_account_id" {
-  description = "Cosmos DB account ID when enabled."
-  value       = try(module.cosmos_db[0].id, null)
-}
-
-output "cosmos_db_api_type" {
-  description = "Cosmos DB API type when enabled."
-  value       = try(module.cosmos_db[0].api_type, null)
-}
-
-output "cosmos_db_endpoint" {
-  description = "Cosmos DB endpoint when enabled."
-  value       = try(module.cosmos_db[0].endpoint, null)
-}
-
-output "cosmos_db_hostname" {
-  description = "API-specific Cosmos DB hostname when enabled."
-  value       = try(module.cosmos_db[0].hostname, null)
+output "cosmos_db_accounts" {
+  description = "Cosmos DB account details keyed by the configured logical account name."
+  value = {
+    for key, account in module.cosmos_db : key => {
+      id           = account.id
+      name         = account.name
+      api_type     = account.api_type
+      endpoint     = account.endpoint
+      hostname     = account.hostname
+      database_id  = account.database_id
+      container_id = account.container_id
+      principal_id = account.principal_id
+    }
+  }
 }
 
 output "container_app_fqdn" {
@@ -256,8 +252,11 @@ output "private_endpoint_ids" {
       for account_key in keys(var.premium_file_accounts) :
       account_key => module.private_endpoints["premium_files/${account_key}/file"].id
     }
-    azure_sql    = try(module.private_endpoints["azure_sql"].id, null)
-    cosmos_db    = try(module.private_endpoints["cosmos_db"].id, null)
+    azure_sql = try(module.private_endpoints["azure_sql"].id, null)
+    cosmos_db_accounts = {
+      for account_key in keys(var.cosmos_db_accounts) :
+      account_key => module.private_endpoints["cosmos_db/${account_key}"].id
+    }
     web_app      = try(module.private_endpoints["web_app"].id, null)
     function_app = try(module.private_endpoints["function_app"].id, null)
     function_storage = {

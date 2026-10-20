@@ -74,14 +74,14 @@ and select app placement with `container_apps.app_workload_profile`. The map is
 empty by default to avoid dedicated-profile charges. The multi-profile path has
 mocked Terraform plan coverage; it has not been deployed to Azure.
 
-Cosmos DB is also disabled by default. One module instance creates one classic
-RU-based API account selected with `cosmos_db.api_type`: NoSQL, MongoDB,
-Cassandra, Gremlin, or Table. Throughput can be serverless, manual RU/s, or
+Cosmos DB accounts are opt-in through the `cosmos_db_accounts` map. Each entry
+creates one classic RU-based API account with its own `api_type`: NoSQL,
+MongoDB, Cassandra, Gremlin, or Table, so one lab can mix APIs. Throughput can be serverless, manual RU/s, or
 autoscale, with database/keyspace or container/collection/table/graph scope
 where the API supports it. Public access is disabled, and the lab selects the
-matching Private Endpoint group and Private DNS zone automatically. All five
-APIs and the three throughput modes have been Terraform plan-validated, but
-Cosmos DB has not been applied. `MongoDB` refers to the classic RU-based Cosmos
+matching Private Endpoint group and Private DNS zone for each account
+automatically. All five APIs and the three throughput modes have been Terraform
+plan-validated; NoSQL and Gremlin accounts have also been applied in Azure. `MongoDB` refers to the classic RU-based Cosmos
 DB API for MongoDB, not the separate Azure Cosmos DB for MongoDB vCore product.
 
 Virtual Machine Scale Sets are opt-in through the `virtual_machine_scale_sets`
@@ -139,8 +139,8 @@ through `address_space` and `subnet_cidrs` in their `.tfvars` file. Terraform
 validates the complete current and future address plan for VNet containment and
 overlap, but creates only the subnets required by enabled services. The shared
 Private Endpoint subnet is created while at least one Key Vault, storage
-account, Premium Files account, or container registry is configured, or Azure
-SQL, Cosmos DB, Web App, or Function App is enabled. Enabling a
+account, Premium Files account, container registry, or Cosmos DB account is
+configured, or Azure SQL, Web App, or Function App is enabled. Enabling a
 service later adds its required subnet without changing existing subnet
 addresses. Private DNS zones and VNet links are likewise created only for
 enabled services; zones shared by multiple services remain while any consumer
@@ -195,8 +195,9 @@ understand or override every module input.
 Every service is opt-in. With no service switches or resource maps set, the lab
 deploys only the resource group and virtual network. Enable single-instance
 services with `services.<name> = true` and add entries to `virtual_machines`,
-`storage_accounts`, `premium_file_accounts`, `key_vaults`, or
-`container_registries` for keyed resources. Subnets,
+`storage_accounts`, `premium_file_accounts`, `key_vaults`,
+`container_registries`, `virtual_machine_scale_sets`, or `cosmos_db_accounts`
+for keyed resources. Subnets,
 Private DNS zones, Private Endpoints, and the NAT Gateway are created only when
 an enabled service needs them.
 
@@ -637,8 +638,8 @@ resources, and Function App resources.
 Names with stricter Azure rules use the same convention in a valid compact
 form. Storage account names contain no hyphens and stay within 24 characters;
 Azure Container Registry names contain no hyphens and include a logical-key token, and Key Vault names keep
-the suffix and a logical-key token within 24 characters; Cosmos DB
-database/container names are compact alphanumeric identifiers compatible with
+the suffix and a logical-key token within 24 characters; Cosmos DB account
+names keep a logical-key token within 44 characters, and database/container names are compact alphanumeric identifiers compatible with
 all supported APIs. Map-based Container Apps workload profile names use
 `<prefix up to 3 characters>-<4-character SHA-1 of logical key>-<suffix>`, staying
 within Azure's 15-character limit. The key hash makes names independent of map

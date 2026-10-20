@@ -203,9 +203,10 @@ Important rules:
   `container_apps.dedicated_workload_profiles` and select `"Consumption"` or a
   configured key with `container_apps.app_workload_profile`. An empty map is
   Consumption-only.
-- Cosmos DB is disabled by default. Set `services.cosmos_db = true` and select
-  one classic RU-based API with `cosmos_db.api_type`. The module creates one
-  API-specific database/container pair, or one table for the Table API.
+- `cosmos_db_accounts` is a map keyed by stable logical names and defaults to
+  empty. Each entry creates one account with its own classic RU-based API
+  (`api_type`) and one API-specific database/container pair, or one table for
+  the Table API; there is no `services` switch for Cosmos DB.
 - SQL Managed Instance is optional and disabled by default. Enabling it deploys
   the small lab profile in its dedicated subnet. Confirm quota and expected
   charges before setting `services.sql_managed_instance = true`.
@@ -214,7 +215,7 @@ Subnet creation follows the enabled service graph:
 
 | Subnet | Created when |
 |---|---|
-| `private_endpoints` | Azure SQL, Cosmos DB, Web App, or Function App is enabled, or `container_registries`/`key_vaults`/`storage_accounts`/`premium_file_accounts` is nonempty |
+| `private_endpoints` | Azure SQL, Web App, or Function App is enabled, or `container_registries`/`cosmos_db_accounts`/`key_vaults`/`storage_accounts`/`premium_file_accounts` is nonempty |
 | `virtual_machines` | `virtual_machines` or `virtual_machine_scale_sets` is non-empty |
 | `container_apps` | `services.container_apps` is `true` |
 | `web_app_integration` | `services.web_app` is `true` |
@@ -356,7 +357,8 @@ The same convention supplies names to module-internal Azure resources,
 including NICs, OS/data disks, Log Analytics, DNS links, Private Link
 connections, databases, containers, and shares. Storage accounts use compact
 lowercase names without hyphens; Key Vault names are compacted to 24
-characters while preserving the suffix and a logical-key token; Cosmos database/container names are
+characters while preserving the suffix and a logical-key token; Cosmos DB account names keep a
+logical-key token within 44 characters; Cosmos database/container names are
 compact alphanumeric values for compatibility with all five supported APIs.
 With the default prefix, map-based Container Apps workload profiles use
 `<prefix>-<logical key>01`, such as `wp-general01`. A deterministic hash form
@@ -497,7 +499,9 @@ deployment. Review expected charges before applying. See
 
 ### Cosmos DB API and throughput modes
 
-One module instance represents one Cosmos DB account and one API:
+Each `cosmos_db_accounts` entry is one Cosmos DB account with one API. Accounts
+in the same lab can use different APIs; the lab creates each API's Private DNS
+zone once and gives every account its own Private Endpoint:
 
 | `api_type` | Data-plane resources | Private Endpoint group | Private DNS zone |
 |---|---|---|---|
@@ -546,7 +550,7 @@ Plan the default NoSQL serverless profile without editing `lab.tfvars`:
 terraform -chdir=environments\lab plan `
   -input=false `
   -var-file=lab.tfvars `
-  -var="services={cosmos_db=true}" `
+  -var="cosmos_db_accounts={primary={}}" `
   -out=cosmos-nosql-serverless.tfplan
 ```
 
@@ -556,8 +560,7 @@ Plan MongoDB with 400 RU/s assigned to the collection:
 terraform -chdir=environments\lab plan `
   -input=false `
   -var-file=lab.tfvars `
-  -var="services={cosmos_db=true}" `
-  -var='cosmos_db={api_type="MongoDB",throughput={mode="manual",scope="container",manual_ru=400}}' `
+  -var='cosmos_db_accounts={primary={api_type="MongoDB",throughput={mode="manual",scope="container",manual_ru=400}}}' `
   -out=cosmos-mongodb-manual.tfplan
 ```
 
@@ -569,7 +572,7 @@ connection strings are not exposed as Terraform outputs.
 
 All five API types, serverless mode, manual RU/s, autoscale, database scope,
 and container scope have been Terraform plan-validated in Sweden Central.
-Cosmos DB has not been applied.
+Serverless NoSQL and Gremlin accounts have also been applied.
 
 To plan the elastic-pool mode without editing `lab.tfvars` or creating
 resources:
@@ -669,7 +672,8 @@ public IP. It verifies private DNS resolution for:
 - Function App;
 - Container App.
 - SQL Managed Instance, when enabled.
-- Cosmos DB, when enabled.
+- Cosmos DB, when `cosmos_db_accounts` is nonempty (select the account with
+  `-SmokeTestCosmosDbAccountKey`, default `primary`).
 
 Each hostname must resolve to the VNet address range. The Container App HTTPS
 endpoint must return HTTP 200.

@@ -276,6 +276,24 @@ always fits even with a five-character suffix and only the project and
 environment tokens are shortened. Keep keys unchanged after deployment because
 they are part of both Terraform addresses and generated names.
 
+### Cosmos DB
+
+Cosmos DB account names are globally unique, permit hyphens, and have a
+44-character limit. Each `cosmos_db_accounts` entry uses the same pattern and
+logical-key token as Key Vault:
+
+```text
+<prefix>-<key token><project><environment>-<suffix>   (truncated before the suffix)
+```
+
+| Logical key | Result |
+|---|---|
+| `primary` | `cosmos-primae3b7cmetlenlab-it6hp` |
+
+The longest possible inputs produce exactly 44 characters with the full key
+token, so no extra prefix limit is needed. Database and container names are
+scoped to each account, so every account reuses the same compact names.
+
 ## 7. Child-resource names
 
 Storage containers and file shares use their logical labels:
@@ -311,7 +329,8 @@ All three share one pattern built from the endpoint's name token:
 
 | Endpoint | Name token |
 |---|---|
-| Single-instance service | Service prefix, such as `sql`, `cosmos`, `app`, or `func` |
+| Single-instance service | Service prefix, such as `sql`, `app`, or `func` |
+| Cosmos DB | `cosmos-<account key>` |
 | Container Registry | `cr-<registry key>` |
 | Key Vault | `kv-<vault key>` |
 | Standard Storage | `st-<account key>-<blob or file>` |

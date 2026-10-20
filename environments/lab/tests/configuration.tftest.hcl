@@ -144,7 +144,7 @@ override_module {
   target = module.private_dns
   outputs = {
     zone_ids = {
-      for service in ["vaultcore.azure.net", "azurecr.io", "blob.core.windows.net", "file.core.windows.net", "queue.core.windows.net", "table.core.windows.net", "azurewebsites.net"] :
+      for service in ["vaultcore.azure.net", "documents.azure.com", "gremlin.cosmos.azure.com", "azurecr.io", "blob.core.windows.net", "file.core.windows.net", "queue.core.windows.net", "table.core.windows.net", "azurewebsites.net"] :
       "privatelink.${service}" => "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Network/privateDnsZones/privatelink.${service}"
     }
   }
@@ -179,7 +179,6 @@ variables {
     postgresql           = false
     mysql                = false
     container_apps       = false
-    cosmos_db            = false
     web_app              = false
     function_app         = true
   }
@@ -203,7 +202,7 @@ variables {
   key_vaults                 = {}
   container_registries       = {}
   azure_sql                  = {}
-  cosmos_db                  = {}
+  cosmos_db_accounts         = {}
   sql_managed_instance       = {}
   postgresql                 = {}
   mysql                      = {}
@@ -391,7 +390,6 @@ run "vmss_only_keeps_shared_network" {
       postgresql           = false
       mysql                = false
       container_apps       = false
-      cosmos_db            = false
       web_app              = false
       function_app         = false
     }
@@ -418,7 +416,6 @@ run "disabled_services" {
       postgresql           = false
       mysql                = false
       container_apps       = false
-      cosmos_db            = false
       web_app              = false
       function_app         = false
     }
@@ -747,6 +744,72 @@ run "reject_long_key_vault_prefix" {
     }
   }
   expect_failures = [var.naming]
+}
+
+run "multiple_cosmos_db_accounts" {
+  command = plan
+  variables {
+    cosmos_db_accounts = {
+      primary = {}
+      graph   = { api_type = "Gremlin" }
+    }
+  }
+  assert {
+    condition = (
+      length(module.cosmos_db) == 2 &&
+      local.resource_names.cosmos_db_accounts["primary"] == "cosmos-primae3b7cmetlenlab-test1" &&
+      local.resource_names.cosmos_db_accounts["graph"] == "cosmos-graph29a18metlenlab-test1" &&
+      local.service_private_endpoints["cosmos_db/primary"].subresource == "Sql" &&
+      local.service_private_endpoints["cosmos_db/graph"].subresource == "Gremlin" &&
+      local.resource_names.private_endpoints["cosmos_db/graph"].name == "pe-cosmos-graph-metlen-lab-test1" &&
+      contains(local.private_dns_zones, "privatelink.documents.azure.com") &&
+      contains(local.private_dns_zones, "privatelink.gremlin.cosmos.azure.com") &&
+      length(output.private_endpoint_ids.cosmos_db_accounts) == 2
+    )
+    error_message = "Each cosmos_db_accounts entry must create a distinctly named account whose API selects its own Private Endpoint subresource and DNS zone."
+  }
+}
+
+run "cosmos_db_name_at_maximum_length" {
+  command = plan
+  variables {
+    project_name = "abcdefghijkl"
+    environment  = "abcdefgh"
+    naming = {
+      unique_suffix = "abcde"
+      prefixes      = { cosmos_db_account = "abcdefghij" }
+    }
+    cosmos_db_accounts = {
+      longkeyname = {}
+    }
+  }
+  assert {
+    condition = (
+      local.resource_names.cosmos_db_accounts["longkeyname"] == "abcdefghij-longk617e5abcdefghijklabcde-abcde" &&
+      length(local.resource_names.cosmos_db_accounts["longkeyname"]) == 44
+    )
+    error_message = "The longest possible Cosmos DB name must keep its key token and fit Azure's 44-character limit."
+  }
+}
+
+run "reject_invalid_cosmos_db_key" {
+  command = plan
+  variables {
+    cosmos_db_accounts = {
+      "Bad_Key" = {}
+    }
+  }
+  expect_failures = [var.cosmos_db_accounts]
+}
+
+run "reject_invalid_cosmos_db_api" {
+  command = plan
+  variables {
+    cosmos_db_accounts = {
+      primary = { api_type = "Etcd" }
+    }
+  }
+  expect_failures = [var.cosmos_db_accounts]
 }
 
 run "reject_invalid_storage_account_key" {

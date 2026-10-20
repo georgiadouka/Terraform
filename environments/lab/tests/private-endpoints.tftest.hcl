@@ -78,7 +78,7 @@ override_module {
   outputs = { server_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Sql/servers/sql", database_id = "db", elastic_pool_id = null, elastic_pool_name = null, fully_qualified_domain_name = "sql.database.windows.net" }
 }
 override_module {
-  target  = module.cosmos_db[0]
+  target  = module.cosmos_db["primary"]
   outputs = { id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.DocumentDB/databaseAccounts/cosmos", name = "cosmos", endpoint = "https://cosmos", hostname = "cosmos.documents.azure.com", api_type = "NoSQL", database_id = "db", container_id = "ct", principal_id = null }
 }
 override_module {
@@ -121,10 +121,11 @@ variables {
   container_apps = {}
   web_app        = {}
   function_app   = {}
-  cosmos_db      = {}
+  cosmos_db_accounts = {
+    primary = {}
+  }
   services = {
     azure_sql    = true
-    cosmos_db    = true
     web_app      = true
     function_app = true
   }
@@ -155,7 +156,7 @@ run "all_endpoints" {
 
   assert {
     condition = keys(local.service_private_endpoints) == [
-      "azure_sql", "container_registry/primary", "cosmos_db", "function_app", "key_vault/primary", "key_vault/secrets",
+      "azure_sql", "container_registry/primary", "cosmos_db/primary", "function_app", "key_vault/primary", "key_vault/secrets",
       "premium_files/media/file", "premium_files/primary/file",
       "storage/archive/blob", "storage/archive/file", "storage/primary/blob", "storage/primary/file",
       "web_app"
@@ -187,14 +188,15 @@ run "all_endpoints" {
       local.private_endpoint_target_ids["key_vault/secrets"] == "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.KeyVault/vaults/kvsecrets" &&
       local.service_private_endpoints["key_vault/secrets"].subresource == "vault" &&
       local.service_private_endpoints["key_vault/secrets"].dns_zone == "privatelink.vaultcore.azure.net" &&
+      local.private_endpoint_target_ids["cosmos_db/primary"] == "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.DocumentDB/databaseAccounts/cosmos" &&
       local.private_endpoint_target_ids["azure_sql"] == "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Sql/servers/sql" &&
       local.function_storage_target_ids["function_storage"] == "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Storage/storageAccounts/stfn" &&
       local.service_private_endpoints["storage/archive/file"].target == "storage/archive" &&
       local.service_private_endpoints["storage/archive/file"].subresource == "file" &&
       local.service_private_endpoints["storage/archive/file"].dns_zone == "privatelink.file.core.windows.net" &&
       local.service_private_endpoints["azure_sql"].subresource == "sqlServer" &&
-      local.service_private_endpoints["cosmos_db"].subresource == "Sql" &&
-      local.service_private_endpoints["cosmos_db"].dns_zone == "privatelink.documents.azure.com" &&
+      local.service_private_endpoints["cosmos_db/primary"].subresource == "Sql" &&
+      local.service_private_endpoints["cosmos_db/primary"].dns_zone == "privatelink.documents.azure.com" &&
       local.function_storage_private_endpoints["function_storage/queue"].dns_zone == "privatelink.queue.core.windows.net"
     )
     error_message = "Private Endpoints must target the right resource, subresource, and DNS zone."
@@ -251,13 +253,15 @@ run "cosmos_api_selects_endpoint" {
   command = plan
 
   variables {
-    cosmos_db = { api_type = "MongoDB" }
+    cosmos_db_accounts = {
+      primary = { api_type = "MongoDB" }
+    }
   }
 
   assert {
     condition = (
-      local.service_private_endpoints["cosmos_db"].subresource == "MongoDB" &&
-      local.service_private_endpoints["cosmos_db"].dns_zone == "privatelink.mongo.cosmos.azure.com" &&
+      local.service_private_endpoints["cosmos_db/primary"].subresource == "MongoDB" &&
+      local.service_private_endpoints["cosmos_db/primary"].dns_zone == "privatelink.mongo.cosmos.azure.com" &&
       contains(local.private_dns_zones, "privatelink.mongo.cosmos.azure.com") &&
       !contains(local.private_dns_zones, "privatelink.documents.azure.com")
     )
@@ -274,6 +278,7 @@ run "no_endpoints" {
     premium_file_accounts = {}
     key_vaults            = {}
     container_registries  = {}
+    cosmos_db_accounts    = {}
   }
 
   assert {

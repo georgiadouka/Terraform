@@ -21,6 +21,10 @@ param(
     [ValidatePattern("^[a-z][a-z0-9-]{0,11}$")]
     [string]$SmokeTestContainerRegistryKey = "primary",
 
+    # Cosmos DB is optional: with no cosmos_db_accounts the check is skipped.
+    [ValidatePattern("^[a-z][a-z0-9-]{0,11}$")]
+    [string]$SmokeTestCosmosDbAccountKey = "primary",
+
     # Relative paths resolve against environments\lab.
     [ValidateNotNullOrEmpty()]
     [string]$VarFile = "lab.tfvars"
@@ -100,6 +104,16 @@ try {
         throw "The configured smoke-test container registry key '$SmokeTestContainerRegistryKey' was not found."
     }
 
+    $cosmosDbAccounts = @($outputs.cosmos_db_accounts.value.PSObject.Properties)
+    $smokeTestCosmosDbHost = $null
+    if ($cosmosDbAccounts.Count -gt 0) {
+        $smokeTestCosmosDbAccount = $outputs.cosmos_db_accounts.value.PSObject.Properties[$SmokeTestCosmosDbAccountKey].Value
+        if ($null -eq $smokeTestCosmosDbAccount) {
+            throw "The configured smoke-test Cosmos DB account key '$SmokeTestCosmosDbAccountKey' was not found."
+        }
+        $smokeTestCosmosDbHost = $smokeTestCosmosDbAccount.hostname
+    }
+
     $smokeParameters = @(
         "SQL_HOST=$($outputs.azure_sql_fqdn.value)",
         "POSTGRESQL_HOST=$($outputs.postgresql_fqdn.value)",
@@ -118,7 +132,7 @@ try {
     # positional arguments, so unset optional values are sent as "none".
     $optionalSmokeValues = [ordered]@{
         SQL_MANAGED_INSTANCE_HOST = $outputs.sql_managed_instance_fqdn.value
-        COSMOS_DB_HOST            = $outputs.cosmos_db_hostname.value
+        COSMOS_DB_HOST            = $smokeTestCosmosDbHost
         NAT_GATEWAY_PUBLIC_IP     = $outputs.nat_gateway_public_ip_address.value
     }
     foreach ($entry in $optionalSmokeValues.GetEnumerator()) {

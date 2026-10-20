@@ -82,7 +82,8 @@ locals {
       toset(keys(var.storage_accounts)),
       toset(keys(var.premium_file_accounts)),
       toset(keys(var.key_vaults)),
-      toset(keys(var.container_registries))
+      toset(keys(var.container_registries)),
+      toset(keys(var.cosmos_db_accounts))
     ) : key => "${substr(replace(key, "-", ""), 0, 5)}${substr(sha1(key), 0, 5)}"
   }
 
@@ -216,7 +217,20 @@ locals {
     mysql_server        = "${local.naming_prefixes.mysql_server}-${local.name_stem}"
     mysql_database      = "${local.naming_prefixes.mysql_database}-${local.name_stem}"
 
-    cosmos_db_account = "${local.naming_prefixes.cosmos_db_account}-${local.name_stem}"
+    # <prefix>-<key token><project><environment>-<suffix>, within 44 characters.
+    # Database and container names are scoped to each account, so every account
+    # reuses the same names.
+    cosmos_db_accounts = {
+      for key in keys(var.cosmos_db_accounts) : key => format(
+        "%s-%s",
+        substr(
+          "${local.naming_prefixes.cosmos_db_account}-${local.logical_key_tokens[key]}${local.compact_project}${local.compact_environment}",
+          0,
+          43 - length(local.naming_suffix)
+        ),
+        local.naming_suffix
+      )
+    }
     cosmos_db_database = substr(
       "${local.naming_prefixes.cosmos_db_database}${local.compact_project}${local.compact_environment}${local.naming_suffix}",
       0,
@@ -290,14 +304,6 @@ locals {
         subresource           = "sqlServer"
         dns_zone              = "privatelink.database.windows.net"
       }
-      cosmos_db = {
-        enabled               = var.services.cosmos_db
-        function_host_storage = false
-        target                = "cosmos_db"
-        name_token            = local.naming_prefixes.cosmos_db_account
-        subresource           = lookup(local.cosmos_private_endpoint_subresource_by_api, var.cosmos_db.api_type, null)
-        dns_zone              = lookup(local.cosmos_private_dns_zone_by_api, var.cosmos_db.api_type, null)
-      }
       web_app = {
         enabled               = var.services.web_app
         function_host_storage = false
@@ -324,6 +330,17 @@ locals {
         name_token            = "${local.naming_prefixes.container_registry}-${registry_key}"
         subresource           = "registry"
         dns_zone              = "privatelink.azurecr.io"
+      }
+    },
+    {
+      for account_key, account in var.cosmos_db_accounts :
+      "cosmos_db/${account_key}" => {
+        enabled               = true
+        function_host_storage = false
+        target                = "cosmos_db/${account_key}"
+        name_token            = "${local.naming_prefixes.cosmos_db_account}-${account_key}"
+        subresource           = local.cosmos_private_endpoint_subresource_by_api[account.api_type]
+        dns_zone              = local.cosmos_private_dns_zone_by_api[account.api_type]
       }
     },
     {
@@ -386,10 +403,10 @@ locals {
   # resolved separately so its endpoints do not wait for the Function App.
   private_endpoint_target_ids = merge(
     var.services.azure_sql ? { azure_sql = module.azure_sql[0].server_id } : {},
-    var.services.cosmos_db ? { cosmos_db = module.cosmos_db[0].id } : {},
     var.services.web_app ? { web_app = module.web_app[0].id } : {},
     var.services.function_app ? { function_app = module.function_app[0].id } : {},
     { for key, registry in module.container_registry : "container_registry/${key}" => registry.id },
+    { for key, account in module.cosmos_db : "cosmos_db/${key}" => account.id },
     { for key, vault in module.key_vault : "key_vault/${key}" => vault.id },
     { for key, account in module.storage : "storage/${key}" => account.id },
     { for key, account in module.premium_files : "premium_files/${key}" => account.id }
@@ -770,22 +787,22 @@ module "mysql" {
 }
 
 module "cosmos_db" {
-  count  = var.services.cosmos_db ? 1 : 0
-  source = "../../modules/cosmos-db"
+  for_each = var.cosmos_db_accounts
+  source   = "../../modules/cosmos-db"
 
-  name                          = local.resource_names.cosmos_db_account
+  name                          = local.resource_names.cosmos_db_accounts[each.key]
   resource_group_name           = module.resource_group.name
   location                      = module.resource_group.location
-  api_type                      = var.cosmos_db.api_type
+  api_type                      = each.value.api_type
   database_name                 = local.resource_names.cosmos_db_database
   container_name                = local.resource_names.cosmos_db_container
-  throughput                    = var.cosmos_db.throughput
-  consistency_level             = var.cosmos_db.consistency_level
-  local_authentication_disabled = var.cosmos_db.local_authentication_disabled
-  nosql_partition_key_paths     = var.cosmos_db.nosql_partition_key_paths
-  mongodb                       = var.cosmos_db.mongodb
-  cassandra_schema              = var.cosmos_db.cassandra_schema
-  gremlin_partition_key_path    = var.cosmos_db.gremlin_partition_key_path
+  throughput                    = each.value.throughput
+  consistency_level             = each.value.consistency_level
+  local_authentication_disabled = each.value.local_authentication_disabled
+  nosql_partition_key_paths     = each.value.nosql_partition_key_paths
+  mongodb                       = each.value.mongodb
+  cassandra_schema              = each.value.cassandra_schema
+  gremlin_partition_key_path    = each.value.gremlin_partition_key_path
   tags                          = local.common_tags
 }
 

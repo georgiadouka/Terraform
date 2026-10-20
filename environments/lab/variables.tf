@@ -436,9 +436,9 @@ variable "container_apps" {
   default = {}
 }
 
-variable "cosmos_db" {
-  description = "Cosmos DB classic API, throughput, and data-plane resource configuration."
-  type = object({
+variable "cosmos_db_accounts" {
+  description = "Cosmos DB accounts keyed by a stable logical name, each with its own classic API, throughput, and data-plane resources. Defaults to none; add one entry per account."
+  type = map(object({
     api_type                      = optional(string, "NoSQL")
     consistency_level             = optional(string, "Session")
     local_authentication_disabled = optional(bool, false)
@@ -483,8 +483,25 @@ variable "cosmos_db" {
       ])
     }), {})
     gremlin_partition_key_path = optional(string, "/partitionKey")
-  })
+  }))
   default = {}
+
+  validation {
+    condition = alltrue([
+      for key in keys(var.cosmos_db_accounts) :
+      can(regex("^[a-z][a-z0-9-]{0,11}$", key)) &&
+      !strcontains(key, "--")
+    ])
+    error_message = "cosmos_db_accounts keys must be 1-12 lowercase alphanumeric or hyphen characters, start with a letter, and not contain consecutive hyphens."
+  }
+
+  validation {
+    condition = alltrue([
+      for account in values(var.cosmos_db_accounts) :
+      contains(["NoSQL", "MongoDB", "Cassandra", "Gremlin", "Table"], account.api_type)
+    ])
+    error_message = "Every cosmos_db_accounts entry api_type must be NoSQL, MongoDB, Cassandra, Gremlin, or Table."
+  }
 }
 
 variable "sql_managed_instance" {
@@ -573,7 +590,6 @@ variable "services" {
     postgresql           = optional(bool, false)
     mysql                = optional(bool, false)
     container_apps       = optional(bool, false)
-    cosmos_db            = optional(bool, false)
     web_app              = optional(bool, false)
     function_app         = optional(bool, false)
   })
