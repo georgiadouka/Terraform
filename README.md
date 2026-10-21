@@ -45,6 +45,23 @@ order or create module boundaries. Function host storage endpoints remain
 separate from service endpoints so the Function App can depend on its storage
 connectivity without a dependency cycle.
 
+### Module file structure
+
+Every module under [`modules/`](modules) follows the standard Terraform module
+layout:
+
+| File | Responsibility |
+|---|---|
+| `versions.tf` | Terraform and `azurerm` provider version constraints |
+| `variables.tf` | Input variables, including type constraints and validation |
+| `main.tf` | Locals, data sources, and resources |
+| `outputs.tf` | Output values exposed to the calling module |
+| `tests/*.tftest.hcl` | Plan-time tests with a mocked `azurerm` provider, where present |
+
+Each module declares `azurerm ~> 4.0`, matching the environment lock files, so
+`terraform init`, `validate`, and `test` resolve the same provider major version
+when a module is checked on its own.
+
 ## Implemented modules
 
 | Module | Purpose | Private connectivity |
