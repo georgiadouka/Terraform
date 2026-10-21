@@ -98,6 +98,7 @@ variable "naming" {
       sql_managed_instance       = optional(string, "sqlmi")
       network_security_group     = optional(string, "nsg")
       route_table                = optional(string, "rt")
+      virtual_network_peering    = optional(string, "peer")
       postgresql_server          = optional(string, "psql")
       postgresql_database        = optional(string, "psqldb")
       mysql_server               = optional(string, "mysql")
@@ -537,6 +538,25 @@ variable "route_tables" {
       length(distinct(flatten([for route_table in values(var.route_tables) : route_table.subnets])))
     )
     error_message = "A subnet can be listed only once across all route_tables entries."
+  }
+}
+
+variable "hub_peering" {
+  description = "Peers the lab VNet as a spoke to an existing hub VNet. Defaults to null (no peering). The spoke-to-hub side is always created; the hub-to-spoke side is created by default (create_hub_to_spoke_peering) through the azurerm.hub provider, whose subscription is read from hub_virtual_network_id. use_remote_gateways routes the spoke through the hub's VPN or ExpressRoute gateway and sets allow_gateway_transit on the hub side."
+  type = object({
+    hub_virtual_network_id      = string
+    create_hub_to_spoke_peering = optional(bool, true)
+    allow_forwarded_traffic     = optional(bool, true)
+    use_remote_gateways         = optional(bool, false)
+  })
+  default = null
+
+  validation {
+    condition = (
+      var.hub_peering == null ||
+      can(regex("(?i)^/subscriptions/[0-9a-f-]{36}/resourceGroups/[^/]+/providers/Microsoft\\.Network/virtualNetworks/[^/]+$", var.hub_peering.hub_virtual_network_id))
+    )
+    error_message = "hub_peering.hub_virtual_network_id must be a virtual network resource ID: /subscriptions/<id>/resourceGroups/<name>/providers/Microsoft.Network/virtualNetworks/<name>."
   }
 }
 

@@ -1,3 +1,8 @@
+# The azurerm.hub alias is configured even when hub_peering is unset.
+mock_provider "azurerm" {
+  alias = "hub"
+}
+
 mock_provider "azurerm" {
   mock_data "azurerm_client_config" {
     defaults = {

@@ -1,4 +1,13 @@
 locals {
+  # Segments of /subscriptions/<id>/resourceGroups/<rg>/providers/Microsoft.Network/virtualNetworks/<name>.
+  hub_virtual_network_id_parts = var.hub_peering == null ? null : split("/", var.hub_peering.hub_virtual_network_id)
+  hub_virtual_network = var.hub_peering == null ? null : {
+    subscription_id     = local.hub_virtual_network_id_parts[2]
+    resource_group_name = local.hub_virtual_network_id_parts[4]
+    name                = local.hub_virtual_network_id_parts[8]
+  }
+  hub_to_spoke_peering_enabled = var.hub_peering == null ? false : var.hub_peering.create_hub_to_spoke_peering
+
   private_endpoints_required = anytrue([
     for endpoint in values(local.private_endpoint_catalog) : endpoint.enabled
   ])

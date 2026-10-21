@@ -96,6 +96,7 @@ Prefixes are configured in
 | Load balancer health probe | `lbprobe` |
 | Load balancer rule | `lbrule` |
 | Private endpoint | `pe` |
+| Virtual network peering | `peer` |
 
 Every prefix must be 1-10 lowercase alphanumeric characters starting with a
 letter. Two prefixes are shorter so generated names fit Azure limits: the
@@ -121,6 +122,8 @@ Examples using the example suffix:
 | NAT Gateway | `nat` + stem | `nat-metlen-lab-it6hp` |
 | Network security group | `nsg` + key + stem | `nsg-compute-metlen-lab-it6hp` |
 | Route table | `rt` + key + stem | `rt-egress-metlen-lab-it6hp` |
+| VNet peering (spoke side) | `peer` + stem + `to-hub` | `peer-metlen-lab-it6hp-to-hub` |
+| VNet peering (hub side) | `peer` + `hub-to` + stem | `peer-hub-to-metlen-lab-it6hp` |
 | Load balancer | `lbi` + key + stem | `lbi-web-metlen-lab-it6hp` |
 | Load balancer frontend / backend pool | `lbfe` or `lbbe` + key + stem | `lbfe-web-metlen-lab-it6hp` |
 | Azure SQL server | `sql` + key + stem | `sql-primary-metlen-lab-it6hp` |

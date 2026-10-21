@@ -73,6 +73,7 @@ when a module is checked on its own.
 | `nat-gateway` | Shared static outbound internet egress for VM/VMSS and Container Apps subnets | Standard NAT Gateway and static public IP |
 | `network-security-group` | Optional NSGs with security rules, each associated with selected subnets | Subnet-level traffic filtering |
 | `route-table` | Optional route tables with user-defined routes, each associated with selected subnets | Subnet-level routing, such as forcing egress through a firewall |
+| `virtual-network-peering` | One side of a VNet peering; the lab uses it for spoke-to-hub and hub-to-spoke | Private connectivity to an existing hub VNet |
 | `load-balancer` | Internal Standard load balancer with one backend pool, health probes, and load-balancing rules | Private frontend IP on a dedicated subnet; no public IP |
 | `virtual-machine` | Linux or Windows VM, NIC, OS disk, and configurable data disks | No VM public IP; outbound through NAT Gateway |
 | `virtual-machine-scale-set` | Linux or Windows VMSS with configurable images/disks and fixed or CPU-autoscaled capacity | No instance public IP; outbound through NAT Gateway |
@@ -548,6 +549,46 @@ and a re-plan showed no drift. The same run placed two Container Apps
 environments on their key-matched `subnet_cidrs.container_apps` ranges, with a
 third range reserved but not created.
 
+### Hub-spoke peering
+
+Set `hub_peering` to attach the lab VNet as a spoke to an existing hub VNet:
+
+```hcl
+hub_peering = {
+  hub_virtual_network_id = "/subscriptions/<hub-sub>/resourceGroups/rg-hub/providers/Microsoft.Network/virtualNetworks/vnet-hub"
+}
+```
+
+- Both sides are created by default: `peer-<stem>-to-hub` on the spoke and
+  `peer-hub-to-<stem>` on the hub. The hub-side name includes the stem, so
+  several spokes can peer to one hub.
+- The hub side is managed through the `azurerm.hub` provider alias. Its
+  subscription is read from `hub_virtual_network_id`, so the hub can live in a
+  separate connectivity subscription in the same tenant. Terraform's identity
+  needs Network Contributor (or `virtualNetworks/peer/action` and peering
+  write) on the hub VNet. The alias skips resource provider registration.
+- Set `create_hub_to_spoke_peering = false` when the platform team owns the hub
+  side. The spoke side stays `Initiated` until they create theirs.
+- `allow_forwarded_traffic` (default `true`) accepts traffic forwarded by a hub
+  firewall or NVA. Pair it with a `route_tables` entry that sends `0.0.0.0/0`
+  to the firewall to force spoke egress through the hub.
+- `use_remote_gateways = true` makes the spoke use the hub's VPN or ExpressRoute
+  gateway and sets `allow_gateway_transit` on the hub side. The hub must have a
+  gateway. The hub side is created first so gateway transit exists when the
+  spoke side requests it.
+- When `address_space` changes, the hub side re-syncs automatically through
+  the peering `triggers`.
+- Hub and spoke address spaces must not overlap; Azure rejects the peering
+  otherwise.
+
+This was applied in an MCAPS sandbox against a separately created hub VNet:
+both sides reached `Connected` / `FullyInSync`, adding a spoke address prefix
+re-synced the hub side to the new range, and destroy removed both peerings.
+A second run against a hub with a `VpnGw1AZ` gateway applied with
+`use_remote_gateways = true` (hub `allowGatewayTransit`, spoke
+`useRemoteGateways`, both `Connected`), then switched it off and back on in
+place without errors.
+
 ### Container Apps environments, apps, and workload profiles
 
 Each `container_apps_environments` entry is one environment with its own
@@ -924,7 +965,8 @@ Before using the modules outside a lab:
 - enable Key Vault purge protection;
 - add RBAC assignments for application identities;
 - add diagnostic settings and organization-standard retention;
-- connect the VNet to the customer hub, DNS forwarding, firewall, and CI runner;
+- connect the VNet to the customer hub with `hub_peering`, then add DNS
+  forwarding, firewall routing, and the CI runner;
 - enable higher availability, backups, and replication according to workload
   recovery objectives;
 - use approved production SKUs and Azure Policy checks in CI.

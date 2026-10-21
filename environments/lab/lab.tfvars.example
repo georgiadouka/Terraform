@@ -58,6 +58,7 @@ naming = {
     sql_managed_instance       = "sqlmi"
     network_security_group     = "nsg"
     route_table                = "rt"
+    virtual_network_peering    = "peer"
     postgresql_server          = "psql"
     postgresql_database        = "psqldb"
     mysql_server               = "mysql"
@@ -310,6 +311,21 @@ route_tables = {}
 #       }
 #     }
 #   }
+# }
+
+# Hub-spoke peering is off. Set hub_peering to peer this VNet to an existing hub.
+# Both sides are created by default; the hub side uses the hub's subscription
+# (read from the ID), so Terraform's identity needs Network Contributor (or
+# virtualNetworks/peer/action plus peering write) on the hub VNet. Set
+# create_hub_to_spoke_peering = false when the hub team creates its side.
+# use_remote_gateways = true requires a VPN or ExpressRoute gateway in the hub.
+hub_peering = null
+
+# hub_peering = {
+#   hub_virtual_network_id      = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-hub/providers/Microsoft.Network/virtualNetworks/vnet-hub"
+#   create_hub_to_spoke_peering = true
+#   allow_forwarded_traffic     = true
+#   use_remote_gateways         = false
 # }
 
 # One entry per private Premium Azure Container Registry. Keys are stable

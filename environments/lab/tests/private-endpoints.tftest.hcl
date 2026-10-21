@@ -1,6 +1,12 @@
 # Locks in Private Endpoint wiring: which endpoints exist, what each targets,
 # its subresource and DNS zone, and the generated names. Targets use distinct
 # realistic IDs so miswiring is detectable.
+
+# The azurerm.hub alias is configured even when hub_peering is unset.
+mock_provider "azurerm" {
+  alias = "hub"
+}
+
 mock_provider "azurerm" {
   mock_data "azurerm_client_config" {
     defaults = {

@@ -88,6 +88,42 @@ module "network" {
   tags                            = local.common_tags
 }
 
+# Hub side first, so allow_gateway_transit exists before the spoke side sets
+# use_remote_gateways.
+module "hub_to_spoke_peering" {
+  count  = local.hub_to_spoke_peering_enabled ? 1 : 0
+  source = "../../modules/virtual-network-peering"
+
+  providers = {
+    azurerm = azurerm.hub
+  }
+
+  name                      = local.resource_names.virtual_network_peerings.hub_to_spoke
+  resource_group_name       = local.hub_virtual_network.resource_group_name
+  virtual_network_name      = local.hub_virtual_network.name
+  remote_virtual_network_id = module.network.id
+  allow_forwarded_traffic   = var.hub_peering.allow_forwarded_traffic
+  allow_gateway_transit     = var.hub_peering.use_remote_gateways
+  # Re-syncs the hub side when the spoke address space changes.
+  triggers = {
+    remote_address_space = join(",", var.address_space)
+  }
+}
+
+module "spoke_to_hub_peering" {
+  count  = var.hub_peering == null ? 0 : 1
+  source = "../../modules/virtual-network-peering"
+
+  name                      = local.resource_names.virtual_network_peerings.spoke_to_hub
+  resource_group_name       = module.resource_group.name
+  virtual_network_name      = module.network.name
+  remote_virtual_network_id = var.hub_peering.hub_virtual_network_id
+  allow_forwarded_traffic   = var.hub_peering.allow_forwarded_traffic
+  use_remote_gateways       = var.hub_peering.use_remote_gateways
+
+  depends_on = [module.hub_to_spoke_peering]
+}
+
 module "private_dns" {
   source = "../../modules/private-dns"
 

@@ -1,3 +1,8 @@
+# The azurerm.hub alias is configured even when hub_peering is unset.
+mock_provider "azurerm" {
+  alias = "hub"
+}
+
 mock_provider "azurerm" {
   mock_data "azurerm_client_config" {
     defaults = {
@@ -45,6 +50,7 @@ variables {
   mysql_servers               = {}
   function_app                = {}
   web_app                     = {}
+  hub_peering                 = null
   tags                        = {}
 }
 
@@ -69,6 +75,8 @@ run "services_are_opt_in" {
       length(module.cosmos_db) == 0 &&
       length(module.web_app) == 0 &&
       length(module.function_app) == 0 &&
+      length(module.spoke_to_hub_peering) == 0 &&
+      length(module.hub_to_spoke_peering) == 0 &&
       length(local.subnets) == 0 &&
       length(local.private_dns_zones) == 0
     )

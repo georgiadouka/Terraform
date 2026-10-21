@@ -15,3 +15,16 @@ provider "azurerm" {
     }
   }
 }
+
+# Manages only the hub-to-spoke peering on the hub VNet, which usually lives in
+# a separate connectivity subscription. Resource provider registration is
+# skipped because the identity may hold only network rights there.
+provider "azurerm" {
+  alias           = "hub"
+  subscription_id = try(local.hub_virtual_network.subscription_id, var.subscription_id)
+  tenant_id       = var.tenant_id
+
+  resource_provider_registrations = "none"
+
+  features {}
+}

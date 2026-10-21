@@ -43,6 +43,13 @@ locals {
     nat_gateway   = "${local.naming_prefixes.nat_gateway}-${local.name_stem}"
     nat_public_ip = "${local.naming_prefixes.public_ip}-nat-${local.name_stem}"
 
+    # The hub-side name carries the stem so peerings from several spokes stay
+    # unique on the shared hub VNet.
+    virtual_network_peerings = {
+      spoke_to_hub = "${local.naming_prefixes.virtual_network_peering}-${local.name_stem}-to-hub"
+      hub_to_spoke = "${local.naming_prefixes.virtual_network_peering}-hub-to-${local.name_stem}"
+    }
+
     # Rule and route names are scoped to their group or table, so they use
     # only their own key.
     network_security_groups = {
