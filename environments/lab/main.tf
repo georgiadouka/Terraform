@@ -353,7 +353,6 @@ module "sql_managed_instance" {
   resource_group_name         = module.resource_group.name
   location                    = module.resource_group.location
   subnet_id                   = module.network.subnet_ids["sql_managed_instance"]
-  subnet_address_prefix       = var.subnet_cidrs.sql_managed_instance
   sku_name                    = var.sql_managed_instance.sku_name
   vcores                      = var.sql_managed_instance.vcores
   storage_size_in_gb          = var.sql_managed_instance.storage_size_in_gb

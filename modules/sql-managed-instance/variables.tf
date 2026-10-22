@@ -18,11 +18,6 @@ variable "subnet_id" {
   type        = string
 }
 
-variable "subnet_address_prefix" {
-  description = "Dedicated subnet CIDR used by mandatory NSG rules."
-  type        = string
-}
-
 variable "network_security_group_name" {
   description = "Network security group name."
   type        = string
