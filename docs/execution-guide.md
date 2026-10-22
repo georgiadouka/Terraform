@@ -749,8 +749,14 @@ terraform -chdir=environments\lab plan `
 
 The tested plan uses General Purpose Gen5, 4 vCores, 32 GiB storage,
 `LicenseIncluded`, no zone redundancy, no public endpoint, and Entra-only
-authentication. SQL Managed Instance is currently plan-validated only; it has
-not been applied.
+authentication. It was applied in Sweden Central on 2026-10-22: creation took
+about 40 minutes and deletion about 20 minutes. After the instance was
+created, Azure added its mandatory `Microsoft.Sql-managedInstances_UseOnly_*`
+NSG rules and routes, and a follow-up `terraform plan` reported no changes.
+The module manages each rule and route as its own resource and leaves the
+service-managed entries alone; to change the NSG, set the module's
+`security_rules` (default: client TDS on 1433 from the VNet) and `routes`
+inputs.
 
 Local `.tfvars` files such as `lab.tfvars` are ignored by Git. Do not commit environment-specific
 variables, credentials, state, or plan files.

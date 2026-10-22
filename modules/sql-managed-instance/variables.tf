@@ -28,6 +28,59 @@ variable "route_table_name" {
   type        = string
 }
 
+variable "security_rules" {
+  description = "Security rules for the SQL Managed Instance NSG, keyed by rule name. The service adds and enforces its own mandatory management rules (Microsoft.Sql-managedInstances_UseOnly_mi-*); define only rules for your own traffic, and do not use that prefix. Setting this replaces the default client TDS rule. See the network-security-group module for the rule schema."
+  type = map(object({
+    priority                     = number
+    direction                    = string
+    access                       = string
+    protocol                     = string
+    description                  = optional(string)
+    source_port_range            = optional(string)
+    source_port_ranges           = optional(list(string))
+    destination_port_range       = optional(string)
+    destination_port_ranges      = optional(list(string))
+    source_address_prefix        = optional(string)
+    source_address_prefixes      = optional(list(string))
+    destination_address_prefix   = optional(string)
+    destination_address_prefixes = optional(list(string))
+  }))
+  nullable = false
+  default = {
+    "allow-tds-inbound" = {
+      priority                   = 1000
+      direction                  = "Inbound"
+      access                     = "Allow"
+      protocol                   = "Tcp"
+      description                = "Client TDS connections from the virtual network."
+      destination_port_range     = "1433"
+      source_address_prefix      = "VirtualNetwork"
+      destination_address_prefix = "*"
+    }
+  }
+
+  validation {
+    condition     = alltrue([for rule_name in keys(var.security_rules) : !startswith(rule_name, "Microsoft.Sql-managedInstances_UseOnly_")])
+    error_message = "security_rules keys must not use the Microsoft.Sql-managedInstances_UseOnly_ prefix, which is reserved for service-managed rules."
+  }
+}
+
+variable "routes" {
+  description = "User-defined routes for the SQL Managed Instance route table, keyed by route name, for example a 0.0.0.0/0 route to a firewall. The service adds and enforces its own mandatory routes (Microsoft.Sql-managedInstances_UseOnly_*); do not use that prefix. See the route-table module for the route schema."
+  type = map(object({
+    address_prefix         = string
+    next_hop_type          = string
+    next_hop_in_ip_address = optional(string)
+  }))
+  nullable = false
+  default  = {}
+
+  validation {
+    condition     = alltrue([for route_name in keys(var.routes) : !startswith(route_name, "Microsoft.Sql-managedInstances_UseOnly_")])
+    error_message = "routes keys must not use the Microsoft.Sql-managedInstances_UseOnly_ prefix, which is reserved for service-managed routes."
+  }
+}
+
 variable "sku_name" {
   description = "SQL Managed Instance SKU."
   type        = string

@@ -1,38 +1,23 @@
-resource "azurerm_network_security_group" "this" {
+module "network_security_group" {
+  source = "../network-security-group"
+
   name                = var.network_security_group_name
   resource_group_name = var.resource_group_name
   location            = var.location
+  security_rules      = var.security_rules
+  subnet_ids          = { sql_managed_instance = var.subnet_id }
   tags                = var.tags
-
-  security_rule {
-    name                       = "allow-tds-inbound"
-    priority                   = 1000
-    direction                  = "Inbound"
-    access                     = "Allow"
-    protocol                   = "Tcp"
-    source_port_range          = "*"
-    destination_port_range     = "1433"
-    source_address_prefix      = "VirtualNetwork"
-    destination_address_prefix = "*"
-  }
 }
 
-resource "azurerm_route_table" "this" {
-  name                          = var.route_table_name
-  resource_group_name           = var.resource_group_name
-  location                      = var.location
-  bgp_route_propagation_enabled = true
-  tags                          = var.tags
-}
+module "route_table" {
+  source = "../route-table"
 
-resource "azurerm_subnet_network_security_group_association" "this" {
-  subnet_id                 = var.subnet_id
-  network_security_group_id = azurerm_network_security_group.this.id
-}
-
-resource "azurerm_subnet_route_table_association" "this" {
-  subnet_id      = var.subnet_id
-  route_table_id = azurerm_route_table.this.id
+  name                = var.route_table_name
+  resource_group_name = var.resource_group_name
+  location            = var.location
+  routes              = var.routes
+  subnet_ids          = { sql_managed_instance = var.subnet_id }
+  tags                = var.tags
 }
 
 resource "azurerm_mssql_managed_instance" "this" {
@@ -63,9 +48,10 @@ resource "azurerm_mssql_managed_instance" "this" {
     type = "SystemAssigned"
   }
 
+  # The subnet must have its NSG and route table associated before the instance is created.
   depends_on = [
-    azurerm_subnet_network_security_group_association.this,
-    azurerm_subnet_route_table_association.this
+    module.network_security_group,
+    module.route_table
   ]
 
   timeouts {

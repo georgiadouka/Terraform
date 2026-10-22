@@ -82,7 +82,7 @@ when a module is checked on its own.
 | `storage-account` | Blob containers, optional standard SMB shares, and workload data-plane RBAC | Public network disabled; blob/file endpoints |
 | `premium-files` | Premium Azure Files account and shares | Public network disabled; file endpoint |
 | `azure-sql` | Azure SQL logical server, database, and optional elastic pool | Entra-only auth; public network disabled; Private Endpoint |
-| `sql-managed-instance` | Optional 4-vCore General Purpose SQL Managed Instance | Dedicated delegated subnet; Entra-only auth; no public endpoint |
+| `sql-managed-instance` | Optional 4-vCore General Purpose SQL Managed Instance with its own NSG and route table, built from the `network-security-group` and `route-table` modules | Dedicated delegated subnet; NSG allows only client TDS (1433) from the VNet beyond the service-managed rules; Entra-only auth; no public endpoint |
 | `postgresql-flexible` | PostgreSQL Flexible Server and database with optional HA | Delegated subnet and Private DNS |
 | `mysql-flexible` | MySQL Flexible Server and database with optional HA | Delegated subnet and Private DNS |
 | `cosmos-db` | NoSQL, MongoDB, Cassandra, Gremlin, or Table account with serverless/manual/autoscale throughput | Public network disabled; API-specific Private Endpoint and DNS |
@@ -96,8 +96,9 @@ expensive and long-running. The optional lab profile uses General Purpose Gen5,
 4 vCores, 32 GiB storage, no zone redundancy, and a dedicated delegated subnet.
 Set `services.sql_managed_instance = true` only for an approved test.
 
-The SQL Managed Instance module has been schema-validated and included in a
-successful Terraform plan, but it has not been applied. The rest of the lab was
+The SQL Managed Instance module was applied in an MI-only test on
+2026-10-22. A follow-up plan showed no drift against the NSG rules and routes
+that Azure adds, and the test was then destroyed. The rest of the lab was
 previously applied, smoke-tested, and destroyed.
 
 Azure SQL servers are opt-in through the `azure_sql_servers` map. Each entry
