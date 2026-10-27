@@ -70,6 +70,7 @@ when a module is checked on its own.
 | `network` | VNet and service-specific subnets | Dedicated and delegated subnets |
 | `private-dns` | Central Private DNS zones and VNet links | Yes |
 | `private-endpoint` | Reusable Private Endpoint and DNS zone group | Yes |
+| `storage-account-private-endpoints` | A storage account's `blob`, `file`, `queue`, and `table` Private Endpoints, created one at a time because the account rejects concurrent Private Endpoint connections | Yes |
 | `nat-gateway` | Shared static outbound internet egress for VM/VMSS and Container Apps subnets | Standard NAT Gateway and static public IP |
 | `network-security-group` | Optional NSGs with security rules, each associated with selected subnets | Subnet-level traffic filtering |
 | `route-table` | Optional route tables with user-defined routes, each associated with selected subnets | Subnet-level routing, such as forcing egress through a firewall |
