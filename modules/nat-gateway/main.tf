@@ -9,8 +9,7 @@ resource "azurerm_public_ip" "this" {
   tags                = var.tags
 
   lifecycle {
-    create_before_destroy = true
-    ignore_changes        = [ip_tags]
+    ignore_changes = [ip_tags]
   }
 }
 
