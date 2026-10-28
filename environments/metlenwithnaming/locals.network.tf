@@ -15,9 +15,10 @@ locals {
   virtual_machine_subnet_required = length(var.virtual_machines) > 0 || length(var.virtual_machine_scale_sets) > 0
 
   # Subnets whose outbound traffic leaves through the NAT Gateway. Opt-in per
-  # subnet; with none listed no NAT Gateway or Public IP is created. Subnets
+  # subnet; with none listed no NAT Gateway or Public IP is created. Every
+  # subnet is private (no implicit default outbound access), so a subnet
   # without a NAT Gateway or a 0.0.0.0/0 route (for example to a hub firewall)
-  # fall back to Azure's implicit default outbound access.
+  # has no internet egress.
   nat_gateway_subnet_keys = var.nat_gateway.subnets
   nat_gateway_required    = length(local.nat_gateway_subnet_keys) > 0
 
@@ -129,14 +130,17 @@ locals {
     }
   }
 
-  subnets = merge(
-    {
-      for subnet_key, subnet in local.subnet_definitions :
-      subnet_key => subnet
-      if local.subnet_enabled[subnet_key]
-    },
-    local.container_apps_subnets
-  )
+  subnets = {
+    for subnet_key, subnet in merge(
+      {
+        for subnet_key, subnet in local.subnet_definitions :
+        subnet_key => subnet
+        if local.subnet_enabled[subnet_key]
+      },
+      local.container_apps_subnets
+    ) :
+    subnet_key => merge(subnet, { default_outbound_access_enabled = false })
+  }
 
   # Every configured range, including unused ones, so the network module checks
   # the whole address plan for overlap and containment.

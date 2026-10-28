@@ -536,6 +536,23 @@ run "reject_duplicate_nat_gateway_subnet" {
   expect_failures = [var.nat_gateway]
 }
 
+run "subnets_are_private" {
+  command = plan
+  variables {
+    subnet_cidrs = merge(var.subnet_cidrs, { container_apps = { primary = "10.42.2.0/27" } })
+    container_apps_environments = {
+      primary = {}
+    }
+  }
+  assert {
+    condition = (
+      contains(keys(local.subnets), "container_apps/primary") &&
+      alltrue([for subnet in values(local.subnets) : !subnet.default_outbound_access_enabled])
+    )
+    error_message = "Every subnet must be private (no implicit default outbound access)."
+  }
+}
+
 run "disabled_services" {
   command = plan
   variables {

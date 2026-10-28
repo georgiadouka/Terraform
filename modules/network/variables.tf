@@ -25,6 +25,10 @@ variable "subnets" {
     address_prefixes                  = list(string)
     private_endpoint_network_policies = optional(string, "Enabled")
     service_endpoints                 = optional(list(string), [])
+    # false makes the subnet private: no implicit Azure default outbound
+    # access, so egress needs a NAT Gateway or a route (for example to a
+    # firewall). Existing VMs keep default outbound access until deallocated.
+    default_outbound_access_enabled = optional(bool, true)
     delegation = optional(object({
       name    = string
       service = string

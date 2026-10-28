@@ -257,9 +257,9 @@ load_balancers = {}
 # mysql, load_balancers or container_apps/<environment key>. Leave subnets
 # empty (or remove this block) in hub-and-spoke designs where egress goes
 # through the hub, for example with a route_tables entry that sends 0.0.0.0/0
-# to the hub firewall. A subnet with neither falls back to Azure's implicit
-# default outbound access (an unmanaged public IP that can change), which
-# Microsoft is retiring; don't rely on it.
+# to the hub firewall.
+# Subnets are private: a subnet with neither a NAT Gateway nor a 0.0.0.0/0
+# route has no internet egress (Container Apps also need it to pull images).
 # The gateway is M-AZU-NGW-<BU>-<DPT>-<APP>-<ENV>-<REG>-<sequence> and its
 # Public IP M-AZU-PIP-<BU>-<DPT>-<APP>-<ENV>-<REG>-<sequence>.
 nat_gateway = {
