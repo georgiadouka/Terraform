@@ -141,33 +141,34 @@ locals {
       key => "mazu${lower(local.metlen_codes.storage_account)}${local.metlen_compact_tokens}${account.sequence}"
     }
 
+    # Blob containers, file shares and databases are named by the application
+    # and follow no convention: the configured name is used as-is (databases
+    # and Cosmos DB containers default to the entry key). They are kept here,
+    # keyed like the other names, so main.tf and the outputs read every name
+    # from one place.
     storage_containers = {
       for account_key, account in var.storage_accounts : account_key => {
-        for label in account.containers :
-        label => "${local.naming_prefixes.storage_container}-${label}-${local.name_stem}"
+        for name in account.containers : name => name
       }
     }
     storage_file_shares = {
       for account_key, account in var.storage_accounts : account_key => {
-        for label in keys(account.file_shares) :
-        label => "${local.naming_prefixes.file_share}-${label}-${local.name_stem}"
+        for name in keys(account.file_shares) : name => name
       }
     }
     premium_file_shares = {
       for account_key, account in var.premium_file_accounts : account_key => {
-        for label in keys(account.file_shares) :
-        label => "${local.naming_prefixes.file_share}-${label}-${local.name_stem}"
+        for name in keys(account.file_shares) : name => name
       }
     }
 
     # The logical server name is global DNS (<name>.database.windows.net) and
-    # must be lowercase. The database and the optional elastic pool are scoped
-    # to their server and use the full family with the server's NN (one pool
-    # per server).
+    # must be lowercase. The optional elastic pool is scoped to its server and
+    # uses the full family with the server's NN (one pool per server).
     azure_sql_servers = {
       for key, server in var.azure_sql_servers : key => {
         server_name       = lower(join("-", ["M-AZU", local.metlen_codes.azure_sql_server, local.metlen_scope, local.metlen_placement, server.sequence]))
-        database_name     = join("-", ["M-AZU", local.metlen_codes.azure_sql_database, local.metlen_scope, local.metlen_placement, server.sequence])
+        database_name     = coalesce(server.database_name, key)
         elastic_pool_name = join("-", ["M-AZU", local.metlen_codes.azure_sql_elastic_pool, local.metlen_scope, local.metlen_placement, server.sequence])
       }
     }
@@ -186,39 +187,35 @@ locals {
 
     # Same approach as Azure SQL: the server name is global DNS
     # (<name>.postgres.database.azure.com / <name>.mysql.database.azure.com) and
-    # must be lowercase; the database is scoped to its server and uses the full
-    # family with the server's NN. MySQL stores database names in lowercase
-    # (lower_case_table_names = 1), so its database name is lowercase too.
+    # must be lowercase; the database is named by the application.
     postgresql_servers = {
       for key, server in var.postgresql_servers : key => {
         server_name   = lower(join("-", ["M-AZU", local.metlen_codes.postgresql_server, local.metlen_scope, local.metlen_placement, server.sequence]))
-        database_name = join("-", ["M-AZU", local.metlen_codes.postgresql_server, local.metlen_scope, local.metlen_placement, server.sequence])
+        database_name = coalesce(server.database_name, key)
       }
     }
     mysql_servers = {
       for key, server in var.mysql_servers : key => {
         server_name   = lower(join("-", ["M-AZU", local.metlen_codes.mysql_server, local.metlen_scope, local.metlen_placement, server.sequence]))
-        database_name = lower(join("-", ["M-AZU", local.metlen_codes.mysql_server, local.metlen_scope, local.metlen_placement, server.sequence]))
+        database_name = coalesce(server.database_name, key)
       }
     }
 
     # Account: m-azu-cdb-<bu>-<dpt>-<app>-<env>-<reg>-<NN> (global
     # <name>.documents.azure.com, 3-44 lowercase letters, digits and hyphens),
-    # like the SQL logical server. Database and container names must be valid
-    # for every API (Cassandra keyspaces allow only letters, digits and
-    # underscores up to 48; Table API tables only letters and digits), so they
-    # use the compact family mazucdb...<NN> with the account's NN.
+    # like the SQL logical server. The database and container are named by the
+    # application; variables.tf checks the rules of each API.
     cosmos_db_accounts = {
       for key, account in var.cosmos_db_accounts :
       key => lower(join("-", ["M-AZU", local.metlen_codes.cosmos_db_account, local.metlen_scope, local.metlen_placement, account.sequence]))
     }
     cosmos_db_databases = {
       for key, account in var.cosmos_db_accounts :
-      key => "mazu${lower(local.metlen_codes.cosmos_db_account)}${local.metlen_compact_tokens}${account.sequence}"
+      key => coalesce(account.database_name, key)
     }
     cosmos_db_containers = {
       for key, account in var.cosmos_db_accounts :
-      key => "mazu${lower(local.metlen_codes.cosmos_db_account)}${local.metlen_compact_tokens}${account.sequence}"
+      key => coalesce(account.container_name, key)
     }
 
     # Environment: M-AZU-CEV-...-<NN>. The provider accepts 2-60 alphanumerics
@@ -252,7 +249,9 @@ locals {
     }
     # Container names are scoped to their app, so every app reuses this name.
     container_app_container = "${local.naming_prefixes.container_app_container}-${local.name_stem}"
-    log_analytics_workspace = "${local.naming_prefixes.log_analytics_workspace}-${local.name_stem}"
+    # M-AZU-LAW-<BU>-<DPT>-<APP>-<ENV>-<REG>-<NN>: one workspace shared by
+    # every Container Apps environment; 4-63 letters, digits and hyphens.
+    log_analytics_workspace = join("-", ["M-AZU", local.metlen_codes.log_analytics, local.metlen_scope, local.metlen_placement, var.log_analytics_workspace.sequence])
 
     # App Service family. Web App and Function App names are global
     # (<name>.azurewebsites.net). App Service Plans are declared once in
@@ -261,8 +260,9 @@ locals {
     # standard; an optional sequence is the fallback when the global name is
     # taken or a second Function App is added. The name stays within the 32
     # characters Azure uses for the Functions host ID. Each Function App has
-    # its own host Storage Account (mazusoa... family), so the content share
-    # name is scoped to that account and shared by every app.
+    # its own host Storage Account (mazusoa... family), so the internal
+    # content share needs no convention: every app uses the fixed name
+    # function-content in its own account.
     app_service_plans = {
       for key, plan in var.app_service_plans :
       key => join("-", ["M-AZU", local.metlen_codes.app_service_plan, local.metlen_scope, local.metlen_placement, plan.sequence])
@@ -276,7 +276,7 @@ locals {
       for key, app in var.function_apps : key => {
         name                 = join("-", compact(["M-AZU", local.metlen_codes.function_app, local.metlen_scope, local.metlen_placement, app.sequence]))
         storage_account_name = "mazu${lower(local.metlen_codes.storage_account)}${local.metlen_compact_tokens}${app.storage_sequence}"
-        content_share_name   = "${local.naming_prefixes.file_share}-function-content-${local.name_stem}"
+        content_share_name   = "function-content"
       }
     }
   }

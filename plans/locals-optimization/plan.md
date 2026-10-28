@@ -36,8 +36,7 @@ What disappears with it:
   `local.name_stem` and `local.naming_prefixes`.
 - Every name built from them: VMs, scale sets and their NICs, disks and
   autoscale settings; VNet peerings;
-  subnet delegations; storage containers and file shares; the Function
-  content share; Container Apps
+  subnet delegations; Container Apps
   environment DNS links, containers and workload profiles;
   Private DNS zone links; the VM `computer_name` suffix.
 
@@ -73,7 +72,12 @@ codes `NGW` and `PIP` (`M-AZU-NGW-…-<NN>` and `M-AZU-PIP-…-<NN>`, sharing
 `create_before_destroy` from the NAT Public IP (with a fixed name, a
 replacement would collide with the existing IP), the Log Analytics workspace
 moved to the METLEN standard with code `LAW` (`M-AZU-LAW-…-<NN>`, NN from
-`log_analytics_workspace.sequence`, default `00`), and the Defender for Storage
+`log_analytics_workspace.sequence`, default `00`), blob containers, file
+shares and the databases inside SQL, PostgreSQL, MySQL and Cosmos DB taken out
+of any naming convention (the application chooses the name; databases and
+Cosmos DB containers default to the entry key; Azure's rules are checked at
+plan time), the internal Function App content share renamed to the fixed
+`function-content`, and the Defender for Storage
 drift fix (`ignore_changes` on
 `network_rules[0].private_link_access` in the `storage-account` and
 `premium-files` modules). `SMI`, `SEL`, `NGW`, `PIP` and `LAW` still need

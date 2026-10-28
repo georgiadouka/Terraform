@@ -46,6 +46,7 @@ variables {
   }
   virtual_machine_scale_sets  = {}
   nat_gateway                 = {}
+  log_analytics_workspace     = {}
   key_vaults                  = {}
   container_registries        = {}
   azure_sql_servers           = {}
@@ -460,19 +461,90 @@ run "key_vault_uses_compact_family" {
   }
 }
 
-run "sql_server_is_lowercase_and_database_uses_full_family" {
+run "sql_server_is_lowercase_and_database_is_named_by_the_application" {
   command = plan
   variables {
-    azure_sql_servers = { primary = {} }
+    azure_sql_servers = {
+      primary = {}
+      reports = { sequence = "01", database_name = "Sales Reporting" }
+    }
   }
   assert {
     condition = (
       output.generated_resource_names.azure_sql_servers["primary"].server_name == "m-azu-sql-it-ppa-ecm-dev-swe-00" &&
-      output.generated_resource_names.azure_sql_servers["primary"].database_name == "M-AZU-SQL-IT-PPA-ECM-DEV-SWE-00" &&
+      output.generated_resource_names.azure_sql_servers["primary"].database_name == "primary" &&
+      output.generated_resource_names.azure_sql_servers["reports"].database_name == "Sales Reporting" &&
       can(regex("^[a-z0-9][a-z0-9-]{0,61}[a-z0-9]$", output.generated_resource_names.azure_sql_servers["primary"].server_name))
     )
-    error_message = "The SQL logical server must use the lowercase variant and the database the full family."
+    error_message = "The SQL logical server must use the lowercase variant; the database uses database_name, or the entry key when unset."
   }
+}
+
+run "reject_invalid_sql_database_name" {
+  command = plan
+  variables {
+    azure_sql_servers = {
+      primary = { database_name = "sales/reporting" }
+    }
+  }
+  expect_failures = [var.azure_sql_servers]
+}
+
+run "reject_sql_system_database_name" {
+  command = plan
+  variables {
+    azure_sql_servers = {
+      primary = { database_name = "Master" }
+    }
+  }
+  expect_failures = [var.azure_sql_servers]
+}
+
+run "storage_containers_and_file_shares_use_configured_names" {
+  command = plan
+  variables {
+    storage_accounts = {
+      primary = {
+        containers                = ["invoices", "customer-documents-archive-2026"]
+        file_shares               = { "team-share" = {} }
+        shared_access_key_enabled = true
+      }
+    }
+    premium_file_accounts = {
+      fast = { sequence = "01", file_shares = { "render-cache" = { quota_gb = 100 } } }
+    }
+  }
+  assert {
+    condition = (
+      local.resource_names.storage_containers["primary"] == {
+        "invoices"                        = "invoices"
+        "customer-documents-archive-2026" = "customer-documents-archive-2026"
+      } &&
+      local.resource_names.storage_file_shares["primary"] == { "team-share" = "team-share" } &&
+      local.resource_names.premium_file_shares["fast"] == { "render-cache" = "render-cache" }
+    )
+    error_message = "Blob container and file share names must be used exactly as configured, without a naming convention."
+  }
+}
+
+run "reject_invalid_storage_container_name" {
+  command = plan
+  variables {
+    storage_accounts = {
+      primary = { containers = ["Invoices"] }
+    }
+  }
+  expect_failures = [var.storage_accounts]
+}
+
+run "reject_invalid_premium_file_share_name" {
+  command = plan
+  variables {
+    premium_file_accounts = {
+      fast = { sequence = "01", file_shares = { "ab" = { quota_gb = 100 } } }
+    }
+  }
+  expect_failures = [var.premium_file_accounts]
 }
 
 run "premium_files_and_function_storage_share_the_storage_family" {
@@ -565,6 +637,7 @@ run "app_service_family_names" {
       output.generated_resource_names.web_apps["primary"].name == "M-AZU-APP-IT-PPA-ECM-DEV-SWE-00" &&
       output.generated_resource_names.function_apps["primary"].name == "M-AZU-FUN-IT-PPA-ECM-DEV-SWE" &&
       output.generated_resource_names.function_apps["primary"].storage_account_name == "mazusoaitppaecmdevswe01" &&
+      output.generated_resource_names.function_apps["primary"].content_share_name == "function-content" &&
       output.generated_resource_names.private_endpoints["web_app/primary"].name == "M-AZU-APP-IT-PPA-ECM-DEV-SWE-00-sites" &&
       output.generated_resource_names.private_endpoints["function_app/primary"].name == "M-AZU-FUN-IT-PPA-ECM-DEV-SWE-sites"
     )
@@ -701,4 +774,40 @@ run "reject_invalid_nat_gateway_sequence" {
     nat_gateway = { sequence = "1" }
   }
   expect_failures = [var.nat_gateway]
+}
+
+run "log_analytics_workspace_uses_law_family" {
+  command = plan
+  variables {
+    subnet_cidrs = merge(var.subnet_cidrs, { container_apps = { primary = "10.42.2.0/27" } })
+    container_apps_environments = {
+      primary = {}
+    }
+  }
+  assert {
+    condition = (
+      length(module.log_analytics) == 1 &&
+      local.resource_names.log_analytics_workspace == "M-AZU-LAW-IT-PPA-ECM-DEV-SWE-00"
+    )
+    error_message = "The Log Analytics workspace must follow M-AZU-LAW-<BU>-<DPT>-<APP>-<ENV>-<REG>-<NN>, 00 by default."
+  }
+}
+
+run "log_analytics_workspace_sequence_sets_nn" {
+  command = plan
+  variables {
+    log_analytics_workspace = { sequence = "01" }
+  }
+  assert {
+    condition     = local.resource_names.log_analytics_workspace == "M-AZU-LAW-IT-PPA-ECM-DEV-SWE-01"
+    error_message = "log_analytics_workspace.sequence must set the workspace NN."
+  }
+}
+
+run "reject_invalid_log_analytics_workspace_sequence" {
+  command = plan
+  variables {
+    log_analytics_workspace = { sequence = "001" }
+  }
+  expect_failures = [var.log_analytics_workspace]
 }

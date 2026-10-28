@@ -82,6 +82,16 @@ run "reject_blank_share_name" {
   expect_failures = [var.file_share_names]
 }
 
+run "reject_share_name_with_consecutive_hyphens" {
+  command = plan
+  variables {
+    file_share_names = {
+      premium = "premium--share"
+    }
+  }
+  expect_failures = [var.file_share_names]
+}
+
 run "reject_duplicate_share_names" {
   command = plan
   variables {

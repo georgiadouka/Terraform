@@ -34,7 +34,7 @@ variable "file_shares" {
     condition = (
       alltrue([
         for label in keys(var.file_shares) :
-        length(label) <= 20 &&
+        length(label) <= 63 &&
         can(regex("^[a-z0-9]([a-z0-9-]*[a-z0-9])?$", label)) &&
         !strcontains(label, "--")
       ]) &&
@@ -49,7 +49,7 @@ variable "file_shares" {
 }
 
 variable "file_share_names" {
-  description = "Azure file share names keyed by the same logical identifiers as file_shares."
+  description = "Azure file share names keyed by the same logical identifiers as file_shares. Names must be 3-63 lowercase letters, digits and hyphens, start and end with a letter or digit, and not contain consecutive hyphens."
   type        = map(string)
 
   validation {
@@ -61,6 +61,14 @@ variable "file_share_names" {
       ])) == length(var.file_share_names)
     )
     error_message = "file_share_names must contain exactly the same logical keys as file_shares and use nonempty, unique names."
+  }
+
+  validation {
+    condition = alltrue([
+      for name in values(var.file_share_names) :
+      can(regex("^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$", name)) && !strcontains(name, "--")
+    ])
+    error_message = "Every file share name must be 3-63 lowercase letters, digits and hyphens, start and end with a letter or digit, and not contain consecutive hyphens."
   }
 }
 

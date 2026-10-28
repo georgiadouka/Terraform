@@ -155,7 +155,7 @@ override_module {
   target = module.private_dns
   outputs = {
     zone_ids = {
-      for service in ["vaultcore.azure.net", "database.windows.net", "documents.azure.com", "gremlin.cosmos.azure.com", "azurecr.io", "blob.core.windows.net", "file.core.windows.net", "queue.core.windows.net", "table.core.windows.net", "azurewebsites.net", "mysql.database.azure.com", "postgres.database.azure.com"] :
+      for service in ["vaultcore.azure.net", "database.windows.net", "documents.azure.com", "gremlin.cosmos.azure.com", "cassandra.cosmos.azure.com", "table.cosmos.azure.com", "mongo.cosmos.azure.com", "azurecr.io", "blob.core.windows.net", "file.core.windows.net", "queue.core.windows.net", "table.core.windows.net", "azurewebsites.net", "mysql.database.azure.com", "postgres.database.azure.com"] :
       "privatelink.${service}" => "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Network/privateDnsZones/privatelink.${service}"
     }
   }
@@ -207,6 +207,7 @@ variables {
   }
   virtual_machine_scale_sets = {}
   nat_gateway                = {}
+  log_analytics_workspace    = {}
   key_vaults                 = {}
   container_registries       = {}
   azure_sql_servers          = {}
@@ -910,8 +911,8 @@ run "multiple_cosmos_db_accounts" {
       length(module.cosmos_db) == 2 &&
       local.resource_names.cosmos_db_accounts["primary"] == "m-azu-cdb-it-ppa-ecm-dev-swe-00" &&
       local.resource_names.cosmos_db_accounts["graph"] == "m-azu-cdb-it-ppa-ecm-dev-swe-01" &&
-      local.resource_names.cosmos_db_databases["graph"] == "mazucdbitppaecmdevswe01" &&
-      local.resource_names.cosmos_db_containers["graph"] == "mazucdbitppaecmdevswe01" &&
+      local.resource_names.cosmos_db_databases["graph"] == "graph" &&
+      local.resource_names.cosmos_db_containers["graph"] == "graph" &&
       local.service_private_endpoints["cosmos_db/primary"].subresource == "Sql" &&
       local.service_private_endpoints["cosmos_db/graph"].subresource == "Gremlin" &&
       local.private_endpoint_names["cosmos_db/graph"].name == "m-azu-cdb-it-ppa-ecm-dev-swe-01-gremlin" &&
@@ -923,24 +924,62 @@ run "multiple_cosmos_db_accounts" {
   }
 }
 
-# Account names are 3-44 lowercase characters; database and container names
-# must suit every API: Cassandra keyspaces (letters, digits, underscores, up to
-# 48) and Table API tables (a letter, then letters and digits, 3-63).
-run "cosmos_db_names_meet_rules_for_every_api" {
+# Account names are 3-44 lowercase characters. Database and container names
+# are chosen by the application, default to the entry key, and must meet the
+# rules of the account's API.
+run "cosmos_db_names_are_configurable" {
   command = plan
   variables {
     cosmos_db_accounts = {
       longkeyname = { sequence = "99" }
+      catalog     = { sequence = "01", database_name = "catalog-db", container_name = "products" }
+      events      = { sequence = "02", api_type = "Cassandra", database_name = "telemetry", container_name = "device_events" }
+      lookups     = { sequence = "03", api_type = "Table", container_name = "Countries" }
     }
   }
   assert {
     condition = (
       can(regex("^[a-z0-9][a-z0-9-]{1,42}[a-z0-9]$", local.resource_names.cosmos_db_accounts["longkeyname"])) &&
-      can(regex("^[a-zA-Z][a-zA-Z0-9]{2,47}$", local.resource_names.cosmos_db_databases["longkeyname"])) &&
-      can(regex("^[a-zA-Z][a-zA-Z0-9]{2,47}$", local.resource_names.cosmos_db_containers["longkeyname"]))
+      local.resource_names.cosmos_db_databases["longkeyname"] == "longkeyname" &&
+      local.resource_names.cosmos_db_containers["longkeyname"] == "longkeyname" &&
+      local.resource_names.cosmos_db_databases["catalog"] == "catalog-db" &&
+      local.resource_names.cosmos_db_containers["catalog"] == "products" &&
+      local.resource_names.cosmos_db_databases["events"] == "telemetry" &&
+      local.resource_names.cosmos_db_containers["events"] == "device_events" &&
+      local.resource_names.cosmos_db_containers["lookups"] == "Countries"
     )
-    error_message = "Cosmos DB account, database and container names must meet Azure's rules for every supported API, independent of the logical key."
+    error_message = "Cosmos DB database and container names must use database_name and container_name, or the entry key when unset."
   }
+}
+
+run "reject_cassandra_key_with_hyphen_as_default_name" {
+  command = plan
+  variables {
+    cosmos_db_accounts = {
+      raw-events = { api_type = "Cassandra" }
+    }
+  }
+  expect_failures = [var.cosmos_db_accounts]
+}
+
+run "reject_table_container_name_with_underscore" {
+  command = plan
+  variables {
+    cosmos_db_accounts = {
+      lookups = { api_type = "Table", container_name = "country_codes" }
+    }
+  }
+  expect_failures = [var.cosmos_db_accounts]
+}
+
+run "reject_nosql_container_name_with_slash" {
+  command = plan
+  variables {
+    cosmos_db_accounts = {
+      primary = { container_name = "orders/2026" }
+    }
+  }
+  expect_failures = [var.cosmos_db_accounts]
 }
 
 run "reject_duplicate_cosmos_db_sequence" {
@@ -989,9 +1028,9 @@ run "multiple_azure_sql_servers" {
     condition = (
       length(module.azure_sql) == 2 &&
       local.resource_names.azure_sql_servers["primary"].server_name == "m-azu-sql-it-ppa-ecm-dev-swe-00" &&
-      local.resource_names.azure_sql_servers["primary"].database_name == "M-AZU-SQL-IT-PPA-ECM-DEV-SWE-00" &&
+      local.resource_names.azure_sql_servers["primary"].database_name == "primary" &&
       local.resource_names.azure_sql_servers["reports"].server_name == "m-azu-sql-it-ppa-ecm-dev-swe-01" &&
-      local.resource_names.azure_sql_servers["reports"].database_name == "M-AZU-SQL-IT-PPA-ECM-DEV-SWE-01" &&
+      local.resource_names.azure_sql_servers["reports"].database_name == "reports" &&
       local.resource_names.azure_sql_servers["reports"].elastic_pool_name == "M-AZU-SEL-IT-PPA-ECM-DEV-SWE-01" &&
       output.azure_sql_servers["primary"].elastic_pool_id == null &&
       output.azure_sql_servers["reports"].elastic_pool_name == "M-AZU-SEL-IT-PPA-ECM-DEV-SWE-01" &&
@@ -1525,7 +1564,7 @@ run "multiple_mysql_servers" {
       length(module.mysql) == 2 &&
       length(random_password.mysql) == 2 &&
       local.resource_names.mysql_servers["primary"].server_name == "m-azu-mys-it-ppa-ecm-dev-swe-00" &&
-      local.resource_names.mysql_servers["primary"].database_name == "m-azu-mys-it-ppa-ecm-dev-swe-00" &&
+      local.resource_names.mysql_servers["primary"].database_name == "primary" &&
       local.resource_names.mysql_servers["reports"].server_name == "m-azu-mys-it-ppa-ecm-dev-swe-01" &&
       local.subnet_enabled.mysql &&
       local.subnets["mysql"].delegation.service == "Microsoft.DBforMySQL/flexibleServers" &&
@@ -1560,17 +1599,39 @@ run "mysql_names_meet_azure_rules" {
   variables {
     mysql_servers = {
       longkeyname1 = { sequence = "99" }
+      reports      = { sequence = "01", database_name = "sales_reporting" }
     }
   }
   assert {
     condition = (
       local.resource_names.mysql_servers["longkeyname1"].server_name == "m-azu-mys-it-ppa-ecm-dev-swe-99" &&
       can(regex("^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$", local.resource_names.mysql_servers["longkeyname1"].server_name)) &&
-      local.resource_names.mysql_servers["longkeyname1"].database_name == "m-azu-mys-it-ppa-ecm-dev-swe-99" &&
-      length(local.resource_names.mysql_servers["longkeyname1"].database_name) <= 63
+      local.resource_names.mysql_servers["longkeyname1"].database_name == "longkeyname1" &&
+      local.resource_names.mysql_servers["reports"].database_name == "sales_reporting" &&
+      output.mysql_servers["reports"].database_name == "sales_reporting"
     )
-    error_message = "MySQL server names must be 3-63 lowercase characters and database names at most 63 characters, independent of the logical key."
+    error_message = "MySQL server names must be 3-63 lowercase characters; the database uses database_name, or the entry key when unset."
   }
+}
+
+run "reject_uppercase_mysql_database_name" {
+  command = plan
+  variables {
+    mysql_servers = {
+      primary = { database_name = "SalesDb" }
+    }
+  }
+  expect_failures = [var.mysql_servers]
+}
+
+run "reject_mysql_system_database_name" {
+  command = plan
+  variables {
+    mysql_servers = {
+      primary = { database_name = "mysql" }
+    }
+  }
+  expect_failures = [var.mysql_servers]
 }
 
 run "reject_invalid_mysql_server_key" {
@@ -1632,7 +1693,7 @@ run "multiple_postgresql_servers" {
       length(module.postgresql) == 3 &&
       length(random_password.postgresql) == 3 &&
       local.resource_names.postgresql_servers["primary"].server_name == "m-azu-pgs-it-ppa-ecm-dev-swe-00" &&
-      local.resource_names.postgresql_servers["primary"].database_name == "M-AZU-PGS-IT-PPA-ECM-DEV-SWE-00" &&
+      local.resource_names.postgresql_servers["primary"].database_name == "primary" &&
       local.resource_names.postgresql_servers["reports"].server_name == "m-azu-pgs-it-ppa-ecm-dev-swe-01" &&
       local.subnet_enabled.postgresql &&
       local.subnets["postgresql"].delegation.service == "Microsoft.DBforPostgreSQL/flexibleServers" &&
@@ -1668,17 +1729,39 @@ run "postgresql_names_meet_azure_rules" {
   variables {
     postgresql_servers = {
       longkeyname1 = { sequence = "99" }
+      reports      = { sequence = "01", database_name = "Sales_Reporting" }
     }
   }
   assert {
     condition = (
       local.resource_names.postgresql_servers["longkeyname1"].server_name == "m-azu-pgs-it-ppa-ecm-dev-swe-99" &&
       can(regex("^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$", local.resource_names.postgresql_servers["longkeyname1"].server_name)) &&
-      local.resource_names.postgresql_servers["longkeyname1"].database_name == "M-AZU-PGS-IT-PPA-ECM-DEV-SWE-99" &&
-      can(regex("^[a-zA-Z-_][a-zA-Z0-9-_]{0,62}$", local.resource_names.postgresql_servers["longkeyname1"].database_name))
+      local.resource_names.postgresql_servers["longkeyname1"].database_name == "longkeyname1" &&
+      local.resource_names.postgresql_servers["reports"].database_name == "Sales_Reporting" &&
+      output.postgresql_servers["reports"].database_name == "Sales_Reporting"
     )
-    error_message = "PostgreSQL server names must be 3-63 lowercase characters and database names meet the provider's 63-character identifier rule, independent of the logical key."
+    error_message = "PostgreSQL server names must be 3-63 lowercase characters; the database uses database_name, or the entry key when unset."
   }
+}
+
+run "reject_postgresql_database_name_starting_with_digit" {
+  command = plan
+  variables {
+    postgresql_servers = {
+      primary = { database_name = "1sales" }
+    }
+  }
+  expect_failures = [var.postgresql_servers]
+}
+
+run "reject_postgresql_system_database_name" {
+  command = plan
+  variables {
+    postgresql_servers = {
+      primary = { database_name = "postgres" }
+    }
+  }
+  expect_failures = [var.postgresql_servers]
 }
 
 run "reject_duplicate_postgresql_server_sequence" {

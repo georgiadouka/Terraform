@@ -39,6 +39,7 @@ variables {
   }
   virtual_machine_scale_sets  = {}
   nat_gateway                 = {}
+  log_analytics_workspace     = {}
   key_vaults                  = {}
   container_registries        = {}
   azure_sql_servers           = {}

@@ -107,7 +107,7 @@ variable "environment" {
 }
 
 variable "naming" {
-  description = "Legacy sample naming for resources and inner names that have no METLEN convention yet (VMs and scale sets with their NICs and disks, VNet peerings, private DNS links, Log Analytics, storage containers and file shares, subnet delegations, Container Apps containers and workload profiles). Names use <prefix>-<project>-<environment>-<suffix>."
+  description = "Legacy sample naming for resources and inner names that have no METLEN convention yet (VMs and scale sets with their NICs and disks, VNet peerings, private DNS links, subnet delegations, Container Apps containers and workload profiles). Names use <prefix>-<project>-<environment>-<suffix>."
   type = object({
     unique_suffix = optional(string)
     prefixes = optional(object({
@@ -119,10 +119,7 @@ variable "naming" {
       autoscale_setting         = optional(string, "autoscale")
       virtual_network_peering   = optional(string, "peer")
       private_dns_link          = optional(string, "pdnslink")
-      log_analytics_workspace   = optional(string, "log")
       subnet_delegation         = optional(string, "dlg")
-      storage_container         = optional(string, "blob")
-      file_share                = optional(string, "share")
       container_app_container   = optional(string, "ctr")
       container_apps_profile    = optional(string, "wp")
     }), {})
@@ -468,6 +465,20 @@ variable "nat_gateway" {
   }
 }
 
+variable "log_analytics_workspace" {
+  description = "Settings for the Log Analytics workspace shared by every Container Apps environment (created only when container_apps_environments is non-empty). The workspace is named M-AZU-LAW-<BU>-<DPT>-<APP>-<ENV>-<REG>-<sequence>; sequence is the two-digit NN."
+  type = object({
+    sequence = optional(string, "00")
+  })
+  default  = {}
+  nullable = false
+
+  validation {
+    condition     = can(regex("^[0-9]{2}$", var.log_analytics_workspace.sequence))
+    error_message = "log_analytics_workspace.sequence must be two digits, for example 00."
+  }
+}
+
 variable "network_security_groups" {
   description = "Network security groups keyed by a stable logical name. Defaults to none. subnets lists the subnet keys (for example virtual_machines or container_apps/primary) to associate; a subnet can belong to only one group. The SQL Managed Instance subnet is excluded because its module manages its own group. Rule names are the security_rules keys. Names follow M-AZU-NSG-<BU>-<DPT>-<APP>-<classification>-<ENV>-<REG>[-<sequence>]; set a unique two-digit sequence when more than one group shares a classification."
   type = map(object({
@@ -679,7 +690,7 @@ variable "key_vaults" {
 }
 
 variable "storage_accounts" {
-  description = "General-purpose v2 storage accounts keyed by a stable logical name. Defaults to none; add one entry per account. Names follow mazusoa<BU><DPT><APP><ENV><REG><sequence>; sequence is the two-digit NN, shared with premium_file_accounts and the function_apps host storage, and must be unique across them."
+  description = "General-purpose v2 storage accounts keyed by a stable logical name. Defaults to none; add one entry per account. Names follow mazusoa<BU><DPT><APP><ENV><REG><sequence>; sequence is the two-digit NN, shared with premium_file_accounts and the function_apps host storage, and must be unique across them. Blob container names (containers) and file share names (file_shares keys) are chosen by the application and used as-is: 3-63 lowercase letters, digits and hyphens, starting and ending with a letter or digit, without consecutive hyphens."
   type = map(object({
     sequence         = optional(string, "00")
     replication_type = optional(string, "LRS")
@@ -714,6 +725,16 @@ variable "storage_accounts" {
   }
 
   validation {
+    condition = alltrue(flatten([
+      for account in values(var.storage_accounts) : [
+        for name in concat(tolist(account.containers), keys(account.file_shares)) :
+        can(regex("^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$", name)) && !strcontains(name, "--")
+      ]
+    ]))
+    error_message = "Every storage_accounts container name and file_shares key is used as the Azure name and must be 3-63 lowercase letters, digits and hyphens, start and end with a letter or digit, and not contain consecutive hyphens."
+  }
+
+  validation {
     condition = (
       length(distinct(concat(
         [for account in values(var.storage_accounts) : account.sequence],
@@ -731,7 +752,7 @@ variable "storage_accounts" {
 }
 
 variable "premium_file_accounts" {
-  description = "Premium FileStorage accounts and SMB shares keyed by a stable logical account name. Defaults to none; add one entry per account. Names follow the Storage Account family; sequence must be unique across all storage accounts."
+  description = "Premium FileStorage accounts and SMB shares keyed by a stable logical account name. Defaults to none; add one entry per account. Names follow the Storage Account family; sequence must be unique across all storage accounts. File share names (file_shares keys) are chosen by the application and used as-is: 3-63 lowercase letters, digits and hyphens, starting and ending with a letter or digit, without consecutive hyphens."
   type = map(object({
     sequence         = optional(string, "00")
     replication_type = optional(string, "LRS")
@@ -758,12 +779,23 @@ variable "premium_file_accounts" {
     condition     = alltrue([for account in values(var.premium_file_accounts) : can(regex("^[0-9]{2}$", account.sequence))])
     error_message = "Every premium_file_accounts sequence must be two digits, for example 01."
   }
+
+  validation {
+    condition = alltrue(flatten([
+      for account in values(var.premium_file_accounts) : [
+        for name in keys(account.file_shares) :
+        can(regex("^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$", name)) && !strcontains(name, "--")
+      ]
+    ]))
+    error_message = "Every premium_file_accounts file_shares key is used as the Azure share name and must be 3-63 lowercase letters, digits and hyphens, start and end with a letter or digit, and not contain consecutive hyphens."
+  }
 }
 
 variable "azure_sql_servers" {
-  description = "Azure SQL logical servers keyed by a stable logical name. Each server hosts one database, standalone or in an optional elastic pool. Defaults to none; add one entry per server. Server names follow m-azu-sql-<bu>-<dpt>-<app>-<env>-<reg>-<sequence>, database names M-AZU-SQL-<BU>-<DPT>-<APP>-<ENV>-<REG>-<sequence> and elastic pool names M-AZU-SEL-<BU>-<DPT>-<APP>-<ENV>-<REG>-<sequence>; sequence is the two-digit NN and must be unique per server."
+  description = "Azure SQL logical servers keyed by a stable logical name. Each server hosts one database, standalone or in an optional elastic pool. Defaults to none; add one entry per server. Server names follow m-azu-sql-<bu>-<dpt>-<app>-<env>-<reg>-<sequence> and elastic pool names M-AZU-SEL-<BU>-<DPT>-<APP>-<ENV>-<REG>-<sequence>; sequence is the two-digit NN and must be unique per server. The database name is chosen by the application (database_name) and defaults to the entry key."
   type = map(object({
     sequence          = optional(string, "00")
+    database_name     = optional(string)
     database_sku_name = optional(string, "Basic")
     max_size_gb       = optional(number, 2)
     elastic_pool = optional(object({
@@ -802,6 +834,15 @@ variable "azure_sql_servers" {
   validation {
     condition     = length(distinct([for server in values(var.azure_sql_servers) : server.sequence])) == length(var.azure_sql_servers)
     error_message = "Every azure_sql_servers entry needs a unique sequence because SQL server names must be unique. Current sequences: ${join(", ", [for key, server in var.azure_sql_servers : "${key}=${server.sequence}"])}."
+  }
+
+  validation {
+    condition = alltrue([
+      for key, server in var.azure_sql_servers :
+      can(regex("^[^<>*%&:\\\\/?]{0,127}[^<>*%&:\\\\/?. ]$", coalesce(server.database_name, key))) &&
+      !contains(["master", "model", "msdb", "tempdb"], lower(coalesce(server.database_name, key)))
+    ])
+    error_message = "Every azure_sql_servers database_name (the entry key when unset) must be 1-128 characters without < > * % & : \\ / ?, must not end with a period or space, and must not be a system database name (master, model, msdb, tempdb)."
   }
 }
 
@@ -893,9 +934,11 @@ variable "container_apps_environments" {
 }
 
 variable "cosmos_db_accounts" {
-  description = "Cosmos DB accounts keyed by a stable logical name, each with its own classic API, throughput, and data-plane resources. Defaults to none; add one entry per account. Account names follow m-azu-cdb-<bu>-<dpt>-<app>-<env>-<reg>-<sequence> (global, lowercase); the database and container use the compact family mazucdb<BU><DPT><APP><ENV><REG><sequence>, valid for every API. sequence is the two-digit NN and must be unique per account."
+  description = "Cosmos DB accounts keyed by a stable logical name, each with its own classic API, throughput, and data-plane resources. Defaults to none; add one entry per account. Account names follow m-azu-cdb-<bu>-<dpt>-<app>-<env>-<reg>-<sequence> (global, lowercase); sequence is the two-digit NN and must be unique per account. The database (keyspace, graph database; unused by the Table API) and container (collection, table, graph) names are chosen by the application through database_name and container_name and both default to the entry key. Rules per API: NoSQL and Gremlin 1-255 characters without / \\ # ? and no trailing space; MongoDB 1-63 letters, digits, hyphens and underscores; Cassandra a letter followed by up to 47 letters, digits and underscores; Table (container only) a letter followed by 2-62 letters and digits."
   type = map(object({
     sequence                      = optional(string, "00")
+    database_name                 = optional(string)
+    container_name                = optional(string)
     api_type                      = optional(string, "NoSQL")
     consistency_level             = optional(string, "Session")
     local_authentication_disabled = optional(bool, false)
@@ -969,6 +1012,26 @@ variable "cosmos_db_accounts" {
     ])
     error_message = "Every cosmos_db_accounts entry api_type must be NoSQL, MongoDB, Cassandra, Gremlin, or Table."
   }
+
+  validation {
+    condition = alltrue([
+      for key, account in var.cosmos_db_accounts : (
+        account.api_type == "Cassandra" ? alltrue([
+          for name in [coalesce(account.database_name, key), coalesce(account.container_name, key)] :
+          can(regex("^[A-Za-z][A-Za-z0-9_]{0,47}$", name))
+          ]) : account.api_type == "Table" ? (
+          can(regex("^[A-Za-z][A-Za-z0-9]{2,62}$", coalesce(account.container_name, key)))
+          ) : account.api_type == "MongoDB" ? alltrue([
+            for name in [coalesce(account.database_name, key), coalesce(account.container_name, key)] :
+            can(regex("^[A-Za-z0-9_-]{1,63}$", name))
+            ]) : alltrue([
+            for name in [coalesce(account.database_name, key), coalesce(account.container_name, key)] :
+            can(regex("^[^/\\\\#?]{0,254}[^/\\\\#? ]$", name))
+        ])
+      )
+    ])
+    error_message = "Every cosmos_db_accounts database_name and container_name (the entry key when unset) must meet the rules of its API: NoSQL and Gremlin 1-255 characters without / \\ # ? and no trailing space; MongoDB 1-63 letters, digits, hyphens and underscores; Cassandra a letter followed by up to 47 letters, digits and underscores (no hyphens, so keys with hyphens need explicit names); Table container a letter followed by 2-62 letters and digits."
+  }
 }
 
 variable "sql_managed_instances" {
@@ -1010,9 +1073,10 @@ variable "sql_managed_instances" {
 }
 
 variable "postgresql_servers" {
-  description = "PostgreSQL Flexible Servers keyed by a stable logical name. Each entry creates one server with one database and its own generated administrator password; all servers share the delegated postgresql subnet and the privatelink.postgres.database.azure.com zone. Server names follow m-azu-pgs-<bu>-<dpt>-<app>-<env>-<reg>-<sequence> (global, lowercase) and database names M-AZU-PGS-<BU>-<DPT>-<APP>-<ENV>-<REG>-<sequence>; sequence is the two-digit NN and must be unique per server. Defaults to none."
+  description = "PostgreSQL Flexible Servers keyed by a stable logical name. Each entry creates one server with one database and its own generated administrator password; all servers share the delegated postgresql subnet and the privatelink.postgres.database.azure.com zone. Server names follow m-azu-pgs-<bu>-<dpt>-<app>-<env>-<reg>-<sequence> (global, lowercase); sequence is the two-digit NN and must be unique per server. The database name is chosen by the application (database_name) and defaults to the entry key. Defaults to none."
   type = map(object({
     sequence            = optional(string, "00")
+    database_name       = optional(string)
     administrator_login = optional(string, "pgadminuser")
     sku_name            = optional(string, "GP_Standard_D2ds_v5")
     version_number      = optional(string, "16")
@@ -1045,6 +1109,15 @@ variable "postgresql_servers" {
     error_message = "Every postgresql_servers entry needs a unique sequence because PostgreSQL server names must be unique. Current sequences: ${join(", ", [for key, server in var.postgresql_servers : "${key}=${server.sequence}"])}."
   }
 
+  validation {
+    condition = alltrue([
+      for key, server in var.postgresql_servers :
+      can(regex("^[A-Za-z_-][A-Za-z0-9_-]{0,62}$", coalesce(server.database_name, key))) &&
+      !contains(["azure_maintenance", "azure_sys", "postgres", "template0", "template1"], lower(coalesce(server.database_name, key)))
+    ])
+    error_message = "Every postgresql_servers database_name (the entry key when unset) must be 1-63 letters, digits, hyphens and underscores, must not start with a digit, and must not be a system database name (azure_maintenance, azure_sys, postgres, template0, template1)."
+  }
+
   # Azure's documented minimum for a PostgreSQL delegated subnet is /28.
   validation {
     condition     = length(var.postgresql_servers) == 0 || try(tonumber(split("/", var.subnet_cidrs.postgresql)[1]) <= 28, false)
@@ -1065,9 +1138,10 @@ variable "postgresql_servers" {
 }
 
 variable "mysql_servers" {
-  description = "MySQL Flexible Servers keyed by a stable logical name. Each entry creates one server with one database and its own generated administrator password; all servers share the delegated mysql subnet and the privatelink.mysql.database.azure.com zone. Server names follow m-azu-mys-<bu>-<dpt>-<app>-<env>-<reg>-<sequence> (global, lowercase) and database names the same lowercase name, because MySQL stores database names in lowercase; sequence is the two-digit NN and must be unique per server. Defaults to none."
+  description = "MySQL Flexible Servers keyed by a stable logical name. Each entry creates one server with one database and its own generated administrator password; all servers share the delegated mysql subnet and the privatelink.mysql.database.azure.com zone. Server names follow m-azu-mys-<bu>-<dpt>-<app>-<env>-<reg>-<sequence> (global, lowercase); sequence is the two-digit NN and must be unique per server. The database name is chosen by the application (database_name), defaults to the entry key, and must be lowercase because MySQL stores database names in lowercase. Defaults to none."
   type = map(object({
     sequence            = optional(string, "00")
+    database_name       = optional(string)
     administrator_login = optional(string, "mysqladminuser")
     sku_name            = optional(string, "B_Standard_B1ms")
     version_number      = optional(string, "8.0.21")
@@ -1097,6 +1171,17 @@ variable "mysql_servers" {
   validation {
     condition     = length(distinct([for server in values(var.mysql_servers) : server.sequence])) == length(var.mysql_servers)
     error_message = "Every mysql_servers entry needs a unique sequence because MySQL server names must be unique. Current sequences: ${join(", ", [for key, server in var.mysql_servers : "${key}=${server.sequence}"])}."
+  }
+
+  # Azure Database for MySQL uses lower_case_table_names = 1, so an uppercase
+  # name would be stored in lowercase and cause drift on every plan.
+  validation {
+    condition = alltrue([
+      for key, server in var.mysql_servers :
+      can(regex("^[a-z0-9_-]{1,63}$", coalesce(server.database_name, key))) &&
+      !contains(["information_schema", "mysql", "performance_schema", "sys"], coalesce(server.database_name, key))
+    ])
+    error_message = "Every mysql_servers database_name (the entry key when unset) must be 1-63 lowercase letters, digits, hyphens and underscores, and must not be a system database name (information_schema, mysql, performance_schema, sys)."
   }
 
   # Each server takes one subnet address, or two with high availability; Azure
