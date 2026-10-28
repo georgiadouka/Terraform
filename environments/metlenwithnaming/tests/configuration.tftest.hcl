@@ -992,9 +992,9 @@ run "multiple_azure_sql_servers" {
       local.resource_names.azure_sql_servers["primary"].database_name == "M-AZU-SQL-IT-PPA-ECM-DEV-SWE-00" &&
       local.resource_names.azure_sql_servers["reports"].server_name == "m-azu-sql-it-ppa-ecm-dev-swe-01" &&
       local.resource_names.azure_sql_servers["reports"].database_name == "M-AZU-SQL-IT-PPA-ECM-DEV-SWE-01" &&
-      local.resource_names.azure_sql_servers["reports"].elastic_pool_name == "sqlep-reports-metlen-lab-test1" &&
+      local.resource_names.azure_sql_servers["reports"].elastic_pool_name == "M-AZU-SEL-IT-PPA-ECM-DEV-SWE-01" &&
       output.azure_sql_servers["primary"].elastic_pool_id == null &&
-      output.azure_sql_servers["reports"].elastic_pool_name == "sqlep-reports-metlen-lab-test1" &&
+      output.azure_sql_servers["reports"].elastic_pool_name == "M-AZU-SEL-IT-PPA-ECM-DEV-SWE-01" &&
       local.service_private_endpoints["azure_sql/primary"].subresource == "sqlServer" &&
       local.private_endpoint_names["azure_sql/reports"].name == "m-azu-sql-it-ppa-ecm-dev-swe-01-sqlserver" &&
       length([for key in keys(module.private_endpoints) : key if startswith(key, "azure_sql/")]) == 2 &&

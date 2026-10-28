@@ -665,3 +665,40 @@ run "reject_duplicate_load_balancer_sequence" {
   }
   expect_failures = [var.load_balancers]
 }
+
+run "nat_gateway_and_public_ip_share_the_nn" {
+  command = plan
+  variables {
+    virtual_machine_scale_sets = { app = {} }
+  }
+  assert {
+    condition = (
+      length(module.nat_gateway) == 1 &&
+      local.resource_names.nat_gateway == "M-AZU-NGW-IT-PPA-ECM-DEV-SWE-00" &&
+      local.resource_names.nat_public_ip == "M-AZU-PIP-IT-PPA-ECM-DEV-SWE-00"
+    )
+    error_message = "The NAT Gateway must follow M-AZU-NGW-<BU>-<DPT>-<APP>-<ENV>-<REG>-<NN> and its Public IP M-AZU-PIP-...-<NN> with the same NN, 00 by default."
+  }
+}
+
+run "nat_gateway_sequence_sets_both_names" {
+  command = plan
+  variables {
+    nat_gateway = { sequence = "01" }
+  }
+  assert {
+    condition = (
+      local.resource_names.nat_gateway == "M-AZU-NGW-IT-PPA-ECM-DEV-SWE-01" &&
+      local.resource_names.nat_public_ip == "M-AZU-PIP-IT-PPA-ECM-DEV-SWE-01"
+    )
+    error_message = "nat_gateway.sequence must set the NN of both the NAT Gateway and its Public IP."
+  }
+}
+
+run "reject_invalid_nat_gateway_sequence" {
+  command = plan
+  variables {
+    nat_gateway = { sequence = "1" }
+  }
+  expect_failures = [var.nat_gateway]
+}

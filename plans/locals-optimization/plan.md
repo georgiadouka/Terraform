@@ -35,9 +35,9 @@ What disappears with it:
 - Resources and locals: `random_string.suffix`, `local.naming_suffix`,
   `local.name_stem` and `local.naming_prefixes`.
 - Every name built from them: VMs, scale sets and their NICs, disks and
-  autoscale settings; the NAT Gateway and its public IP; VNet peerings;
+  autoscale settings; VNet peerings;
   subnet delegations; storage containers and file shares; the Function
-  content share; SQL elastic pools; Container Apps
+  content share; Container Apps
   environment DNS links, containers and workload profiles; Log Analytics;
   Private DNS zone links; the VM `computer_name` suffix.
 
@@ -54,8 +54,7 @@ the codes as well.
 ## Prerequisites
 
 1. Remove the legacy naming scheme (above), including the tag change.
-2. Findings 3-6 from the 2026-10-28 review: the NAT public IP
-   `create_before_destroy` name conflict, private registry pulls, central
+2. Findings 4-6 from the 2026-10-28 review: private registry pulls, central
    Private DNS for hub-and-spoke, and Always On on Elastic Premium. The live
    test showed Always On on Elastic Premium causes no drift and the Functions
    host runs, so that finding is low priority.
@@ -66,10 +65,17 @@ Plans split into `app_service_plans`, the boolean `services` switches removed
 resource, `{}` meaning none, limited to at most one entry), SQL Managed
 Instance moved to the METLEN standard with code `SMI`
 (`m-azu-smi-<bu>-<dpt>-<app>-<env>-<reg>-<NN>`, lowercase because the name is
-global DNS), and the Defender for Storage drift fix (`ignore_changes` on
+global DNS), SQL elastic pools moved to the METLEN standard with code `SEL`
+(`M-AZU-SEL-<BU>-<DPT>-<APP>-<ENV>-<REG>-<NN>` with the server's NN, like the
+database), the NAT Gateway and its Public IP moved to the METLEN standard with
+codes `NGW` and `PIP` (`M-AZU-NGW-…-<NN>` and `M-AZU-PIP-…-<NN>`, sharing
+`nat_gateway.sequence`, default `00`), finding 3 fixed by removing
+`create_before_destroy` from the NAT Public IP (with a fixed name, a
+replacement would collide with the existing IP), and the Defender for Storage
+drift fix (`ignore_changes` on
 `network_rules[0].private_link_access` in the `storage-account` and
-`premium-files` modules). `SMI` still needs adding to the METLEN naming
-register.
+`premium-files` modules). `SMI`, `SEL`, `NGW` and `PIP` still need adding to
+the METLEN naming register.
 
 If more than one SQL Managed Instance is ever needed, lifting the one-entry
 limit requires deciding between one subnet (with its own NSG and route table)

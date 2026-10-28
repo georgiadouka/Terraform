@@ -47,12 +47,9 @@ naming = {
     os_disk                   = "osdisk"
     data_disk                 = "disk"
     autoscale_setting         = "autoscale"
-    nat_gateway               = "nat"
-    public_ip                 = "pip"
     virtual_network_peering   = "peer"
     private_dns_link          = "pdnslink"
     log_analytics_workspace   = "log"
-    azure_sql_elastic_pool    = "sqlep"
     subnet_delegation         = "dlg"
     storage_container         = "blob"
     file_share                = "share"
@@ -246,7 +243,10 @@ load_balancers = {}
 
 # One shared gateway is created when VM, VMSS, or Container Apps is configured and is
 # associated with the VM subnet and every Container Apps environment subnet.
+# The gateway is M-AZU-NGW-<BU>-<DPT>-<APP>-<ENV>-<REG>-<sequence> and its
+# Public IP M-AZU-PIP-<BU>-<DPT>-<APP>-<ENV>-<REG>-<sequence>.
 nat_gateway = {
+  sequence                = "00"
   idle_timeout_in_minutes = 4
 }
 
@@ -412,10 +412,11 @@ premium_file_accounts = {
 
 # One entry per Azure SQL logical server; each hosts one database. Keys are
 # stable logical names. The server name is the lowercase METLEN variant
-# m-azu-sql-<bu>-<dpt>-<app>-<env>-<reg>-<sequence> (global DNS name) and the
-# database uses M-AZU-SQL-<BU>-<DPT>-<APP>-<ENV>-<REG>-<sequence>. Give each
-# server a unique two-digit sequence; changing it replaces the server and its
-# database.
+# m-azu-sql-<bu>-<dpt>-<app>-<env>-<reg>-<sequence> (global DNS name), the
+# database uses M-AZU-SQL-<BU>-<DPT>-<APP>-<ENV>-<REG>-<sequence> and the
+# optional elastic pool M-AZU-SEL-<BU>-<DPT>-<APP>-<ENV>-<REG>-<sequence>. Give
+# each server a unique two-digit sequence; changing it replaces the server, its
+# database and its pool.
 azure_sql_servers = {
   primary = {
     sequence          = "00"

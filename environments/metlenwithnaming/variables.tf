@@ -107,7 +107,7 @@ variable "environment" {
 }
 
 variable "naming" {
-  description = "Legacy sample naming for resources and inner names that have no METLEN convention yet (VMs and scale sets with their NICs and disks, NAT Gateway and Public IP, VNet peerings, private DNS links, Log Analytics, SQL elastic pools, storage containers and file shares, subnet delegations, Container Apps containers and workload profiles). Names use <prefix>-<project>-<environment>-<suffix>."
+  description = "Legacy sample naming for resources and inner names that have no METLEN convention yet (VMs and scale sets with their NICs and disks, VNet peerings, private DNS links, Log Analytics, storage containers and file shares, subnet delegations, Container Apps containers and workload profiles). Names use <prefix>-<project>-<environment>-<suffix>."
   type = object({
     unique_suffix = optional(string)
     prefixes = optional(object({
@@ -117,12 +117,9 @@ variable "naming" {
       os_disk                   = optional(string, "osdisk")
       data_disk                 = optional(string, "disk")
       autoscale_setting         = optional(string, "autoscale")
-      nat_gateway               = optional(string, "nat")
-      public_ip                 = optional(string, "pip")
       virtual_network_peering   = optional(string, "peer")
       private_dns_link          = optional(string, "pdnslink")
       log_analytics_workspace   = optional(string, "log")
-      azure_sql_elastic_pool    = optional(string, "sqlep")
       subnet_delegation         = optional(string, "dlg")
       storage_container         = optional(string, "blob")
       file_share                = optional(string, "share")
@@ -457,11 +454,18 @@ variable "load_balancers" {
 }
 
 variable "nat_gateway" {
-  description = "Shared outbound NAT Gateway settings for the VM, VMSS, and Container Apps subnets."
+  description = "Shared outbound NAT Gateway settings for the VM, VMSS, and Container Apps subnets. The gateway is named M-AZU-NGW-<BU>-<DPT>-<APP>-<ENV>-<REG>-<sequence> and its Public IP M-AZU-PIP-<BU>-<DPT>-<APP>-<ENV>-<REG>-<sequence>; sequence is the two-digit NN."
   type = object({
+    sequence                = optional(string, "00")
     idle_timeout_in_minutes = optional(number, 4)
   })
-  default = {}
+  default  = {}
+  nullable = false
+
+  validation {
+    condition     = can(regex("^[0-9]{2}$", var.nat_gateway.sequence))
+    error_message = "nat_gateway.sequence must be two digits, for example 00."
+  }
 }
 
 variable "network_security_groups" {
@@ -757,7 +761,7 @@ variable "premium_file_accounts" {
 }
 
 variable "azure_sql_servers" {
-  description = "Azure SQL logical servers keyed by a stable logical name. Each server hosts one database, standalone or in an optional elastic pool. Defaults to none; add one entry per server. Server names follow m-azu-sql-<bu>-<dpt>-<app>-<env>-<reg>-<sequence> and database names M-AZU-SQL-<BU>-<DPT>-<APP>-<ENV>-<REG>-<sequence>; sequence is the two-digit NN and must be unique per server."
+  description = "Azure SQL logical servers keyed by a stable logical name. Each server hosts one database, standalone or in an optional elastic pool. Defaults to none; add one entry per server. Server names follow m-azu-sql-<bu>-<dpt>-<app>-<env>-<reg>-<sequence>, database names M-AZU-SQL-<BU>-<DPT>-<APP>-<ENV>-<REG>-<sequence> and elastic pool names M-AZU-SEL-<BU>-<DPT>-<APP>-<ENV>-<REG>-<sequence>; sequence is the two-digit NN and must be unique per server."
   type = map(object({
     sequence          = optional(string, "00")
     database_sku_name = optional(string, "Basic")

@@ -32,6 +32,7 @@ locals {
       key_vault              = "KVA" # CONFLICT, compact family pending approval (D-03)
       azure_sql_server       = "SQL" # PROPOSED lowercase variant
       azure_sql_database     = "SQL" # VALIDATE, server/database code split pending (D-04)
+      azure_sql_elastic_pool = "SEL" # Agreed 2026-10-28, not in register v0.2 yet
       sql_managed_instance   = "SMI" # Agreed 2026-10-28, not in register v0.2 yet; lowercase variant
       app_service            = "APP" # WORKING
       app_service_plan       = "ASP" # WORKING
@@ -39,6 +40,8 @@ locals {
       container_app          = "CAP" # CONFLICT, lowercase variant (2-32 characters)
       container_apps_env     = "CEV" # VALIDATE
       load_balancer          = "LBL" # WORKING
+      nat_gateway            = "NGW" # Agreed 2026-10-28, not in register v0.2 yet
+      public_ip              = "PIP" # Agreed 2026-10-28, not in register v0.2 yet
       # Not in the METLEN register yet: working assumptions, as suggested in
       # the review of the standard (three characters, no exception needed).
       postgresql_server = "PGS"

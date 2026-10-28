@@ -58,8 +58,11 @@ locals {
       sql_managed_instance = "${local.naming_prefixes.subnet_delegation}-sql-managed-instance-${local.name_stem}"
     }
 
-    nat_gateway   = "${local.naming_prefixes.nat_gateway}-${local.name_stem}"
-    nat_public_ip = "${local.naming_prefixes.public_ip}-nat-${local.name_stem}"
+    # M-AZU-NGW-<BU>-<DPT>-<APP>-<ENV>-<REG>-<NN>. The gateway's Public IP
+    # shares its NN so the pair is visibly linked; a Public IP is public by
+    # definition, so neither name carries the PUB/PRV classifier.
+    nat_gateway   = join("-", ["M-AZU", local.metlen_codes.nat_gateway, local.metlen_scope, local.metlen_placement, var.nat_gateway.sequence])
+    nat_public_ip = join("-", ["M-AZU", local.metlen_codes.public_ip, local.metlen_scope, local.metlen_placement, var.nat_gateway.sequence])
 
     # The hub-side name carries the stem so peerings from several spokes stay
     # unique on the shared hub VNet.
@@ -158,13 +161,14 @@ locals {
     }
 
     # The logical server name is global DNS (<name>.database.windows.net) and
-    # must be lowercase. The database is scoped to its server and uses the full
-    # family with the server's NN. Elastic pools have no METLEN code yet.
+    # must be lowercase. The database and the optional elastic pool are scoped
+    # to their server and use the full family with the server's NN (one pool
+    # per server).
     azure_sql_servers = {
       for key, server in var.azure_sql_servers : key => {
         server_name       = lower(join("-", ["M-AZU", local.metlen_codes.azure_sql_server, local.metlen_scope, local.metlen_placement, server.sequence]))
         database_name     = join("-", ["M-AZU", local.metlen_codes.azure_sql_database, local.metlen_scope, local.metlen_placement, server.sequence])
-        elastic_pool_name = "${local.naming_prefixes.azure_sql_elastic_pool}-${key}-${local.name_stem}"
+        elastic_pool_name = join("-", ["M-AZU", local.metlen_codes.azure_sql_elastic_pool, local.metlen_scope, local.metlen_placement, server.sequence])
       }
     }
 
