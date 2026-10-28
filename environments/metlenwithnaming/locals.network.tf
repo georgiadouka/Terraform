@@ -15,9 +15,9 @@ locals {
   virtual_machine_subnet_required = length(var.virtual_machines) > 0 || length(var.virtual_machine_scale_sets) > 0
 
   # Subnets whose outbound traffic leaves through the NAT Gateway. Opt-in per
-  # subnet; with none listed no NAT Gateway or Public IP is created. New Azure
-  # subnets have no default outbound access, so VMs and Container Apps then
-  # need a 0.0.0.0/0 route, for example to a hub firewall.
+  # subnet; with none listed no NAT Gateway or Public IP is created. Subnets
+  # without a NAT Gateway or a 0.0.0.0/0 route (for example to a hub firewall)
+  # fall back to Azure's implicit default outbound access.
   nat_gateway_subnet_keys = var.nat_gateway.subnets
   nat_gateway_required    = length(local.nat_gateway_subnet_keys) > 0
 
