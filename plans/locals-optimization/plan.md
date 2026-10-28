@@ -38,7 +38,7 @@ What disappears with it:
   autoscale settings; VNet peerings;
   subnet delegations; storage containers and file shares; the Function
   content share; Container Apps
-  environment DNS links, containers and workload profiles; Log Analytics;
+  environment DNS links, containers and workload profiles;
   Private DNS zone links; the VM `computer_name` suffix.
 
 Hidden dependency to handle in that change: `locals.tags.tf` sets the
@@ -71,11 +71,13 @@ database), the NAT Gateway and its Public IP moved to the METLEN standard with
 codes `NGW` and `PIP` (`M-AZU-NGW-…-<NN>` and `M-AZU-PIP-…-<NN>`, sharing
 `nat_gateway.sequence`, default `00`), finding 3 fixed by removing
 `create_before_destroy` from the NAT Public IP (with a fixed name, a
-replacement would collide with the existing IP), and the Defender for Storage
+replacement would collide with the existing IP), the Log Analytics workspace
+moved to the METLEN standard with code `LAW` (`M-AZU-LAW-…-<NN>`, NN from
+`log_analytics_workspace.sequence`, default `00`), and the Defender for Storage
 drift fix (`ignore_changes` on
 `network_rules[0].private_link_access` in the `storage-account` and
-`premium-files` modules). `SMI`, `SEL`, `NGW` and `PIP` still need adding to
-the METLEN naming register.
+`premium-files` modules). `SMI`, `SEL`, `NGW`, `PIP` and `LAW` still need
+adding to the METLEN naming register.
 
 If more than one SQL Managed Instance is ever needed, lifting the one-entry
 limit requires deciding between one subnet (with its own NSG and route table)
@@ -115,6 +117,42 @@ Microsoft Defender for Storage adds a resource instance rule
 network rules. Without the fix, every plan proposed removing it from each
 storage account. Both storage modules now ignore `private_link_access`, and
 the live re-plan reports no changes.
+
+### Subnet NSGs added by subscription automation (open)
+
+Within minutes of a subnet being created, an automation outside this tenant's
+directory (service principal `da847d8c-ee71-44de-b462-6775e7d649a7`) adds an
+NSG named `<VNET>-<SUBNET>-nsg-<region>` without custom rules and attaches it
+to subnets that have none. The same pattern exists in other resource groups of
+the subscription, so it is most likely the subscription's security baseline
+("every subnet has an NSG"). Observed in the live test: NSGs for the Private
+Endpoint, Web App and Function App integration subnets, two of them attached.
+
+- **Plan/apply:** no drift, because the root module does not manage NSGs on
+  those subnets.
+- **Destroy:** AzureRM 4.x refuses to delete a resource group that still
+  contains resources Terraform does not manage
+  (`prevent_deletion_if_contains_resources` defaults to true). Confirmed on
+  2026-10-28: `terraform destroy` of the live test removed everything else and
+  then failed at the resource group, listing the three automation NSGs.
+  Deleting them (`az network nsg delete`) and re-running `terraform destroy`
+  completed the teardown.
+- **Tags:** the NSGs inherit the resource group tags, including the
+  misleading `managedBy = terraform`.
+- **Own NSGs later:** an association from `network_security_groups` replaces
+  the automation's NSG on that subnet and leaves the automation's NSG orphaned.
+
+Options, decision pending:
+
+1. Recommended: Terraform owns a default METLEN-named NSG on every deployed
+   subnet that has no `network_security_groups` entry, so the automation finds
+   every subnet compliant and creates nothing. Every subnet type in this root
+   supports an NSG; SQL Managed Instance already has its own.
+2. Lab only: set `features { resource_group { prevent_deletion_if_contains_resources = false } }`
+   so destroy removes the resource group anyway. Hides the drift; not for
+   production.
+3. Ask the subscription owners to exclude these resource groups from the
+   automation.
 
 ## Items
 
