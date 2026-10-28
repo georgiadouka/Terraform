@@ -21,7 +21,6 @@ variables {
   subscription_id       = "00000000-0000-0000-0000-000000000000"
   tenant_id             = "22222222-2222-2222-2222-222222222222"
   naming                = { unique_suffix = "test1" }
-  services              = {}
   virtual_machines      = {}
   storage_accounts      = {}
   premium_file_accounts = {}
@@ -53,11 +52,12 @@ variables {
   container_apps_environments = {}
   load_balancers              = {}
   cosmos_db_accounts          = {}
-  sql_managed_instance        = {}
+  sql_managed_instances       = {}
   postgresql_servers          = {}
   mysql_servers               = {}
-  function_app                = {}
-  web_app                     = {}
+  function_apps               = {}
+  web_apps                    = {}
+  app_service_plans           = {}
   hub_peering                 = null
   tags                        = {}
 }
@@ -247,15 +247,96 @@ run "multiple_nsgs_and_route_tables_use_sequence_and_classification" {
 run "sql_managed_instance_network_names_use_sequence" {
   command = plan
   variables {
-    sql_managed_instance = { network_sequence = "03" }
+    sql_managed_instances = { primary = { network_sequence = "03" } }
   }
   assert {
     condition = (
-      local.resource_names.sql_mi_nsg == "M-AZU-NSG-IT-PPA-ECM-PRV-DEV-SWE-03" &&
-      local.resource_names.sql_mi_route_table == "M-AZU-UDR-IT-PPA-ECM-PRV-DEV-SWE-03"
+      keys(module.sql_managed_instance) == ["primary"] &&
+      local.subnet_enabled.sql_managed_instance &&
+      contains(keys(local.subnets), "sql_managed_instance") &&
+      local.resource_names.sql_managed_instances["primary"].name == "m-azu-smi-it-ppa-ecm-dev-swe-00" &&
+      local.resource_names.sql_managed_instances["primary"].network_security_group_name == "M-AZU-NSG-IT-PPA-ECM-PRV-DEV-SWE-03" &&
+      local.resource_names.sql_managed_instances["primary"].route_table_name == "M-AZU-UDR-IT-PPA-ECM-PRV-DEV-SWE-03"
     )
-    error_message = "The SQL Managed Instance NSG and route table must use the network family with its network_sequence."
+    error_message = "A sql_managed_instances entry must create the instance and its subnet, and its NSG and route table must use the network family with its network_sequence."
   }
+}
+
+run "sql_managed_instances_default_to_none" {
+  command = plan
+  assert {
+    condition = (
+      length(module.sql_managed_instance) == 0 &&
+      !local.subnet_enabled.sql_managed_instance &&
+      length(local.resource_names.sql_managed_instances) == 0 &&
+      length(output.sql_managed_instances) == 0
+    )
+    error_message = "sql_managed_instances = {} must create no instance and no subnet, like every other map."
+  }
+}
+
+run "sql_managed_instance_with_defaults" {
+  command = plan
+  variables {
+    sql_managed_instances = { primary = {} }
+  }
+  assert {
+    condition = (
+      length(module.sql_managed_instance) == 1 &&
+      local.resource_names.sql_managed_instances["primary"].network_security_group_name == "M-AZU-NSG-IT-PPA-ECM-PRV-DEV-SWE" &&
+      local.resource_names.sql_managed_instances["primary"].route_table_name == "M-AZU-UDR-IT-PPA-ECM-PRV-DEV-SWE"
+    )
+    error_message = "An empty sql_managed_instances entry must create the instance with every default."
+  }
+}
+
+run "reject_more_than_one_sql_managed_instance" {
+  command = plan
+  variables {
+    sql_managed_instances = {
+      primary   = {}
+      reporting = { network_sequence = "02" }
+    }
+  }
+  expect_failures = [var.sql_managed_instances]
+}
+
+run "reject_invalid_sql_managed_instance_key" {
+  command = plan
+  variables {
+    sql_managed_instances = { "Bad_Key" = {} }
+  }
+  expect_failures = [var.sql_managed_instances]
+}
+
+run "reject_invalid_sql_managed_instance_network_sequence" {
+  command = plan
+  variables {
+    sql_managed_instances = { primary = { network_sequence = "3" } }
+  }
+  expect_failures = [var.sql_managed_instances]
+}
+
+run "sql_managed_instance_uses_smi_family" {
+  command = plan
+  variables {
+    sql_managed_instances = { primary = { sequence = "01" } }
+  }
+  assert {
+    condition = (
+      local.resource_names.sql_managed_instances["primary"].name == "m-azu-smi-it-ppa-ecm-dev-swe-01" &&
+      can(regex("^[a-z0-9][a-z0-9-]{0,61}[a-z0-9]$", local.resource_names.sql_managed_instances["primary"].name))
+    )
+    error_message = "The SQL Managed Instance name must follow the lowercase m-azu-smi family with its NN and meet Azure's 1-63 lowercase character rule."
+  }
+}
+
+run "reject_invalid_sql_managed_instance_sequence" {
+  command = plan
+  variables {
+    sql_managed_instances = { primary = { sequence = "A1" } }
+  }
+  expect_failures = [var.sql_managed_instances]
 }
 
 run "reject_duplicate_nsg_names" {
@@ -283,7 +364,7 @@ run "reject_duplicate_route_table_names" {
 run "reject_nsg_clashing_with_sql_managed_instance" {
   command = plan
   variables {
-    services                = { sql_managed_instance = true }
+    sql_managed_instances   = { primary = {} }
     network_security_groups = { compute = {} }
   }
   expect_failures = [var.network_security_groups]
@@ -399,12 +480,13 @@ run "premium_files_and_function_storage_share_the_storage_family" {
   variables {
     storage_accounts      = { primary = {} }
     premium_file_accounts = { media = { sequence = "01" } }
-    function_app          = { storage_sequence = "02" }
+    app_service_plans     = { functions = { sequence = "01", sku_name = "EP1" } }
+    function_apps         = { primary = { service_plan = "functions", storage_sequence = "02" } }
   }
   assert {
     condition = (
       output.generated_resource_names.premium_file_accounts["media"] == "mazusoaitppaecmdevswe01" &&
-      output.generated_resource_names.function_storage_account == "mazusoaitppaecmdevswe02"
+      output.generated_resource_names.function_apps["primary"].storage_account_name == "mazusoaitppaecmdevswe02"
     )
     error_message = "Premium Files and Function host storage must use the Storage Account family with their own NN."
   }
@@ -437,8 +519,9 @@ run "reject_duplicate_storage_sequence" {
 run "reject_storage_sequence_clashing_with_function_storage" {
   command = plan
   variables {
-    services         = { function_app = true }
-    storage_accounts = { primary = {} }
+    app_service_plans = { functions = { sequence = "01", sku_name = "EP1" } }
+    function_apps     = { primary = { service_plan = "functions" } }
+    storage_accounts  = { primary = {} }
   }
   expect_failures = [var.storage_accounts]
 }
@@ -466,16 +549,24 @@ run "reject_invalid_storage_sequence" {
 run "app_service_family_names" {
   command = plan
   variables {
-    web_app      = { sequence = "00", service_plan_sequence = "00" }
-    function_app = { service_plan_sequence = "01" }
+    app_service_plans = {
+      web       = { sequence = "00" }
+      functions = { sequence = "01", sku_name = "EP1" }
+    }
+    web_apps      = { primary = { service_plan = "web", sequence = "00" } }
+    function_apps = { primary = { service_plan = "functions", storage_sequence = "01" } }
   }
   assert {
     condition = (
-      output.generated_resource_names.web_app == "M-AZU-APP-IT-PPA-ECM-DEV-SWE-00" &&
-      output.generated_resource_names.web_app_service_plan == "M-AZU-ASP-IT-PPA-ECM-DEV-SWE-00" &&
-      output.generated_resource_names.function_app == "M-AZU-FUN-IT-PPA-ECM-DEV-SWE" &&
-      output.generated_resource_names.app_service_plan == "M-AZU-ASP-IT-PPA-ECM-DEV-SWE-01" &&
-      output.generated_resource_names.private_endpoints["web_app"].name == "M-AZU-APP-IT-PPA-ECM-DEV-SWE-00-sites"
+      output.generated_resource_names.app_service_plans == {
+        web       = "M-AZU-ASP-IT-PPA-ECM-DEV-SWE-00"
+        functions = "M-AZU-ASP-IT-PPA-ECM-DEV-SWE-01"
+      } &&
+      output.generated_resource_names.web_apps["primary"].name == "M-AZU-APP-IT-PPA-ECM-DEV-SWE-00" &&
+      output.generated_resource_names.function_apps["primary"].name == "M-AZU-FUN-IT-PPA-ECM-DEV-SWE" &&
+      output.generated_resource_names.function_apps["primary"].storage_account_name == "mazusoaitppaecmdevswe01" &&
+      output.generated_resource_names.private_endpoints["web_app/primary"].name == "M-AZU-APP-IT-PPA-ECM-DEV-SWE-00-sites" &&
+      output.generated_resource_names.private_endpoints["function_app/primary"].name == "M-AZU-FUN-IT-PPA-ECM-DEV-SWE-sites"
     )
     error_message = "App Service, App Service Plan and Function App names must follow the APP, ASP and FUN families."
   }
@@ -484,10 +575,14 @@ run "app_service_family_names" {
 # The Functions host ID is the first 32 characters of the lowercase app name.
 run "function_app_name_fits_host_id" {
   command = plan
+  variables {
+    app_service_plans = { functions = { sequence = "01", sku_name = "EP1" } }
+    function_apps     = { primary = { service_plan = "functions" } }
+  }
   assert {
     condition = (
-      length(output.generated_resource_names.function_app) <= 32 &&
-      can(regex("^[A-Za-z0-9][A-Za-z0-9-]{0,58}[A-Za-z0-9]$", output.generated_resource_names.function_app))
+      length(output.generated_resource_names.function_apps["primary"].name) <= 32 &&
+      can(regex("^[A-Za-z0-9][A-Za-z0-9-]{0,58}[A-Za-z0-9]$", output.generated_resource_names.function_apps["primary"].name))
     )
     error_message = "The Function App name must stay within 32 characters so its host ID is not truncated."
   }
@@ -496,12 +591,13 @@ run "function_app_name_fits_host_id" {
 run "function_app_optional_sequence_fits_host_id" {
   command = plan
   variables {
-    function_app = { sequence = "01" }
+    app_service_plans = { functions = { sequence = "01", sku_name = "EP1" } }
+    function_apps     = { primary = { service_plan = "functions", sequence = "01" } }
   }
   assert {
     condition = (
-      output.generated_resource_names.function_app == "M-AZU-FUN-IT-PPA-ECM-DEV-SWE-01" &&
-      length(output.generated_resource_names.function_app) <= 32
+      output.generated_resource_names.function_apps["primary"].name == "M-AZU-FUN-IT-PPA-ECM-DEV-SWE-01" &&
+      length(output.generated_resource_names.function_apps["primary"].name) <= 32
     )
     error_message = "The optional Function App sequence must append -NN and keep the name within the 32-character host ID."
   }
@@ -510,13 +606,14 @@ run "function_app_optional_sequence_fits_host_id" {
 run "reject_shared_app_service_plan_name" {
   command = plan
   variables {
-    services = {
-      web_app      = true
-      function_app = true
+    app_service_plans = {
+      web       = { sequence = "00" }
+      functions = { sequence = "00", sku_name = "EP1" }
     }
-    function_app = { storage_sequence = "01" }
+    web_apps      = { primary = { service_plan = "web" } }
+    function_apps = { primary = { service_plan = "functions", storage_sequence = "01" } }
   }
-  expect_failures = [var.function_app]
+  expect_failures = [var.app_service_plans]
 }
 
 run "container_apps_family_names" {

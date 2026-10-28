@@ -1,4 +1,6 @@
 locals {
+  service_plan_id = var.service_plan_name == null ? var.service_plan_id : azurerm_service_plan.this[0].id
+
   app_settings = merge({
     FUNCTIONS_WORKER_RUNTIME                 = var.runtime.name
     WEBSITE_CONTENTAZUREFILECONNECTIONSTRING = "DefaultEndpointsProtocol=https;AccountName=${var.storage_account_name};AccountKey=${var.storage_account_access_key};EndpointSuffix=core.windows.net"
@@ -12,6 +14,8 @@ locals {
 }
 
 resource "azurerm_service_plan" "this" {
+  count = var.service_plan_name == null ? 0 : 1
+
   name                = var.service_plan_name
   resource_group_name = var.resource_group_name
   location            = var.location
@@ -26,7 +30,7 @@ resource "azurerm_linux_function_app" "this" {
   name                                           = var.name
   resource_group_name                            = var.resource_group_name
   location                                       = var.location
-  service_plan_id                                = azurerm_service_plan.this.id
+  service_plan_id                                = local.service_plan_id
   storage_account_name                           = var.storage_account_name
   storage_account_access_key                     = var.storage_account_access_key
   functions_extension_version                    = "~4"
@@ -70,7 +74,7 @@ resource "azurerm_windows_function_app" "this" {
   name                                           = var.name
   resource_group_name                            = var.resource_group_name
   location                                       = var.location
-  service_plan_id                                = azurerm_service_plan.this.id
+  service_plan_id                                = local.service_plan_id
   storage_account_name                           = var.storage_account_name
   storage_account_access_key                     = var.storage_account_access_key
   functions_extension_version                    = "~4"

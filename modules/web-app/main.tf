@@ -1,5 +1,6 @@
 locals {
-  os_type = var.mode == "windows" ? "Windows" : "Linux"
+  os_type         = var.mode == "windows" ? "Windows" : "Linux"
+  service_plan_id = var.service_plan_name == null ? var.service_plan_id : azurerm_service_plan.this[0].id
   app_settings = merge(
     var.app_settings,
     var.mode == "container" ? {
@@ -9,6 +10,8 @@ locals {
 }
 
 resource "azurerm_service_plan" "this" {
+  count = var.service_plan_name == null ? 0 : 1
+
   name                = var.service_plan_name
   resource_group_name = var.resource_group_name
   location            = var.location
@@ -23,7 +26,7 @@ resource "azurerm_linux_web_app" "this" {
   name                                           = var.name
   resource_group_name                            = var.resource_group_name
   location                                       = var.location
-  service_plan_id                                = azurerm_service_plan.this.id
+  service_plan_id                                = local.service_plan_id
   virtual_network_subnet_id                      = var.virtual_network_subnet_id
   public_network_access_enabled                  = false
   https_only                                     = true
@@ -60,7 +63,7 @@ resource "azurerm_windows_web_app" "this" {
   name                                           = var.name
   resource_group_name                            = var.resource_group_name
   location                                       = var.location
-  service_plan_id                                = azurerm_service_plan.this.id
+  service_plan_id                                = local.service_plan_id
   virtual_network_subnet_id                      = var.virtual_network_subnet_id
   public_network_access_enabled                  = false
   https_only                                     = true

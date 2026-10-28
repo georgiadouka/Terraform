@@ -162,7 +162,7 @@ override_module {
 }
 
 override_module {
-  target = module.function_storage[0]
+  target = module.function_storage["primary"]
   outputs = {
     id                 = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Storage/storageAccounts/stfunctiontest"
     name               = "stfunctiontest"
@@ -178,24 +178,24 @@ variables {
   naming                      = { unique_suffix = "test1" }
   container_apps_environments = {}
   load_balancers              = {}
-  web_app                     = {}
-  function_app                = { storage_sequence = "09", service_plan_sequence = "01" }
+  web_apps                    = {}
+  app_service_plans = {
+    functions = { sequence = "01", sku_name = "EP1" }
+  }
+  function_apps = {
+    primary = { service_plan = "functions", storage_sequence = "09" }
+  }
   virtual_machines = {
     primary = {}
   }
   storage_accounts      = {}
   premium_file_accounts = {}
-  services = {
-    sql_managed_instance = false
-    web_app              = false
-    function_app         = true
-  }
-  storage_use_azuread = true
-  location            = "swedencentral"
-  project_name        = "metlen"
-  environment         = "lab"
-  naming_tokens       = { business_unit = "IT", department = "PPA", application = "ECM", environment = "DEV" }
-  address_space       = ["10.42.0.0/20"]
+  storage_use_azuread   = true
+  location              = "swedencentral"
+  project_name          = "metlen"
+  environment           = "lab"
+  naming_tokens         = { business_unit = "IT", department = "PPA", application = "ECM", environment = "DEV" }
+  address_space         = ["10.42.0.0/20"]
   subnet_cidrs = {
     private_endpoints    = "10.42.0.0/24"
     virtual_machines     = "10.42.1.0/24"
@@ -211,7 +211,7 @@ variables {
   container_registries       = {}
   azure_sql_servers          = {}
   cosmos_db_accounts         = {}
-  sql_managed_instance       = {}
+  sql_managed_instances      = {}
   postgresql_servers         = {}
   mysql_servers              = {}
   tags                       = {}
@@ -227,8 +227,8 @@ run "linux_defaults" {
       contains(keys(output.vm_ssh_public_keys), "primary") &&
       length(random_password.vm_windows) == 0 &&
       length(output.vm_windows_admin_passwords) == 0 &&
-      output.function_app_os_type == "Linux" &&
-      output.function_app_hostname == "func-linux.azurewebsites.net" &&
+      output.function_apps["primary"].os_type == "Linux" &&
+      output.function_apps["primary"].hostname == "func-linux.azurewebsites.net" &&
       output.generated_resource_names.virtual_network == "M-AZU-VNT-IT-PPA-ECM-PRV-DEV-SWE" &&
       output.generated_resource_names.subnets == {
         private_endpoints    = "PPAECMDEVPRV01"
@@ -250,7 +250,13 @@ run "windows_and_node" {
   variables {
     environment      = "long-env"
     virtual_machines = { primary = { os_type = "Windows" } }
-    function_app     = { runtime = { name = "node", version = "22" } }
+    function_apps = {
+      primary = {
+        service_plan     = "functions"
+        storage_sequence = "09"
+        runtime          = { name = "node", version = "22" }
+      }
+    }
   }
   assert {
     condition = (
@@ -393,11 +399,8 @@ run "vmss_only_keeps_shared_network" {
   variables {
     virtual_machines           = {}
     virtual_machine_scale_sets = { app = {} }
-    services = {
-      sql_managed_instance = false
-      web_app              = false
-      function_app         = false
-    }
+    function_apps              = {}
+    app_service_plans          = {}
   }
   assert {
     condition = (
@@ -414,12 +417,9 @@ run "vmss_only_keeps_shared_network" {
 run "disabled_services" {
   command = plan
   variables {
-    virtual_machines = {}
-    services = {
-      sql_managed_instance = false
-      web_app              = false
-      function_app         = false
-    }
+    virtual_machines  = {}
+    function_apps     = {}
+    app_service_plans = {}
   }
   assert {
     condition = (
@@ -434,10 +434,12 @@ run "disabled_services" {
       length(tls_private_key.vmss) == 0 &&
       length(random_password.vmss_windows) == 0 &&
       length(module.function_app) == 0 &&
-      output.function_app_os_type == null &&
-      output.function_app_hostname == null &&
+      length(module.function_storage) == 0 &&
+      length(output.function_apps) == 0 &&
+      !local.subnet_enabled.function_integration &&
       length(output.container_registries) == 0 &&
-      output.web_app_id == null &&
+      length(output.web_apps) == 0 &&
+      length(module.app_service_plan) == 0 &&
       length(output.container_apps_environments) == 0 &&
       output.log_analytics_workspace_id == null
     )
@@ -448,36 +450,47 @@ run "disabled_services" {
 run "web_app_linux_default" {
   command = plan
   variables {
-    services = merge(var.services, { web_app = true })
+    app_service_plans = merge(var.app_service_plans, { web = { sequence = "00" } })
+    web_apps          = { primary = { service_plan = "web" } }
   }
   assert {
     condition = (
-      output.web_app_mode == "linux" &&
-      output.web_app_hostname == "app-linux.azurewebsites.net" &&
-      endswith(output.web_app_id, "/sites/app-linux") &&
+      output.web_apps["primary"].mode == "linux" &&
+      output.web_apps["primary"].hostname == "app-linux.azurewebsites.net" &&
+      endswith(output.web_apps["primary"].id, "/sites/app-linux") &&
+      output.web_apps["primary"].name == "M-AZU-APP-IT-PPA-ECM-DEV-SWE-00" &&
+      output.web_apps["primary"].service_plan == "web" &&
+      output.web_apps["primary"].service_plan_name == "M-AZU-ASP-IT-PPA-ECM-DEV-SWE-00" &&
+      output.app_service_plans["web"].web_apps == tolist(["primary"]) &&
+      output.app_service_plans["web"].sku_name == "B1" &&
+      length(module.app_service_plan) == 2 &&
       length(module.web_app) == 1 &&
-      contains(keys(module.private_endpoints), "web_app") &&
-      output.private_endpoint_ids.web_app != null
+      local.subnet_enabled.web_app_integration &&
+      contains(keys(module.private_endpoints), "web_app/primary") &&
+      output.private_endpoint_ids.web_apps["primary"] != null
     )
-    error_message = "The root configuration must create the default private Linux Web App and Private Endpoint."
+    error_message = "A web_apps entry must create a private Linux Web App on its selected plan, with its own Private Endpoint."
   }
 }
 
 run "web_app_windows" {
   command = plan
   variables {
-    services = merge(var.services, { web_app = true })
-    web_app = {
-      mode    = "windows"
-      runtime = { name = "dotnet", version = "8.0" }
+    app_service_plans = merge(var.app_service_plans, { web = { sequence = "00", os_type = "Windows" } })
+    web_apps = {
+      primary = {
+        service_plan = "web"
+        mode         = "windows"
+        runtime      = { name = "dotnet", version = "8.0" }
+      }
     }
   }
   assert {
     condition = (
-      output.web_app_mode == "windows" &&
-      output.web_app_hostname == "app-windows.azurewebsites.net" &&
-      endswith(output.web_app_id, "/sites/app-windows") &&
-      output.web_app_principal_id == "44444444-4444-4444-4444-444444444444"
+      output.web_apps["primary"].mode == "windows" &&
+      output.web_apps["primary"].hostname == "app-windows.azurewebsites.net" &&
+      endswith(output.web_apps["primary"].id, "/sites/app-windows") &&
+      output.web_apps["primary"].principal_id == "44444444-4444-4444-4444-444444444444"
     )
     error_message = "The root configuration must select a private Windows Web App independently of the VM and Function App OS."
   }
@@ -486,16 +499,192 @@ run "web_app_windows" {
 run "web_app_container" {
   command = plan
   variables {
-    services = merge(var.services, { web_app = true })
-    web_app  = { mode = "container" }
+    app_service_plans = merge(var.app_service_plans, { web = { sequence = "00" } })
+    web_apps          = { primary = { service_plan = "web", mode = "container" } }
   }
   assert {
     condition = (
-      output.web_app_mode == "container" &&
-      output.web_app_hostname == "app-linux.azurewebsites.net" &&
-      endswith(output.web_app_id, "/sites/app-linux")
+      output.web_apps["primary"].mode == "container" &&
+      output.web_apps["primary"].hostname == "app-linux.azurewebsites.net" &&
+      endswith(output.web_apps["primary"].id, "/sites/app-linux")
     )
     error_message = "Container mode must use the Linux Web App resource and preserve private endpoint wiring."
+  }
+}
+
+run "web_apps_share_a_plan" {
+  command = plan
+  variables {
+    app_service_plans = merge(var.app_service_plans, { web = { sequence = "00" } })
+    web_apps = {
+      portal = { service_plan = "web" }
+      api    = { service_plan = "web", sequence = "01", mode = "container" }
+    }
+  }
+  assert {
+    condition = (
+      length(module.app_service_plan) == 2 &&
+      length(module.web_app) == 2 &&
+      output.web_apps["portal"].service_plan_name == "M-AZU-ASP-IT-PPA-ECM-DEV-SWE-00" &&
+      output.web_apps["api"].service_plan_name == "M-AZU-ASP-IT-PPA-ECM-DEV-SWE-00" &&
+      output.app_service_plans["web"].web_apps == tolist(["api", "portal"])
+    )
+    error_message = "Several Web Apps must be able to share one App Service Plan."
+  }
+}
+
+run "multiple_web_apps_on_separate_plans" {
+  command = plan
+  variables {
+    app_service_plans = merge(var.app_service_plans, {
+      portal = { sequence = "00" }
+      api    = { sequence = "02", os_type = "Windows", sku_name = "P0v3" }
+    })
+    web_apps = {
+      portal = { service_plan = "portal" }
+      api = {
+        service_plan = "api"
+        sequence     = "01"
+        mode         = "windows"
+        runtime      = { name = "dotnet", version = "8.0" }
+      }
+    }
+  }
+  assert {
+    condition = (
+      length(module.app_service_plan) == 3 &&
+      length(module.web_app) == 2 &&
+      output.web_apps["portal"].name == "M-AZU-APP-IT-PPA-ECM-DEV-SWE-00" &&
+      output.web_apps["portal"].service_plan_name == "M-AZU-ASP-IT-PPA-ECM-DEV-SWE-00" &&
+      output.web_apps["api"].name == "M-AZU-APP-IT-PPA-ECM-DEV-SWE-01" &&
+      output.web_apps["api"].service_plan_name == "M-AZU-ASP-IT-PPA-ECM-DEV-SWE-02" &&
+      output.app_service_plans["api"].sku_name == "P0v3" &&
+      output.web_apps["portal"].mode == "linux" &&
+      output.web_apps["api"].mode == "windows" &&
+      local.private_endpoint_names["web_app/api"].name == "M-AZU-APP-IT-PPA-ECM-DEV-SWE-01-sites" &&
+      length([for key in keys(module.private_endpoints) : key if startswith(key, "web_app/")]) == 2 &&
+      keys(output.private_endpoint_ids.web_apps) == ["api", "portal"] &&
+      length([for key in keys(local.subnets) : key if key == "web_app_integration"]) == 1
+    )
+    error_message = "Each Web App must run on its selected plan with its own Private Endpoint, and every app must share the one integration subnet."
+  }
+}
+
+run "reject_duplicate_web_app_sequence" {
+  command = plan
+  variables {
+    app_service_plans = merge(var.app_service_plans, { web = { sequence = "00" } })
+    web_apps = {
+      portal = { service_plan = "web" }
+      api    = { service_plan = "web" }
+    }
+  }
+  expect_failures = [var.web_apps]
+}
+
+run "reject_duplicate_app_service_plan_sequence" {
+  command = plan
+  variables {
+    app_service_plans = merge(var.app_service_plans, { web = { sequence = "01" } })
+    web_apps          = { primary = { service_plan = "web" } }
+  }
+  expect_failures = [var.app_service_plans]
+}
+
+run "reject_web_app_unknown_plan" {
+  command = plan
+  variables {
+    app_service_plans = merge(var.app_service_plans, { web = { sequence = "00" } })
+    web_apps          = { primary = { service_plan = "webb" } }
+  }
+  expect_failures = [var.web_apps]
+}
+
+run "reject_web_app_on_elastic_premium_plan" {
+  command = plan
+  variables {
+    web_apps = { primary = { service_plan = "functions" } }
+  }
+  expect_failures = [var.web_apps]
+}
+
+run "reject_web_app_os_mismatch" {
+  command = plan
+  variables {
+    app_service_plans = merge(var.app_service_plans, { web = { sequence = "00" } })
+    web_apps          = { primary = { service_plan = "web", mode = "windows", runtime = { name = "dotnet", version = "8.0" } } }
+  }
+  expect_failures = [var.web_apps]
+}
+
+run "reject_container_web_app_on_windows_plan" {
+  command = plan
+  variables {
+    app_service_plans = merge(var.app_service_plans, { web = { sequence = "00", os_type = "Windows" } })
+    web_apps          = { primary = { service_plan = "web", mode = "container" } }
+  }
+  expect_failures = [var.web_apps]
+}
+
+run "reject_invalid_app_service_plan_sku" {
+  command = plan
+  variables {
+    app_service_plans = merge(var.app_service_plans, { web = { sequence = "00", sku_name = "F1" } })
+    web_apps          = { primary = { service_plan = "web" } }
+  }
+  expect_failures = [var.app_service_plans]
+}
+
+run "reject_invalid_web_app_key" {
+  command = plan
+  variables {
+    app_service_plans = merge(var.app_service_plans, { web = { sequence = "00" } })
+    web_apps          = { "Bad_Key" = { service_plan = "web" } }
+  }
+  expect_failures = [var.web_apps]
+}
+
+run "warn_unused_app_service_plan" {
+  command = plan
+  variables {
+    app_service_plans = merge(var.app_service_plans, { spare = { sequence = "05" } })
+  }
+  assert {
+    condition     = local.unused_app_service_plans == tolist(["spare"])
+    error_message = "An App Service Plan that no app uses must be reported."
+  }
+  expect_failures = [check.unused_app_service_plans]
+}
+
+run "reject_web_apps_on_two_plans_below_26" {
+  command = plan
+  variables {
+    subnet_cidrs = merge(var.subnet_cidrs, { web_app_integration = "10.42.8.0/27" })
+    app_service_plans = merge(var.app_service_plans, {
+      portal = { sequence = "00" }
+      api    = { sequence = "02" }
+    })
+    web_apps = {
+      portal = { service_plan = "portal" }
+      api    = { service_plan = "api", sequence = "01" }
+    }
+  }
+  expect_failures = [var.web_apps]
+}
+
+run "web_apps_on_one_plan_allow_small_subnet" {
+  command = plan
+  variables {
+    subnet_cidrs      = merge(var.subnet_cidrs, { web_app_integration = "10.42.8.0/28" })
+    app_service_plans = merge(var.app_service_plans, { web = { sequence = "00" } })
+    web_apps = {
+      portal = { service_plan = "web" }
+      api    = { service_plan = "web", sequence = "01" }
+    }
+  }
+  assert {
+    condition     = length(module.web_app) == 2
+    error_message = "Apps on a single plan do not use multi-plan subnet join, so a subnet smaller than /26 must stay allowed."
   }
 }
 
@@ -1567,33 +1756,181 @@ run "postgresql_subnet_exactly_full" {
 run "windows_function_app" {
   command = plan
   variables {
-    function_app = {
-      os_type = "Windows"
-      runtime = { name = "dotnet-isolated", version = "8.0" }
+    app_service_plans = { functions = { sequence = "01", os_type = "Windows", sku_name = "EP1" } }
+    function_apps = {
+      primary = {
+        service_plan     = "functions"
+        storage_sequence = "09"
+        runtime          = { name = "dotnet-isolated", version = "8.0" }
+      }
     }
   }
   assert {
     condition = (
-      output.function_app_os_type == "Windows" &&
-      output.function_app_hostname == "func-windows.azurewebsites.net" &&
-      endswith(module.function_app[0].id, "/sites/func-windows") &&
+      output.function_apps["primary"].os_type == "Windows" &&
+      output.function_apps["primary"].hostname == "func-windows.azurewebsites.net" &&
+      endswith(module.function_app["primary"].id, "/sites/func-windows") &&
       length(module.function_app_private_endpoint) == 1 &&
       output.virtual_machines["primary"].os_type == "Linux"
     )
-    error_message = "Root tfvars must select Windows Functions independently of VM OS and preserve the existing app ID/hostname and Private Endpoint wiring."
+    error_message = "The plan's os_type must select Windows Functions independently of VM OS and preserve the existing app ID/hostname and Private Endpoint wiring."
   }
 }
 
 run "windows_function_app_node" {
   command = plan
   variables {
-    function_app = {
-      os_type = "Windows"
-      runtime = { name = "node", version = "22" }
+    app_service_plans = { functions = { sequence = "01", os_type = "Windows", sku_name = "EP1" } }
+    function_apps = {
+      primary = {
+        service_plan     = "functions"
+        storage_sequence = "09"
+        runtime          = { name = "node", version = "22" }
+      }
     }
   }
   assert {
-    condition     = output.function_app_os_type == "Windows" && output.function_app_hostname == "func-windows.azurewebsites.net"
-    error_message = "Windows Node must be selectable through the root object."
+    condition     = output.function_apps["primary"].os_type == "Windows" && output.function_apps["primary"].hostname == "func-windows.azurewebsites.net"
+    error_message = "Windows Node must be selectable through a Windows plan."
   }
+}
+
+run "multiple_function_apps" {
+  command = plan
+  variables {
+    app_service_plans = {
+      functions = { sequence = "01", sku_name = "EP1" }
+      jobs      = { sequence = "03", os_type = "Windows", sku_name = "EP2" }
+    }
+    function_apps = {
+      primary = { service_plan = "functions", storage_sequence = "09" }
+      jobs = {
+        service_plan     = "jobs"
+        sequence         = "02"
+        storage_sequence = "10"
+        runtime          = { name = "node", version = "22" }
+      }
+    }
+  }
+  assert {
+    condition = (
+      length(module.app_service_plan) == 2 &&
+      length(module.function_app) == 2 &&
+      length(module.function_storage) == 2 &&
+      length(module.function_app_private_endpoint) == 2 &&
+      keys(module.function_storage_private_endpoints) == ["jobs", "primary"] &&
+      output.function_apps["primary"].name == "M-AZU-FUN-IT-PPA-ECM-DEV-SWE" &&
+      output.function_apps["jobs"].name == "M-AZU-FUN-IT-PPA-ECM-DEV-SWE-02" &&
+      output.function_apps["primary"].service_plan_name == "M-AZU-ASP-IT-PPA-ECM-DEV-SWE-01" &&
+      output.function_apps["jobs"].service_plan_name == "M-AZU-ASP-IT-PPA-ECM-DEV-SWE-03" &&
+      local.resource_names.function_apps["jobs"].storage_account_name == "mazusoaitppaecmdevswe10" &&
+      output.function_apps["jobs"].os_type == "Windows" &&
+      output.function_apps["primary"].os_type == "Linux" &&
+      keys(local.function_storage_private_endpoints["jobs"]) == [
+        "function_storage/jobs/blob", "function_storage/jobs/file", "function_storage/jobs/queue", "function_storage/jobs/table"
+      ] &&
+      local.private_endpoint_names["function_storage/jobs/queue"].name == "mazusoaitppaecmdevswe10-queue" &&
+      local.private_endpoint_names["function_app/jobs"].name == "M-AZU-FUN-IT-PPA-ECM-DEV-SWE-02-sites" &&
+      keys(output.private_endpoint_ids.function_apps) == ["jobs", "primary"] &&
+      keys(output.private_endpoint_ids.function_storage) == ["jobs", "primary"] &&
+      length([for key in keys(local.subnets) : key if key == "function_integration"]) == 1
+    )
+    error_message = "Each function_apps entry must run on its selected plan with its own host storage and Private Endpoints, and every app must share the one integration subnet."
+  }
+}
+
+run "function_apps_share_a_plan" {
+  command = plan
+  variables {
+    subnet_cidrs = merge(var.subnet_cidrs, { function_integration = "10.42.4.0/28" })
+    function_apps = {
+      primary = { service_plan = "functions", storage_sequence = "09" }
+      jobs    = { service_plan = "functions", sequence = "02", storage_sequence = "10" }
+    }
+  }
+  assert {
+    condition = (
+      length(module.app_service_plan) == 1 &&
+      length(module.function_app) == 2 &&
+      length(module.function_storage) == 2 &&
+      output.function_apps["primary"].service_plan_name == "M-AZU-ASP-IT-PPA-ECM-DEV-SWE-01" &&
+      output.function_apps["jobs"].service_plan_name == "M-AZU-ASP-IT-PPA-ECM-DEV-SWE-01" &&
+      output.app_service_plans["functions"].function_apps == tolist(["jobs", "primary"])
+    )
+    error_message = "Several Function Apps must be able to share one Elastic Premium plan, each with its own host storage, and one plan must not require a /26 subnet."
+  }
+}
+
+run "reject_two_function_apps_without_sequence" {
+  command = plan
+  variables {
+    function_apps = {
+      primary = { service_plan = "functions", storage_sequence = "09" }
+      jobs    = { service_plan = "functions", storage_sequence = "10" }
+    }
+  }
+  expect_failures = [var.function_apps]
+}
+
+run "reject_duplicate_function_storage_sequence" {
+  command = plan
+  variables {
+    function_apps = {
+      primary = { service_plan = "functions", storage_sequence = "09" }
+      jobs    = { service_plan = "functions", sequence = "02", storage_sequence = "09" }
+    }
+  }
+  expect_failures = [var.storage_accounts]
+}
+
+run "reject_function_app_on_basic_plan" {
+  command = plan
+  variables {
+    app_service_plans = { functions = { sequence = "01", sku_name = "B1" } }
+  }
+  expect_failures = [var.function_apps]
+}
+
+run "reject_function_app_unknown_plan" {
+  command = plan
+  variables {
+    function_apps = { primary = { service_plan = "missing", storage_sequence = "09" } }
+  }
+  expect_failures = [var.function_apps]
+}
+
+run "reject_invalid_function_app_key" {
+  command = plan
+  variables {
+    function_apps = { "Bad_Key" = { service_plan = "functions", storage_sequence = "09" } }
+  }
+  expect_failures = [var.function_apps]
+}
+
+run "reject_function_apps_on_two_plans_below_26" {
+  command = plan
+  variables {
+    subnet_cidrs = merge(var.subnet_cidrs, { function_integration = "10.42.4.0/27" })
+    app_service_plans = {
+      functions = { sequence = "01", sku_name = "EP1" }
+      jobs      = { sequence = "03", sku_name = "EP1" }
+    }
+    function_apps = {
+      primary = { service_plan = "functions", storage_sequence = "09" }
+      jobs    = { service_plan = "jobs", sequence = "02", storage_sequence = "10" }
+    }
+  }
+  expect_failures = [var.function_apps]
+}
+
+run "reject_web_and_function_plan_sequence_clash" {
+  command = plan
+  variables {
+    app_service_plans = {
+      functions = { sequence = "01", sku_name = "EP1" }
+      web       = { sequence = "01" }
+    }
+    web_apps = { primary = { service_plan = "web" } }
+  }
+  expect_failures = [var.app_service_plans]
 }

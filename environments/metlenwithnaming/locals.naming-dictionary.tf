@@ -32,6 +32,7 @@ locals {
       key_vault              = "KVA" # CONFLICT, compact family pending approval (D-03)
       azure_sql_server       = "SQL" # PROPOSED lowercase variant
       azure_sql_database     = "SQL" # VALIDATE, server/database code split pending (D-04)
+      sql_managed_instance   = "SMI" # Agreed 2026-10-28, not in register v0.2 yet; lowercase variant
       app_service            = "APP" # WORKING
       app_service_plan       = "ASP" # WORKING
       function_app           = "FUN" # WORKING, full family without NN

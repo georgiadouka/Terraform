@@ -4,8 +4,20 @@ variable "name" {
 }
 
 variable "service_plan_name" {
-  description = "App Service plan name."
+  description = "Name of the App Service Plan this module creates. Set either service_plan_name, to create a dedicated plan, or service_plan_id, to run the app on an existing plan whose OS matches mode."
   type        = string
+  default     = null
+}
+
+variable "service_plan_id" {
+  description = "ID of an existing App Service Plan to run the app on. Set either service_plan_id or service_plan_name; with service_plan_id, service_plan_sku_name is ignored."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = (var.service_plan_name == null) != (var.service_plan_id == null)
+    error_message = "Set exactly one of service_plan_name (create a plan) or service_plan_id (use an existing plan)."
+  }
 }
 
 variable "resource_group_name" {

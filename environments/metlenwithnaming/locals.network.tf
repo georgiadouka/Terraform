@@ -25,11 +25,11 @@ locals {
   subnet_enabled = {
     private_endpoints    = local.private_endpoints_required
     virtual_machines     = local.virtual_machine_subnet_required
-    web_app_integration  = var.services.web_app
-    function_integration = var.services.function_app
+    web_app_integration  = length(var.web_apps) > 0
+    function_integration = length(var.function_apps) > 0
     postgresql           = length(var.postgresql_servers) > 0
     mysql                = length(var.mysql_servers) > 0
-    sql_managed_instance = var.services.sql_managed_instance
+    sql_managed_instance = length(var.sql_managed_instances) > 0
     load_balancers       = length(var.load_balancers) > 0
   }
 

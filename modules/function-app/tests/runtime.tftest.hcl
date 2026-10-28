@@ -20,8 +20,8 @@ run "default_python" {
       azurerm_linux_function_app.this[0].site_config[0].application_stack[0].python_version == "3.11" &&
       length(azurerm_linux_function_app.this) == 1 &&
       length(azurerm_windows_function_app.this) == 0 &&
-      azurerm_service_plan.this.os_type == "Linux" &&
-      azurerm_service_plan.this.sku_name == "EP1"
+      azurerm_service_plan.this[0].os_type == "Linux" &&
+      azurerm_service_plan.this[0].sku_name == "EP1"
     )
     error_message = "Default Linux/Python 3.11 Elastic Premium configuration must be preserved."
   }

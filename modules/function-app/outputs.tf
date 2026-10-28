@@ -17,3 +17,8 @@ output "os_type" {
   description = "Selected Function App hosting OS."
   value       = var.os_type
 }
+
+output "service_plan_id" {
+  description = "ID of the App Service Plan the app runs on, created by this module or supplied through service_plan_id."
+  value       = local.service_plan_id
+}

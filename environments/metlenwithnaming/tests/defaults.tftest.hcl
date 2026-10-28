@@ -19,7 +19,6 @@ variables {
   subscription_id       = "00000000-0000-0000-0000-000000000000"
   tenant_id             = "22222222-2222-2222-2222-222222222222"
   naming                = { unique_suffix = "test1" }
-  services              = {}
   virtual_machines      = {}
   storage_accounts      = {}
   premium_file_accounts = {}
@@ -46,11 +45,12 @@ variables {
   container_apps_environments = {}
   load_balancers              = {}
   cosmos_db_accounts          = {}
-  sql_managed_instance        = {}
+  sql_managed_instances       = {}
   postgresql_servers          = {}
   mysql_servers               = {}
-  function_app                = {}
-  web_app                     = {}
+  function_apps               = {}
+  web_apps                    = {}
+  app_service_plans           = {}
   hub_peering                 = null
   tags                        = {}
 }
@@ -75,7 +75,9 @@ run "services_are_opt_in" {
       length(module.log_analytics) == 0 &&
       length(module.cosmos_db) == 0 &&
       length(module.web_app) == 0 &&
+      length(module.app_service_plan) == 0 &&
       length(module.function_app) == 0 &&
+      length(module.function_storage) == 0 &&
       length(module.spoke_to_hub_peering) == 0 &&
       length(module.hub_to_spoke_peering) == 0 &&
       length(local.subnets) == 0 &&

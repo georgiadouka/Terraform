@@ -107,7 +107,7 @@ variable "environment" {
 }
 
 variable "naming" {
-  description = "Legacy sample naming for resources and inner names that have no METLEN convention yet (VMs and scale sets with their NICs and disks, NAT Gateway and Public IP, VNet peerings, private DNS links, Log Analytics, SQL elastic pools, SQL Managed Instance, storage containers and file shares, subnet delegations, Container Apps containers and workload profiles). Names use <prefix>-<project>-<environment>-<suffix>."
+  description = "Legacy sample naming for resources and inner names that have no METLEN convention yet (VMs and scale sets with their NICs and disks, NAT Gateway and Public IP, VNet peerings, private DNS links, Log Analytics, SQL elastic pools, storage containers and file shares, subnet delegations, Container Apps containers and workload profiles). Names use <prefix>-<project>-<environment>-<suffix>."
   type = object({
     unique_suffix = optional(string)
     prefixes = optional(object({
@@ -123,7 +123,6 @@ variable "naming" {
       private_dns_link          = optional(string, "pdnslink")
       log_analytics_workspace   = optional(string, "log")
       azure_sql_elastic_pool    = optional(string, "sqlep")
-      sql_managed_instance      = optional(string, "sqlmi")
       subnet_delegation         = optional(string, "dlg")
       storage_container         = optional(string, "blob")
       file_share                = optional(string, "share")
@@ -511,11 +510,11 @@ variable "network_security_groups" {
     condition = (
       length(distinct(concat(
         [for nsg in values(var.network_security_groups) : "${nsg.classification}-${coalesce(nsg.sequence, "none")}"],
-        var.services.sql_managed_instance ? ["PRV-${coalesce(var.sql_managed_instance.network_sequence, "none")}"] : []
+        [for instance in values(var.sql_managed_instances) : "PRV-${coalesce(instance.network_sequence, "none")}"]
       ))) ==
-      length(var.network_security_groups) + (var.services.sql_managed_instance ? 1 : 0)
+      length(var.network_security_groups) + length(var.sql_managed_instances)
     )
-    error_message = "Network security group names must be unique: give each group with the same classification its own sequence (including sql_managed_instance.network_sequence when SQL Managed Instance is enabled)."
+    error_message = "Network security group names must be unique: give each group with the same classification its own sequence (including the sql_managed_instances network_sequence)."
   }
 
   validation {
@@ -574,11 +573,11 @@ variable "route_tables" {
     condition = (
       length(distinct(concat(
         [for route_table in values(var.route_tables) : "${route_table.classification}-${coalesce(route_table.sequence, "none")}"],
-        var.services.sql_managed_instance ? ["PRV-${coalesce(var.sql_managed_instance.network_sequence, "none")}"] : []
+        [for instance in values(var.sql_managed_instances) : "PRV-${coalesce(instance.network_sequence, "none")}"]
       ))) ==
-      length(var.route_tables) + (var.services.sql_managed_instance ? 1 : 0)
+      length(var.route_tables) + length(var.sql_managed_instances)
     )
-    error_message = "Route table names must be unique: give each table with the same classification its own sequence (including sql_managed_instance.network_sequence when SQL Managed Instance is enabled)."
+    error_message = "Route table names must be unique: give each table with the same classification its own sequence (including the sql_managed_instances network_sequence)."
   }
 
   validation {
@@ -676,7 +675,7 @@ variable "key_vaults" {
 }
 
 variable "storage_accounts" {
-  description = "General-purpose v2 storage accounts keyed by a stable logical name. Defaults to none; add one entry per account. Names follow mazusoa<BU><DPT><APP><ENV><REG><sequence>; sequence is the two-digit NN, shared with premium_file_accounts and the Function App host storage, and must be unique across them."
+  description = "General-purpose v2 storage accounts keyed by a stable logical name. Defaults to none; add one entry per account. Names follow mazusoa<BU><DPT><APP><ENV><REG><sequence>; sequence is the two-digit NN, shared with premium_file_accounts and the function_apps host storage, and must be unique across them."
   type = map(object({
     sequence         = optional(string, "00")
     replication_type = optional(string, "LRS")
@@ -715,14 +714,14 @@ variable "storage_accounts" {
       length(distinct(concat(
         [for account in values(var.storage_accounts) : account.sequence],
         [for account in values(var.premium_file_accounts) : account.sequence],
-        var.services.function_app ? [var.function_app.storage_sequence] : []
+        [for app in values(var.function_apps) : app.storage_sequence]
       ))) ==
-      length(var.storage_accounts) + length(var.premium_file_accounts) + (var.services.function_app ? 1 : 0)
+      length(var.storage_accounts) + length(var.premium_file_accounts) + length(var.function_apps)
     )
-    error_message = "Storage Account names must be unique, so every storage_accounts, premium_file_accounts and function_app.storage_sequence value must differ. Current sequences: ${join(", ", concat(
+    error_message = "Storage Account names must be unique, so every storage_accounts and premium_file_accounts sequence and function_apps storage_sequence must differ. Current sequences: ${join(", ", concat(
       [for key, account in var.storage_accounts : "storage_accounts.${key}=${account.sequence}"],
       [for key, account in var.premium_file_accounts : "premium_file_accounts.${key}=${account.sequence}"],
-      var.services.function_app ? ["function_app.storage_sequence=${var.function_app.storage_sequence}"] : []
+      [for key, app in var.function_apps : "function_apps.${key}.storage_sequence=${app.storage_sequence}"]
     ))}."
   }
 }
@@ -968,9 +967,10 @@ variable "cosmos_db_accounts" {
   }
 }
 
-variable "sql_managed_instance" {
-  description = "Small SQL Managed Instance lab configuration. network_sequence is the optional two-digit NN of the instance's own NSG and route table; set it when another group or table already uses the name without a sequence."
-  type = object({
+variable "sql_managed_instances" {
+  description = "SQL Managed Instances keyed by a stable logical name. Defaults to none; add one entry, for example { primary = {} }, to create an instance with its delegated subnet and its own NSG and route table. At most one entry is allowed: every instance shares the one sql_managed_instance subnet, and the module attaches its own NSG and route table to it. The instance name follows m-azu-smi-<bu>-<dpt>-<app>-<env>-<reg>-<sequence> (global, lowercase); sequence is its two-digit NN. network_sequence is the optional two-digit NN of the instance's NSG and route table; set it when another group or table already uses the name without a sequence."
+  type = map(object({
+    sequence                    = optional(string, "00")
     sku_name                    = optional(string, "GP_Gen5")
     vcores                      = optional(number, 4)
     storage_size_in_gb          = optional(number, 32)
@@ -978,12 +978,30 @@ variable "sql_managed_instance" {
     azuread_administrator_login = optional(string, "Terraform SQL MI Admin")
     azuread_administrator_type  = optional(string, "User")
     network_sequence            = optional(string)
-  })
-  default = {}
+  }))
+  default  = {}
+  nullable = false
 
   validation {
-    condition     = var.sql_managed_instance.network_sequence == null || can(regex("^[0-9]{2}$", var.sql_managed_instance.network_sequence))
-    error_message = "sql_managed_instance.network_sequence must be null or a two-digit sequence such as 01."
+    condition = alltrue([
+      for key in keys(var.sql_managed_instances) :
+      can(regex("^[a-z]([a-z0-9-]{0,10}[a-z0-9])?$", key)) && !strcontains(key, "--")
+    ])
+    error_message = "sql_managed_instances keys must be 1-12 lowercase alphanumeric or hyphen characters, start with a letter, end with a letter or digit, and not contain consecutive hyphens."
+  }
+
+  validation {
+    condition     = length(var.sql_managed_instances) <= 1
+    error_message = "sql_managed_instances supports at most one entry. Current keys: ${join(", ", keys(var.sql_managed_instances))}."
+  }
+
+  validation {
+    condition = alltrue([
+      for instance in values(var.sql_managed_instances) :
+      can(regex("^[0-9]{2}$", instance.sequence)) &&
+      (instance.network_sequence == null || can(regex("^[0-9]{2}$", instance.network_sequence)))
+    ])
+    error_message = "Every sql_managed_instances sequence must be two digits, for example 00, and every network_sequence null or two digits."
   }
 }
 
@@ -1089,46 +1107,124 @@ variable "mysql_servers" {
   }
 }
 
-variable "function_app" {
-  description = "Function App OS, Elastic Premium plan sizing, language runtime, the optional two-digit NN of the Function App name (sequence; the standard defines no NN, so leave null unless the global name is taken), and the NN of its App Service Plan (service_plan_sequence, unique across App Service Plans) and host Storage Account (storage_sequence, unique across all storage accounts)."
-  type = object({
-    os_type               = optional(string, "Linux")
-    service_plan_sku_name = optional(string, "EP1")
-    sequence              = optional(string)
-    service_plan_sequence = optional(string, "00")
-    storage_sequence      = optional(string, "00")
+variable "app_service_plans" {
+  description = "App Service Plans keyed by a stable logical name, the only place App Service Plan NN values are set. Web Apps and Function Apps select a plan through their service_plan key, and several apps can share one plan (they then share its compute and scale together). Basic, Standard and Premium SKUs host Web Apps; Elastic Premium (EP1-EP3) hosts Function Apps, so a plan never mixes both. Every app on a plan must match its os_type. Names follow M-AZU-ASP-<BU>-<DPT>-<APP>-<ENV>-<REG>-<sequence>; sequence is the two-digit NN and must be unique per plan. A plan no app uses is still billed, so Terraform warns about it. Defaults to none."
+  type = map(object({
+    sequence = optional(string, "00")
+    os_type  = optional(string, "Linux")
+    sku_name = optional(string, "B1")
+  }))
+  default  = {}
+  nullable = false
+
+  validation {
+    condition = alltrue([
+      for key in keys(var.app_service_plans) :
+      can(regex("^[a-z]([a-z0-9-]{0,10}[a-z0-9])?$", key)) && !strcontains(key, "--")
+    ])
+    error_message = "app_service_plans keys must be 1-12 lowercase alphanumeric or hyphen characters, start with a letter, end with a letter or digit, and not contain consecutive hyphens."
+  }
+
+  validation {
+    condition     = alltrue([for plan in values(var.app_service_plans) : can(regex("^[0-9]{2}$", plan.sequence))])
+    error_message = "Every app_service_plans sequence must be two digits, for example 00."
+  }
+
+  validation {
+    condition     = length(distinct([for plan in values(var.app_service_plans) : plan.sequence])) == length(var.app_service_plans)
+    error_message = "Every app_service_plans entry needs a unique sequence because App Service Plan names must be unique. Current sequences: ${join(", ", [for key, plan in var.app_service_plans : "${key}=${plan.sequence}"])}."
+  }
+
+  validation {
+    condition     = alltrue([for plan in values(var.app_service_plans) : contains(["Linux", "Windows"], plan.os_type)])
+    error_message = "Every app_service_plans os_type must be Linux or Windows."
+  }
+
+  validation {
+    condition = alltrue([
+      for plan in values(var.app_service_plans) : contains([
+        "B1", "B2", "B3",
+        "S1", "S2", "S3",
+        "P1v2", "P2v2", "P3v2",
+        "P0v3", "P1v3", "P2v3", "P3v3",
+        "P1mv3", "P2mv3", "P3mv3", "P4mv3", "P5mv3",
+        "P0v4", "P1v4", "P2v4", "P3v4",
+        "P1mv4", "P2mv4", "P3mv4", "P4mv4", "P5mv4",
+        "EP1", "EP2", "EP3"
+      ], plan.sku_name)
+    ])
+    error_message = "Every app_service_plans sku_name must be a Basic, Standard or Premium SKU (for Web Apps) or an Elastic Premium SKU EP1-EP3 (for Function Apps)."
+  }
+}
+
+variable "function_apps" {
+  description = "Private Elastic Premium Function Apps keyed by a stable logical name. Defaults to none; add one entry per app. service_plan is the key of an Elastic Premium app_service_plans entry, which also sets the app's OS; several Function Apps can share one plan. Each entry creates its own host Storage Account with its content share and Private Endpoints (blob, file, queue and table on the storage account, sites on the app); every app joins the shared function_integration subnet. Names follow M-AZU-FUN-<BU>-<DPT>-<APP>-<ENV>-<REG>[-<sequence>] for the app (global <name>.azurewebsites.net; the standard defines no NN, so at most one app may leave sequence null) and mazusoa...<storage_sequence> for its host storage (unique across all storage accounts)."
+  type = map(object({
+    service_plan     = string
+    sequence         = optional(string)
+    storage_sequence = optional(string, "00")
     runtime = optional(object({
       name    = optional(string, "python")
       version = optional(string, "3.11")
     }), {})
-  })
-  default = {}
+  }))
+  default  = {}
+  nullable = false
 
   validation {
-    condition = (
-      can(regex("^[0-9]{2}$", var.function_app.storage_sequence)) &&
-      can(regex("^[0-9]{2}$", var.function_app.service_plan_sequence)) &&
-      (var.function_app.sequence == null || can(regex("^[0-9]{2}$", var.function_app.sequence)))
-    )
-    error_message = "function_app.storage_sequence and function_app.service_plan_sequence must be two digits, for example 01, and function_app.sequence null or two digits."
+    condition = alltrue([
+      for key in keys(var.function_apps) :
+      can(regex("^[a-z]([a-z0-9-]{0,10}[a-z0-9])?$", key)) && !strcontains(key, "--")
+    ])
+    error_message = "function_apps keys must be 1-12 lowercase alphanumeric or hyphen characters, start with a letter, end with a letter or digit, and not contain consecutive hyphens."
   }
 
   validation {
+    condition = alltrue([
+      for app in values(var.function_apps) :
+      can(regex("^[0-9]{2}$", app.storage_sequence)) &&
+      (app.sequence == null || can(regex("^[0-9]{2}$", app.sequence)))
+    ])
+    error_message = "Every function_apps storage_sequence must be two digits, for example 01, and every sequence null or two digits."
+  }
+
+  validation {
+    condition     = length(distinct([for app in values(var.function_apps) : coalesce(app.sequence, "none")])) == length(var.function_apps)
+    error_message = "Function App names are global, so every function_apps entry needs a unique sequence and at most one may leave it null. Current sequences: ${join(", ", [for key, app in var.function_apps : "${key}=${coalesce(app.sequence, "null")}"])}."
+  }
+
+  validation {
+    condition     = alltrue([for app in values(var.function_apps) : contains(keys(var.app_service_plans), app.service_plan)])
+    error_message = "Every function_apps service_plan must be a key in app_service_plans. Available plans: ${join(", ", keys(var.app_service_plans))}."
+  }
+
+  # This composition hosts Function Apps on Elastic Premium only (content share
+  # over the VNet, pre-warmed instances); the Function host settings depend on it.
+  validation {
+    condition = alltrue([
+      for app in values(var.function_apps) :
+      startswith(try(var.app_service_plans[app.service_plan].sku_name, "EP"), "EP")
+    ])
+    error_message = "Every function_apps service_plan must be an Elastic Premium plan (sku_name EP1, EP2 or EP3). Plans per app: ${join(", ", [for key, app in var.function_apps : "${key}=${app.service_plan}(${try(var.app_service_plans[app.service_plan].sku_name, "missing")})"])}."
+  }
+
+  # Multi-plan subnet join, which lets several App Service Plans share the
+  # integration subnet, requires a /26 or larger subnet.
+  validation {
     condition = (
-      !(var.services.function_app && var.services.web_app) ||
-      var.function_app.service_plan_sequence != var.web_app.service_plan_sequence
+      length(distinct([for app in values(var.function_apps) : app.service_plan])) <= 1 ||
+      try(tonumber(split("/", var.subnet_cidrs.function_integration)[1]) <= 26, false)
     )
-    error_message = "The Web App and Function App plans share the App Service Plan name family, so function_app.service_plan_sequence must differ from web_app.service_plan_sequence."
+    error_message = "subnet_cidrs.function_integration must be /26 or larger when Function Apps on more than one App Service Plan share it."
   }
 }
 
-variable "web_app" {
-  description = "App Service Web App mode, plan, runtime, container image, and application settings. sequence is the two-digit NN of the Web App name and service_plan_sequence that of its App Service Plan."
-  type = object({
-    sequence              = optional(string, "00")
-    service_plan_sequence = optional(string, "00")
-    mode                  = optional(string, "linux")
-    service_plan_sku_name = optional(string, "B1")
+variable "web_apps" {
+  description = "Private App Service Web Apps keyed by a stable logical name. Defaults to none; add one entry per app. service_plan is the key of a Basic, Standard or Premium app_service_plans entry whose os_type matches mode (Windows for windows, Linux for linux and container); several Web Apps can share one plan. Each entry creates its own Private Endpoint; every app joins the shared web_app_integration subnet. Names follow M-AZU-APP-<BU>-<DPT>-<APP>-<ENV>-<REG>-<sequence> (global <name>.azurewebsites.net); sequence must be unique per app."
+  type = map(object({
+    service_plan = string
+    sequence     = optional(string, "00")
+    mode         = optional(string, "linux")
     runtime = optional(object({
       name    = optional(string, "node")
       version = optional(string, "22")
@@ -1139,23 +1235,58 @@ variable "web_app" {
       port         = optional(number, 80)
     }), {})
     app_settings = optional(map(string), {})
-  })
-  default = {}
+  }))
+  default  = {}
+  nullable = false
 
   validation {
-    condition     = can(regex("^[0-9]{2}$", var.web_app.sequence)) && can(regex("^[0-9]{2}$", var.web_app.service_plan_sequence))
-    error_message = "web_app.sequence and web_app.service_plan_sequence must be two digits, for example 00."
+    condition = alltrue([
+      for key in keys(var.web_apps) :
+      can(regex("^[a-z]([a-z0-9-]{0,10}[a-z0-9])?$", key)) && !strcontains(key, "--")
+    ])
+    error_message = "web_apps keys must be 1-12 lowercase alphanumeric or hyphen characters, start with a letter, end with a letter or digit, and not contain consecutive hyphens."
   }
-}
 
-variable "services" {
-  description = "Single-instance services enabled in this lab composition. Every service is opt-in."
-  type = object({
-    sql_managed_instance = optional(bool, false)
-    web_app              = optional(bool, false)
-    function_app         = optional(bool, false)
-  })
-  default = {}
+  validation {
+    condition     = alltrue([for app in values(var.web_apps) : can(regex("^[0-9]{2}$", app.sequence))])
+    error_message = "Every web_apps sequence must be two digits, for example 00."
+  }
+
+  validation {
+    condition     = length(distinct([for app in values(var.web_apps) : app.sequence])) == length(var.web_apps)
+    error_message = "Every web_apps entry needs a unique sequence because Web App names are global. Current sequences: ${join(", ", [for key, app in var.web_apps : "${key}=${app.sequence}"])}."
+  }
+
+  validation {
+    condition     = alltrue([for app in values(var.web_apps) : contains(keys(var.app_service_plans), app.service_plan)])
+    error_message = "Every web_apps service_plan must be a key in app_service_plans. Available plans: ${join(", ", keys(var.app_service_plans))}."
+  }
+
+  validation {
+    condition = alltrue([
+      for app in values(var.web_apps) :
+      !startswith(try(var.app_service_plans[app.service_plan].sku_name, "B1"), "EP")
+    ])
+    error_message = "Every web_apps service_plan must be a Basic, Standard or Premium plan; Elastic Premium (EP) plans are reserved for Function Apps. Plans per app: ${join(", ", [for key, app in var.web_apps : "${key}=${app.service_plan}(${try(var.app_service_plans[app.service_plan].sku_name, "missing")})"])}."
+  }
+
+  validation {
+    condition = alltrue([
+      for app in values(var.web_apps) :
+      try(var.app_service_plans[app.service_plan].os_type == (app.mode == "windows" ? "Windows" : "Linux"), true)
+    ])
+    error_message = "Every web_apps mode must match its plan's os_type: windows needs a Windows plan, linux and container need a Linux plan. Apps: ${join(", ", [for key, app in var.web_apps : "${key}=${app.mode} on ${app.service_plan}(${try(var.app_service_plans[app.service_plan].os_type, "missing")})"])}."
+  }
+
+  # Multi-plan subnet join, which lets several App Service Plans share the
+  # integration subnet, requires a /26 or larger subnet.
+  validation {
+    condition = (
+      length(distinct([for app in values(var.web_apps) : app.service_plan])) <= 1 ||
+      try(tonumber(split("/", var.subnet_cidrs.web_app_integration)[1]) <= 26, false)
+    )
+    error_message = "subnet_cidrs.web_app_integration must be /26 or larger when Web Apps on more than one App Service Plan share it."
+  }
 }
 
 variable "tags" {

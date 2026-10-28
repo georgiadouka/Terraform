@@ -89,8 +89,9 @@ when a module is checked on its own.
 | `cosmos-db` | NoSQL, MongoDB, Cassandra, Gremlin, or Table account with serverless/manual/autoscale throughput | Public network disabled; API-specific Private Endpoint and DNS |
 | `container-apps` | Internal Container Apps environment with Consumption, optional dedicated workload profiles, and zero or more Container Apps | Dedicated delegated subnet, internal load balancer, and private wildcard DNS |
 | `log-analytics-workspace` | Log Analytics workspace shared by every Container Apps environment | N/A |
-| `web-app` | Linux code, Windows code, or Linux container App Service Web App | Public network disabled; Private Endpoint and outbound VNet integration |
-| `function-app` | Linux or Windows Elastic Premium Function App | Inbound Private Endpoint and outbound VNet integration |
+| `app-service-plan` | App Service Plan (Basic, Standard, Premium or Elastic Premium) that one or more Web Apps or Function Apps run on | N/A |
+| `web-app` | Linux code, Windows code, or Linux container App Service Web App, on its own plan or an existing plan passed as `service_plan_id` | Public network disabled; Private Endpoint and outbound VNet integration |
+| `function-app` | Linux or Windows Elastic Premium Function App, on its own plan or an existing Elastic Premium plan passed as `service_plan_id` | Inbound Private Endpoint and outbound VNet integration |
 
 SQL Managed Instance is disabled by default because it is comparatively
 expensive and long-running. The optional lab profile uses General Purpose Gen5,

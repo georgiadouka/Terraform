@@ -22,21 +22,26 @@ locals {
   # deployed_by names the module call that creates the endpoint. A storage
   # account rejects concurrent Private Endpoint connections, so storage
   # endpoints use calls that create them one at a time. Function host storage
-  # has its own call because the Function App waits for it, and the Function
-  # App endpoint has its own call so other endpoints never wait for the app.
+  # has its own call per Function App because each app waits for its storage
+  # endpoints, and the Function App endpoints have their own call so other
+  # endpoints never wait for the apps.
   private_endpoint_catalog = merge(
     {
-      web_app = {
-        enabled     = var.services.web_app
+      for app_key in keys(var.web_apps) :
+      "web_app/${app_key}" => {
+        enabled     = true
         deployed_by = "private_endpoints"
-        target      = "web_app"
+        target      = "web_app/${app_key}"
         subresource = "sites"
         dns_zone    = "privatelink.azurewebsites.net"
       }
-      function_app = {
-        enabled     = var.services.function_app
+    },
+    {
+      for app_key in keys(var.function_apps) :
+      "function_app/${app_key}" => {
+        enabled     = true
         deployed_by = "function_app_private_endpoint"
-        target      = "function_app"
+        target      = "function_app/${app_key}"
         subresource = "sites"
         dns_zone    = "privatelink.azurewebsites.net"
       }
@@ -102,13 +107,13 @@ locals {
       }
     },
     {
-      for subresource in ["blob", "file", "queue", "table"] :
-      "function_storage/${subresource}" => {
-        enabled     = var.services.function_app
+      for pair in setproduct(keys(var.function_apps), ["blob", "file", "queue", "table"]) :
+      "function_storage/${pair[0]}/${pair[1]}" => {
+        enabled     = true
         deployed_by = "function_storage_private_endpoints"
-        target      = "function_storage"
-        subresource = subresource
-        dns_zone    = "privatelink.${subresource}.core.windows.net"
+        target      = "function_storage/${pair[0]}"
+        subresource = pair[1]
+        dns_zone    = "privatelink.${pair[1]}.core.windows.net"
       }
     }
   )
@@ -126,18 +131,19 @@ locals {
     }
   }
 
+  # Function host storage endpoints grouped by Function App key.
   function_storage_private_endpoints = {
-    for key, endpoint in local.private_endpoint_catalog : key => endpoint
-    if endpoint.enabled && endpoint.deployed_by == "function_storage_private_endpoints"
+    for app_key in keys(var.function_apps) : app_key => {
+      for key, endpoint in local.private_endpoint_catalog : key => endpoint
+      if endpoint.enabled && endpoint.deployed_by == "function_storage_private_endpoints" && endpoint.target == "function_storage/${app_key}"
+    }
   }
 
   # Parent resource name per catalog target.
   private_endpoint_parent_names = merge(
-    {
-      web_app          = local.resource_names.web_app
-      function_app     = local.resource_names.function_app
-      function_storage = local.resource_names.function_storage_account
-    },
+    { for key, app in local.resource_names.web_apps : "web_app/${key}" => app.name },
+    { for key, app in local.resource_names.function_apps : "function_app/${key}" => app.name },
+    { for key, app in local.resource_names.function_apps : "function_storage/${key}" => app.storage_account_name },
     { for key, name in local.resource_names.container_registries : "container_registry/${key}" => name },
     { for key, server in local.resource_names.azure_sql_servers : "azure_sql/${key}" => server.server_name },
     { for key, name in local.resource_names.cosmos_db_accounts : "cosmos_db/${key}" => name },
@@ -159,10 +165,10 @@ locals {
   }
 
   # Private Link resource IDs for module.private_endpoints, keyed by catalog
-  # target. Storage accounts and the Function App are referenced by their own
+  # target. Storage accounts and Function Apps are referenced by their own
   # module calls so these endpoints never wait for them.
   private_endpoint_target_ids = merge(
-    var.services.web_app ? { web_app = module.web_app[0].id } : {},
+    { for key, app in module.web_app : "web_app/${key}" => app.id },
     { for key, registry in module.container_registry : "container_registry/${key}" => registry.id },
     { for key, server in module.azure_sql : "azure_sql/${key}" => server.server_id },
     { for key, account in module.cosmos_db : "cosmos_db/${key}" => account.id },

@@ -29,7 +29,7 @@ naming_tokens = {
 # Legacy sample naming, still used for the tags and for resources that have no
 # METLEN convention yet (VMs and scale sets with their NICs and disks, NAT
 # Gateway and its Public IP, VNet peerings, private DNS links, Log Analytics,
-# SQL elastic pools, SQL Managed Instance) and for names inside resources
+# SQL elastic pools) and for names inside resources
 # (storage containers, file shares, subnet delegations, Container Apps
 # containers and workload profiles):
 # <resource-prefix>-<project_name>-<environment>-<unique_suffix>
@@ -53,7 +53,6 @@ naming = {
     private_dns_link          = "pdnslink"
     log_analytics_workspace   = "log"
     azure_sql_elastic_pool    = "sqlep"
-    sql_managed_instance      = "sqlmi"
     subnet_delegation         = "dlg"
     storage_container         = "blob"
     file_share                = "share"
@@ -87,13 +86,6 @@ subnet_cidrs = {
 
   # One range shared by every load balancer frontend IP; /29 or larger.
   load_balancers = "10.42.9.0/26"
-}
-
-# Enable only the services needed by this environment.
-services = {
-  sql_managed_instance      = false
-  web_app                   = true
-  function_app              = true
 }
 
 virtual_machines = {
@@ -355,7 +347,7 @@ key_vaults = {
 # Storage Account names follow the METLEN compact family
 # mazusoa<BU><DPT><APP><ENV><REG><sequence>, for example
 # mazusoaitppaecmdevswe00. storage_accounts, premium_file_accounts and the
-# Function host storage (function_app.storage_sequence) share this family, so
+# Function host storage (function_apps.<key>.storage_sequence) share this family, so
 # every sequence must be unique across them. Changing a sequence replaces the
 # account and its data.
 storage_accounts = {
@@ -437,15 +429,28 @@ azure_sql_servers = {
   }
 }
 
-sql_managed_instance = {
-  sku_name           = "GP_Gen5"
-  vcores             = 4
-  storage_size_in_gb = 32
-  license_type       = "LicenseIncluded"
-  # Two-digit NN for the instance's own NSG and route table. Set it when another
-  # NSG or route table already uses the PRV name without a sequence.
-  network_sequence = null
-}
+# SQL Managed Instances keyed by a stable logical name; an empty map creates
+# none, like every other resource. At most one entry is allowed. An entry
+# creates the instance with its delegated subnet_cidrs.sql_managed_instance
+# subnet and its own NSG and route table; an empty entry such as primary = {}
+# uses every default. Deployment takes several hours and the instance is
+# billed per vCore.
+sql_managed_instances = {}
+
+# sql_managed_instances = {
+#   primary = {
+#     # Instance name m-azu-smi-<bu>-<dpt>-<app>-<env>-<reg>-<sequence>
+#     # (global, lowercase).
+#     sequence           = "00"
+#     sku_name           = "GP_Gen5"
+#     vcores             = 4
+#     storage_size_in_gb = 32
+#     license_type       = "LicenseIncluded"
+#     # Two-digit NN for the instance's own NSG and route table. Set it when
+#     # another NSG or route table already uses the PRV name without a sequence.
+#     network_sequence = null
+#   }
+# }
 
 # One entry per PostgreSQL Flexible Server; an empty map creates none. Each
 # server gets one database and its own generated password, and all servers
@@ -592,56 +597,119 @@ cosmos_db_accounts = {}
 #   }
 # }
 
-web_app = {
-  # Names follow M-AZU-APP-...-<sequence> for the Web App (global
-  # <name>.azurewebsites.net) and M-AZU-ASP-...-<service_plan_sequence> for its
-  # plan; the plan sequence must differ from function_app.service_plan_sequence.
-  sequence              = "00"
-  service_plan_sequence = "00"
-
-  # Select one mode: linux, windows, or container.
-  mode                  = "linux"
-  service_plan_sku_name = "B1"
-
-  # Linux supports node, python, and dotnet. Windows supports node and dotnet.
-  runtime = {
-    name    = "node"
-    version = "22"
+# App Service Plans, keyed by a stable logical name. This is the only place
+# App Service Plan numbers are set: Web Apps and Function Apps select a plan
+# by key, so two plans can never get the same name. Several apps can share one
+# plan (they share its compute and scale together); give an app its own plan
+# when it needs isolation. Basic/Standard/Premium plans host Web Apps,
+# Elastic Premium (EP1-EP3) plans host Function Apps, and every app must match
+# its plan's os_type. Names follow M-AZU-ASP-...-<sequence>; sequence must be
+# unique per plan. Terraform warns about a plan no app uses, because it is
+# still billed. Changing os_type or sequence replaces the plan and its apps.
+app_service_plans = {
+  web = {
+    sequence = "00"
+    os_type  = "Linux"
+    sku_name = "B1"
   }
 
-  # Used only by container mode. This public sample requires no credentials.
-  container = {
-    registry_url = "https://mcr.microsoft.com"
-    image_name   = "appsvc/staticsite:latest"
-    port         = 80
+  functions = {
+    sequence = "01"
+    os_type  = "Linux"
+    sku_name = "EP1"
   }
 
-  app_settings = {}
+  # web-windows = {
+  #   sequence = "02"
+  #   os_type  = "Windows"
+  #   sku_name = "B1"
+  # }
 }
 
-function_app = {
-  os_type               = "Linux"
-  service_plan_sku_name = "EP1"
+# One entry per Web App, keyed by a stable logical name. Each entry creates its
+# own Private Endpoint; every app joins the shared web_app_integration subnet
+# (/26 or larger when apps on more than one plan share it).
+web_apps = {
+  primary = {
+    # Key of a Basic, Standard or Premium app_service_plans entry.
+    service_plan = "web"
 
-  # NN of the Function App Service Plan (M-AZU-ASP-...-<NN>); must differ from
-  # web_app.service_plan_sequence. The Function App name itself has no NN in
-  # the standard; set sequence only when the global name is already taken.
-  service_plan_sequence = "01"
-  # sequence = "01"
+    # Names follow M-AZU-APP-...-<sequence> (global <name>.azurewebsites.net);
+    # sequence must be unique per app.
+    sequence = "00"
 
-  # NN of the Function host Storage Account (mazusoa...<NN>); unique across
-  # storage_accounts and premium_file_accounts.
-  storage_sequence = "02"
+    # Select one mode: linux, windows, or container. windows needs a Windows
+    # plan; linux and container need a Linux plan.
+    mode = "linux"
 
-  # Set both runtime fields when changing language. Python requires Linux.
-  # Examples: node / 22, dotnet-isolated / 8.0, java / 21, powershell / 7.4.
-  # For Windows, set os_type = "Windows" and select a compatible runtime,
-  # for example name = "dotnet-isolated", version = "8.0".
-  # OS changes recreate the app/plan; redeploy matching application code.
-  runtime = {
-    name    = "python"
-    version = "3.11"
+    # Linux supports node, python, and dotnet. Windows supports node and dotnet.
+    runtime = {
+      name    = "node"
+      version = "22"
+    }
+
+    # Used only by container mode. This public sample requires no credentials.
+    container = {
+      registry_url = "https://mcr.microsoft.com"
+      image_name   = "appsvc/staticsite:latest"
+      port         = 80
+    }
+
+    app_settings = {}
   }
+
+  # api = {
+  #   service_plan = "web-windows"
+  #   sequence     = "01"
+  #   mode         = "windows"
+  #   runtime = {
+  #     name    = "dotnet"
+  #     version = "8.0"
+  #   }
+  # }
+}
+
+# One entry per Function App, keyed by a stable logical name. Each entry creates
+# its own host Storage Account with its content share and Private Endpoints
+# (blob, file, queue, table and sites); every app joins the shared
+# function_integration subnet (/26 or larger when apps on more than one plan
+# share it).
+function_apps = {
+  primary = {
+    # Key of an Elastic Premium app_service_plans entry; the plan's os_type
+    # sets the app's OS.
+    service_plan = "functions"
+
+    # The Function App name has no NN in the standard, so at most one app may
+    # leave sequence unset; set it for every further app or when the global
+    # name is already taken.
+    # sequence = "01"
+
+    # NN of the Function host Storage Account (mazusoa...<NN>); unique across
+    # storage_accounts, premium_file_accounts and every function_apps entry.
+    storage_sequence = "02"
+
+    # Set both runtime fields when changing language. Python requires a Linux
+    # plan. Examples: node / 22, dotnet-isolated / 8.0, java / 21,
+    # powershell / 7.4. For Windows, select a Windows Elastic Premium plan and
+    # a compatible runtime, for example name = "dotnet-isolated",
+    # version = "8.0". Moving to a plan with another OS recreates the app;
+    # redeploy matching application code.
+    runtime = {
+      name    = "python"
+      version = "3.11"
+    }
+  }
+
+  # jobs = {
+  #   service_plan     = "functions"
+  #   sequence         = "02"
+  #   storage_sequence = "05"
+  #   runtime = {
+  #     name    = "python"
+  #     version = "3.11"
+  #   }
+  # }
 }
 
 tags = {

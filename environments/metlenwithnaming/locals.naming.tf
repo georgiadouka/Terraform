@@ -137,7 +137,6 @@ locals {
       for key, account in var.premium_file_accounts :
       key => "mazu${lower(local.metlen_codes.storage_account)}${local.metlen_compact_tokens}${account.sequence}"
     }
-    function_storage_account = "mazu${lower(local.metlen_codes.storage_account)}${local.metlen_compact_tokens}${var.function_app.storage_sequence}"
 
     storage_containers = {
       for account_key, account in var.storage_accounts : account_key => {
@@ -157,7 +156,6 @@ locals {
         label => "${local.naming_prefixes.file_share}-${label}-${local.name_stem}"
       }
     }
-    function_content_share = "${local.naming_prefixes.file_share}-function-content-${local.name_stem}"
 
     # The logical server name is global DNS (<name>.database.windows.net) and
     # must be lowercase. The database is scoped to its server and uses the full
@@ -170,9 +168,17 @@ locals {
       }
     }
 
-    sql_managed_instance = "${local.naming_prefixes.sql_managed_instance}-${local.name_stem}"
-    sql_mi_nsg           = join("-", compact(["M-AZU", local.metlen_codes.network_security_group, local.metlen_scope, "PRV", local.metlen_placement, var.sql_managed_instance.network_sequence]))
-    sql_mi_route_table   = join("-", compact(["M-AZU", local.metlen_codes.route_table, local.metlen_scope, "PRV", local.metlen_placement, var.sql_managed_instance.network_sequence]))
+    # m-azu-smi-<bu>-<dpt>-<app>-<env>-<reg>-<NN>: the instance name is global
+    # DNS (<name>.<id>.database.windows.net) and must be lowercase, like the SQL
+    # logical server. The NSG and route table use the network family with the
+    # instance's network NN.
+    sql_managed_instances = {
+      for key, instance in var.sql_managed_instances : key => {
+        name                        = lower(join("-", ["M-AZU", local.metlen_codes.sql_managed_instance, local.metlen_scope, local.metlen_placement, instance.sequence]))
+        network_security_group_name = join("-", compact(["M-AZU", local.metlen_codes.network_security_group, local.metlen_scope, "PRV", local.metlen_placement, instance.network_sequence]))
+        route_table_name            = join("-", compact(["M-AZU", local.metlen_codes.route_table, local.metlen_scope, "PRV", local.metlen_placement, instance.network_sequence]))
+      }
+    }
 
     # Same approach as Azure SQL: the server name is global DNS
     # (<name>.postgres.database.azure.com / <name>.mysql.database.azure.com) and
@@ -245,12 +251,29 @@ locals {
     log_analytics_workspace = "${local.naming_prefixes.log_analytics_workspace}-${local.name_stem}"
 
     # App Service family. Web App and Function App names are global
-    # (<name>.azurewebsites.net). The Function App has no NN in the standard;
-    # an optional sequence is the fallback when the global name is taken. The
-    # name stays within the 32 characters Azure uses for the Functions host ID.
-    web_app              = join("-", ["M-AZU", local.metlen_codes.app_service, local.metlen_scope, local.metlen_placement, var.web_app.sequence])
-    web_app_service_plan = join("-", ["M-AZU", local.metlen_codes.app_service_plan, local.metlen_scope, local.metlen_placement, var.web_app.service_plan_sequence])
-    function_app         = join("-", compact(["M-AZU", local.metlen_codes.function_app, local.metlen_scope, local.metlen_placement, var.function_app.sequence]))
-    app_service_plan     = join("-", ["M-AZU", local.metlen_codes.app_service_plan, local.metlen_scope, local.metlen_placement, var.function_app.service_plan_sequence])
+    # (<name>.azurewebsites.net). App Service Plans are declared once in
+    # app_service_plans and apps select one by key, so plan NN values live in a
+    # single map and cannot collide. The Function App has no NN in the
+    # standard; an optional sequence is the fallback when the global name is
+    # taken or a second Function App is added. The name stays within the 32
+    # characters Azure uses for the Functions host ID. Each Function App has
+    # its own host Storage Account (mazusoa... family), so the content share
+    # name is scoped to that account and shared by every app.
+    app_service_plans = {
+      for key, plan in var.app_service_plans :
+      key => join("-", ["M-AZU", local.metlen_codes.app_service_plan, local.metlen_scope, local.metlen_placement, plan.sequence])
+    }
+    web_apps = {
+      for key, app in var.web_apps : key => {
+        name = join("-", ["M-AZU", local.metlen_codes.app_service, local.metlen_scope, local.metlen_placement, app.sequence])
+      }
+    }
+    function_apps = {
+      for key, app in var.function_apps : key => {
+        name                 = join("-", compact(["M-AZU", local.metlen_codes.function_app, local.metlen_scope, local.metlen_placement, app.sequence]))
+        storage_account_name = "mazu${lower(local.metlen_codes.storage_account)}${local.metlen_compact_tokens}${app.storage_sequence}"
+        content_share_name   = "${local.naming_prefixes.file_share}-function-content-${local.name_stem}"
+      }
+    }
   }
 }

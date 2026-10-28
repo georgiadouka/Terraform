@@ -88,15 +88,15 @@ override_module {
   outputs = { id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.DocumentDB/databaseAccounts/cosmos", name = "cosmos", endpoint = "https://cosmos", hostname = "cosmos.documents.azure.com", api_type = "NoSQL", database_id = "db", container_id = "ct", principal_id = null }
 }
 override_module {
-  target  = module.web_app[0]
+  target  = module.web_app["primary"]
   outputs = { id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Web/sites/web", default_hostname = "web.azurewebsites.net", principal_id = "p", mode = "linux", service_plan_id = "sp" }
 }
 override_module {
-  target  = module.function_app[0]
+  target  = module.function_app["primary"]
   outputs = { id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Web/sites/func", default_hostname = "func.azurewebsites.net", principal_id = "p", os_type = "Linux" }
 }
 override_module {
-  target  = module.function_storage[0]
+  target  = module.function_storage["primary"]
   outputs = { id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Storage/storageAccounts/stfn", name = "stfn", shared_access_key_enabled = true, primary_access_key = "k", primary_connection_string = "c", data_plane_role_assignment_ids = {}, container_ids = {}, file_share_ids = {} }
 }
 
@@ -127,17 +127,21 @@ variables {
   }
   container_apps_environments = {}
   load_balancers              = {}
-  web_app                     = {}
-  function_app                = { storage_sequence = "04", service_plan_sequence = "01" }
+  web_apps = {
+    primary = { service_plan = "web" }
+  }
+  app_service_plans = {
+    web       = { sequence = "00" }
+    functions = { sequence = "01", sku_name = "EP1" }
+  }
+  function_apps = {
+    primary = { service_plan = "functions", storage_sequence = "04" }
+  }
   cosmos_db_accounts = {
     primary = {}
   }
   azure_sql_servers = {
     primary = {}
-  }
-  services = {
-    web_app      = true
-    function_app = true
   }
   storage_use_azuread = true
   location            = "swedencentral"
@@ -153,7 +157,7 @@ variables {
   }
   virtual_machine_scale_sets = {}
   nat_gateway                = {}
-  sql_managed_instance       = {}
+  sql_managed_instances      = {}
   postgresql_servers         = {}
   mysql_servers              = {}
   tags                       = {}
@@ -166,7 +170,7 @@ run "all_endpoints" {
     condition = keys(local.service_private_endpoints) == [
       "azure_sql/primary", "container_registry/primary", "cosmos_db/primary", "key_vault/primary", "key_vault/secrets",
       "premium_files/media/file", "premium_files/primary/file",
-      "web_app"
+      "web_app/primary"
     ]
     error_message = "Every enabled single-endpoint service and map entry must produce exactly its Private Endpoints."
   }
@@ -183,19 +187,19 @@ run "all_endpoints" {
   assert {
     condition = (
       length(module.function_storage_private_endpoints) == 1 &&
-      keys(local.function_storage_private_endpoints) == [
-        "function_storage/blob", "function_storage/file", "function_storage/queue", "function_storage/table"
+      keys(local.function_storage_private_endpoints["primary"]) == [
+        "function_storage/primary/blob", "function_storage/primary/file", "function_storage/primary/queue", "function_storage/primary/table"
       ]
     )
-    error_message = "Function host storage endpoints must stay in their own group so the Function App can depend on them."
+    error_message = "Function host storage endpoints must stay in their own group per Function App so each app can depend on them."
   }
 
   assert {
     condition = (
       length(module.function_app_private_endpoint) == 1 &&
-      !contains(keys(local.private_endpoint_target_ids), "function_app")
+      !contains(keys(local.private_endpoint_target_ids), "function_app/primary")
     )
-    error_message = "The Function App endpoint must have its own call so other endpoints never wait for the Function App."
+    error_message = "The Function App endpoints must have their own call so other endpoints never wait for the Function Apps."
   }
 
   assert {
@@ -222,7 +226,7 @@ run "all_endpoints" {
       local.service_private_endpoints["azure_sql/primary"].subresource == "sqlServer" &&
       local.service_private_endpoints["cosmos_db/primary"].subresource == "Sql" &&
       local.service_private_endpoints["cosmos_db/primary"].dns_zone == "privatelink.documents.azure.com" &&
-      local.function_storage_private_endpoints["function_storage/queue"].dns_zone == "privatelink.queue.core.windows.net"
+      local.function_storage_private_endpoints["primary"]["function_storage/primary/queue"].dns_zone == "privatelink.queue.core.windows.net"
     )
     error_message = "Private Endpoints must target the right resource, subresource, and DNS zone."
   }
@@ -237,10 +241,10 @@ run "all_endpoints" {
       local.private_endpoint_names["storage/primary/blob"].name == "mazusoaitppaecmdevswe00-blob" &&
       local.private_endpoint_names["storage/archive/file"].name == "mazusoaitppaecmdevswe01-file" &&
       local.private_endpoint_names["premium_files/media/file"].name == "mazusoaitppaecmdevswe03-file" &&
-      local.private_endpoint_names["function_storage/table"].name == "mazusoaitppaecmdevswe04-table" &&
+      local.private_endpoint_names["function_storage/primary/table"].name == "mazusoaitppaecmdevswe04-table" &&
       local.private_endpoint_names["azure_sql/primary"].name == "m-azu-sql-it-ppa-ecm-dev-swe-00-sqlserver" &&
-      local.private_endpoint_names["function_app"].name == "${local.resource_names.function_app}-sites" &&
-      local.private_endpoint_names["function_app"].private_dns_zone_group_name == "default"
+      local.private_endpoint_names["function_app/primary"].name == "M-AZU-FUN-IT-PPA-ECM-DEV-SWE-sites" &&
+      local.private_endpoint_names["function_app/primary"].private_dns_zone_group_name == "default"
     )
     error_message = "Private Endpoint names must follow <PARENTNAME>-<SERVICE> with the lowercase Private Link subresource."
   }
@@ -277,9 +281,11 @@ run "all_endpoints" {
       length(output.private_endpoint_ids.storage) == 2 &&
       length(output.private_endpoint_ids.storage["primary"]) == 2 &&
       length(output.private_endpoint_ids.premium_files) == 2 &&
-      keys(output.private_endpoint_ids.function_storage) == ["blob", "file", "queue", "table"] &&
+      keys(output.private_endpoint_ids.function_storage) == ["primary"] &&
+      keys(output.private_endpoint_ids.function_storage["primary"]) == ["blob", "file", "queue", "table"] &&
       keys(output.private_endpoint_ids.key_vaults) == ["primary", "secrets"] &&
-      output.private_endpoint_ids.function_app != null
+      keys(output.private_endpoint_ids.web_apps) == ["primary"] &&
+      keys(output.private_endpoint_ids.function_apps) == ["primary"]
     )
     error_message = "private_endpoint_ids must keep its service-grouped shape."
   }
@@ -309,7 +315,9 @@ run "no_endpoints" {
   command = plan
 
   variables {
-    services              = {}
+    web_apps              = {}
+    function_apps         = {}
+    app_service_plans     = {}
     storage_accounts      = {}
     premium_file_accounts = {}
     key_vaults            = {}

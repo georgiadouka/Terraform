@@ -178,9 +178,20 @@ output "azure_sql_servers" {
   }
 }
 
-output "sql_managed_instance_fqdn" {
-  description = "SQL Managed Instance FQDN when enabled."
-  value       = try(module.sql_managed_instance[0].fqdn, null)
+output "sql_managed_instances" {
+  description = "SQL Managed Instance details keyed by the configured logical name (at most one)."
+  value = {
+    for key, instance in module.sql_managed_instance : key => {
+      id                          = instance.id
+      name                        = local.resource_names.sql_managed_instances[key].name
+      fqdn                        = instance.fqdn
+      principal_id                = instance.principal_id
+      network_security_group_id   = instance.network_security_group_id
+      network_security_group_name = local.resource_names.sql_managed_instances[key].network_security_group_name
+      route_table_id              = instance.route_table_id
+      route_table_name            = local.resource_names.sql_managed_instances[key].route_table_name
+    }
+  }
 }
 
 output "postgresql_servers" {
@@ -261,34 +272,52 @@ output "log_analytics_workspace_id" {
   value       = try(module.log_analytics[0].id, null)
 }
 
-output "function_app_hostname" {
-  description = "Function App hostname when enabled."
-  value       = try(module.function_app[0].default_hostname, null)
+output "app_service_plans" {
+  description = "App Service Plan details keyed by the configured logical plan name, with the keys of the apps running on each plan."
+  value = {
+    for key, plan in module.app_service_plan : key => {
+      id            = plan.id
+      name          = plan.name
+      os_type       = var.app_service_plans[key].os_type
+      sku_name      = var.app_service_plans[key].sku_name
+      web_apps      = sort([for app_key, app in var.web_apps : app_key if app.service_plan == key])
+      function_apps = sort([for app_key, app in var.function_apps : app_key if app.service_plan == key])
+    }
+  }
 }
 
-output "web_app_id" {
-  description = "App Service Web App ID when enabled."
-  value       = try(module.web_app[0].id, null)
+output "function_apps" {
+  description = "Private Function App details keyed by the configured logical app name."
+  value = {
+    for key, app in module.function_app : key => {
+      id                    = app.id
+      name                  = local.resource_names.function_apps[key].name
+      hostname              = app.default_hostname
+      os_type               = app.os_type
+      principal_id          = app.principal_id
+      service_plan          = var.function_apps[key].service_plan
+      service_plan_id       = app.service_plan_id
+      service_plan_name     = local.resource_names.app_service_plans[var.function_apps[key].service_plan]
+      storage_account_name  = module.function_storage[key].name
+      storage_blob_hostname = "${module.function_storage[key].name}.blob.core.windows.net"
+    }
+  }
 }
 
-output "web_app_hostname" {
-  description = "Private App Service Web App hostname when enabled."
-  value       = try(module.web_app[0].default_hostname, null)
-}
-
-output "web_app_mode" {
-  description = "Selected App Service Web App hosting mode when enabled."
-  value       = try(module.web_app[0].mode, null)
-}
-
-output "web_app_principal_id" {
-  description = "App Service Web App managed identity principal ID when enabled."
-  value       = try(module.web_app[0].principal_id, null)
-}
-
-output "function_app_os_type" {
-  description = "Function App hosting OS when enabled."
-  value       = try(module.function_app[0].os_type, null)
+output "web_apps" {
+  description = "Private App Service Web App details keyed by the configured logical app name."
+  value = {
+    for key, app in module.web_app : key => {
+      id                = app.id
+      name              = local.resource_names.web_apps[key].name
+      hostname          = app.default_hostname
+      mode              = app.mode
+      principal_id      = app.principal_id
+      service_plan      = var.web_apps[key].service_plan
+      service_plan_id   = app.service_plan_id
+      service_plan_name = local.resource_names.app_service_plans[var.web_apps[key].service_plan]
+    }
+  }
 }
 
 output "storage_accounts" {
@@ -319,11 +348,6 @@ output "premium_file_accounts" {
   }
 }
 
-output "function_storage_blob_hostname" {
-  description = "Private Function host storage blob hostname when enabled."
-  value       = try("${module.function_storage[0].name}.blob.core.windows.net", null)
-}
-
 output "private_endpoint_ids" {
   description = "Private Endpoint IDs grouped by service."
   value = {
@@ -350,8 +374,15 @@ output "private_endpoint_ids" {
       for account_key in keys(var.cosmos_db_accounts) :
       account_key => module.private_endpoints["cosmos_db/${account_key}"].id
     }
-    web_app          = try(module.private_endpoints["web_app"].id, null)
-    function_app     = one(module.function_app_private_endpoint[*].id)
-    function_storage = merge(module.function_storage_private_endpoints[*].ids...)
+    web_apps = {
+      for app_key in keys(var.web_apps) :
+      app_key => module.private_endpoints["web_app/${app_key}"].id
+    }
+    function_apps = {
+      for app_key, endpoint in module.function_app_private_endpoint : app_key => endpoint.id
+    }
+    function_storage = {
+      for app_key, endpoints in module.function_storage_private_endpoints : app_key => endpoints.ids
+    }
   }
 }

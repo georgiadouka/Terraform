@@ -19,6 +19,6 @@ output "mode" {
 }
 
 output "service_plan_id" {
-  description = "App Service plan ID."
-  value       = azurerm_service_plan.this.id
+  description = "ID of the App Service Plan the app runs on, created by this module or supplied through service_plan_id."
+  value       = local.service_plan_id
 }

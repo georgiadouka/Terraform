@@ -352,23 +352,23 @@ module "azure_sql" {
 }
 
 module "sql_managed_instance" {
-  count  = var.services.sql_managed_instance ? 1 : 0
-  source = "../../modules/sql-managed-instance"
+  for_each = var.sql_managed_instances
+  source   = "../../modules/sql-managed-instance"
 
-  name                        = local.resource_names.sql_managed_instance
-  network_security_group_name = local.resource_names.sql_mi_nsg
-  route_table_name            = local.resource_names.sql_mi_route_table
+  name                        = local.resource_names.sql_managed_instances[each.key].name
+  network_security_group_name = local.resource_names.sql_managed_instances[each.key].network_security_group_name
+  route_table_name            = local.resource_names.sql_managed_instances[each.key].route_table_name
   resource_group_name         = module.resource_group.name
   location                    = module.resource_group.location
   subnet_id                   = module.network.subnet_ids["sql_managed_instance"]
-  sku_name                    = var.sql_managed_instance.sku_name
-  vcores                      = var.sql_managed_instance.vcores
-  storage_size_in_gb          = var.sql_managed_instance.storage_size_in_gb
-  license_type                = var.sql_managed_instance.license_type
+  sku_name                    = each.value.sku_name
+  vcores                      = each.value.vcores
+  storage_size_in_gb          = each.value.storage_size_in_gb
+  license_type                = each.value.license_type
   azuread_administrator = {
-    login_username = var.sql_managed_instance.azuread_administrator_login
+    login_username = each.value.azuread_administrator_login
     object_id      = data.azurerm_client_config.current.object_id
-    principal_type = var.sql_managed_instance.azuread_administrator_type
+    principal_type = each.value.azuread_administrator_type
     tenant_id      = data.azurerm_client_config.current.tenant_id
   }
   tags = local.common_tags
@@ -479,33 +479,63 @@ module "container_apps" {
   depends_on = [module.nat_gateway]
 }
 
-module "web_app" {
-  count  = var.services.web_app ? 1 : 0
-  source = "../../modules/web-app"
+module "app_service_plan" {
+  for_each = var.app_service_plans
+  source   = "../../modules/app-service-plan"
 
-  name                      = local.resource_names.web_app
-  service_plan_name         = local.resource_names.web_app_service_plan
+  name                = local.resource_names.app_service_plans[each.key]
+  resource_group_name = module.resource_group.name
+  location            = module.resource_group.location
+  os_type             = each.value.os_type
+  sku_name            = each.value.sku_name
+  tags                = local.common_tags
+}
+
+# A warning rather than a validation error: an empty plan is valid, for
+# example when it is created ahead of its apps, but it is still billed.
+locals {
+  unused_app_service_plans = sort([
+    for key in keys(var.app_service_plans) : key
+    if !contains(concat(
+      [for app in values(var.web_apps) : app.service_plan],
+      [for app in values(var.function_apps) : app.service_plan]
+    ), key)
+  ])
+}
+
+check "unused_app_service_plans" {
+  assert {
+    condition     = length(local.unused_app_service_plans) == 0
+    error_message = "These app_service_plans entries have no web_apps or function_apps and are billed while empty: ${join(", ", local.unused_app_service_plans)}."
+  }
+}
+
+module "web_app" {
+  for_each = var.web_apps
+  source   = "../../modules/web-app"
+
+  name                      = local.resource_names.web_apps[each.key].name
+  service_plan_id           = module.app_service_plan[each.value.service_plan].id
   resource_group_name       = module.resource_group.name
   location                  = module.resource_group.location
   virtual_network_subnet_id = module.network.subnet_ids["web_app_integration"]
-  mode                      = var.web_app.mode
-  service_plan_sku_name     = var.web_app.service_plan_sku_name
-  runtime                   = var.web_app.runtime
-  container                 = var.web_app.container
-  app_settings              = var.web_app.app_settings
+  mode                      = each.value.mode
+  runtime                   = each.value.runtime
+  container                 = each.value.container
+  app_settings              = each.value.app_settings
   tags                      = local.common_tags
 }
 
 module "function_storage" {
-  count  = var.services.function_app ? 1 : 0
-  source = "../../modules/storage-account"
+  for_each = var.function_apps
+  source   = "../../modules/storage-account"
 
-  name                      = local.resource_names.function_storage_account
+  name                      = local.resource_names.function_apps[each.key].storage_account_name
   resource_group_name       = module.resource_group.name
   location                  = module.resource_group.location
   shared_access_key_enabled = true
   file_share_names = {
-    "function-content" = local.resource_names.function_content_share
+    "function-content" = local.resource_names.function_apps[each.key].content_share_name
   }
   file_shares = {
     "function-content" = {
@@ -516,15 +546,15 @@ module "function_storage" {
 }
 
 module "function_storage_private_endpoints" {
-  count  = var.services.function_app ? 1 : 0
-  source = "../../modules/storage-account-private-endpoints"
+  for_each = local.function_storage_private_endpoints
+  source   = "../../modules/storage-account-private-endpoints"
 
   resource_group_name = module.resource_group.name
   location            = module.resource_group.location
   subnet_id           = module.network.subnet_ids["private_endpoints"]
-  storage_account_id  = module.function_storage[0].id
+  storage_account_id  = module.function_storage[each.key].id
   endpoints = {
-    for key, endpoint in local.function_storage_private_endpoints : endpoint.subresource => {
+    for key, endpoint in each.value : endpoint.subresource => {
       name                            = local.private_endpoint_names[key].name
       private_service_connection_name = local.private_endpoint_names[key].private_service_connection_name
       private_dns_zone_group_name     = local.private_endpoint_names[key].private_dns_zone_group_name
@@ -534,39 +564,41 @@ module "function_storage_private_endpoints" {
   tags = local.common_tags
 }
 
+# Each app reaches its host storage only through the Private Endpoints, so the
+# apps wait for them. depends_on applies to the whole call, so every app waits
+# for every Function host storage endpoint.
 module "function_app" {
-  count  = var.services.function_app ? 1 : 0
-  source = "../../modules/function-app"
+  for_each = var.function_apps
+  source   = "../../modules/function-app"
 
-  name                       = local.resource_names.function_app
-  service_plan_name          = local.resource_names.app_service_plan
+  name                       = local.resource_names.function_apps[each.key].name
+  service_plan_id            = module.app_service_plan[each.value.service_plan].id
   resource_group_name        = module.resource_group.name
   location                   = module.resource_group.location
-  storage_account_name       = module.function_storage[0].name
-  storage_account_access_key = module.function_storage[0].primary_access_key
-  content_share_name         = local.resource_names.function_content_share
+  storage_account_name       = module.function_storage[each.key].name
+  storage_account_access_key = module.function_storage[each.key].primary_access_key
+  content_share_name         = local.resource_names.function_apps[each.key].content_share_name
   virtual_network_subnet_id  = module.network.subnet_ids["function_integration"]
-  service_plan_sku_name      = var.function_app.service_plan_sku_name
-  os_type                    = var.function_app.os_type
-  runtime                    = var.function_app.runtime
+  os_type                    = var.app_service_plans[each.value.service_plan].os_type
+  runtime                    = each.value.runtime
   tags                       = local.common_tags
 
   depends_on = [module.function_storage_private_endpoints]
 }
 
 module "function_app_private_endpoint" {
-  count  = var.services.function_app ? 1 : 0
-  source = "../../modules/private-endpoint"
+  for_each = var.function_apps
+  source   = "../../modules/private-endpoint"
 
-  name                            = local.private_endpoint_names["function_app"].name
-  private_service_connection_name = local.private_endpoint_names["function_app"].private_service_connection_name
-  private_dns_zone_group_name     = local.private_endpoint_names["function_app"].private_dns_zone_group_name
+  name                            = local.private_endpoint_names["function_app/${each.key}"].name
+  private_service_connection_name = local.private_endpoint_names["function_app/${each.key}"].private_service_connection_name
+  private_dns_zone_group_name     = local.private_endpoint_names["function_app/${each.key}"].private_dns_zone_group_name
   resource_group_name             = module.resource_group.name
   location                        = module.resource_group.location
   subnet_id                       = module.network.subnet_ids["private_endpoints"]
-  private_connection_resource_id  = module.function_app[0].id
-  subresource_names               = [local.private_endpoint_catalog["function_app"].subresource]
-  private_dns_zone_ids            = [module.private_dns.zone_ids[local.private_endpoint_catalog["function_app"].dns_zone]]
+  private_connection_resource_id  = module.function_app[each.key].id
+  subresource_names               = [local.private_endpoint_catalog["function_app/${each.key}"].subresource]
+  private_dns_zone_ids            = [module.private_dns.zone_ids[local.private_endpoint_catalog["function_app/${each.key}"].dns_zone]]
   tags                            = local.common_tags
 }
 
