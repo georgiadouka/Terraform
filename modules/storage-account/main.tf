@@ -35,6 +35,12 @@ resource "azurerm_storage_account" "this" {
     default_action = "Deny"
     bypass         = ["AzureServices"]
   }
+
+  lifecycle {
+    # Microsoft Defender for Storage adds a resource instance rule for its data
+    # scanner; this module manages no such rules, so leave them to Azure.
+    ignore_changes = [network_rules[0].private_link_access]
+  }
 }
 
 resource "azurerm_role_assignment" "data_plane" {
