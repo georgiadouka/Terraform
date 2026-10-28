@@ -6,76 +6,6 @@ resource "random_string" "suffix" {
   special = false
 }
 
-# Azure requires three of four character classes; the provider does not count
-# "_" as a special character, so every class is guaranteed explicitly.
-resource "random_password" "postgresql" {
-  for_each = var.postgresql_servers
-
-  length           = 24
-  min_lower        = 1
-  min_upper        = 1
-  min_numeric      = 1
-  min_special      = 1
-  override_special = "!#$%&*()-=+"
-}
-
-resource "random_password" "mysql" {
-  for_each = var.mysql_servers
-
-  length           = 24
-  min_lower        = 1
-  min_upper        = 1
-  min_numeric      = 1
-  min_special      = 1
-  override_special = "!#$%&*()-=+"
-}
-
-resource "tls_private_key" "vm" {
-  for_each = {
-    for key, vm in var.virtual_machines : key => vm
-    if vm.os_type == "Linux"
-  }
-
-  algorithm = "ED25519"
-}
-
-resource "random_password" "vm_windows" {
-  for_each = {
-    for key, vm in var.virtual_machines : key => vm
-    if vm.os_type == "Windows"
-  }
-
-  length           = 24
-  min_lower        = 1
-  min_upper        = 1
-  min_numeric      = 1
-  min_special      = 1
-  override_special = "!#$%&*()-_=+"
-}
-
-resource "tls_private_key" "vmss" {
-  for_each = {
-    for key, scale_set in var.virtual_machine_scale_sets : key => scale_set
-    if scale_set.os_type == "Linux"
-  }
-
-  algorithm = "ED25519"
-}
-
-resource "random_password" "vmss_windows" {
-  for_each = {
-    for key, scale_set in var.virtual_machine_scale_sets : key => scale_set
-    if scale_set.os_type == "Windows"
-  }
-
-  length           = 24
-  min_lower        = 1
-  min_upper        = 1
-  min_numeric      = 1
-  min_special      = 1
-  override_special = "!#$%&*()-_=+"
-}
-
 module "resource_group" {
   source = "../../modules/resource-group"
 
@@ -158,8 +88,7 @@ module "virtual_machine" {
   os_type                = each.value.os_type
   source_image_reference = each.value.source_image_reference
   computer_name          = local.resource_names.virtual_machines[each.key].computer_name
-  admin_ssh_public_key   = each.value.os_type == "Linux" ? tls_private_key.vm[each.key].public_key_openssh : null
-  admin_password         = each.value.os_type == "Windows" ? random_password.vm_windows[each.key].result : null
+  admin_password         = var.vm_admin_password
   os_disk                = each.value.os_disk
   data_disks             = each.value.data_disks
   load_balancer_backend_address_pool_ids = each.value.load_balancer == null ? {} : {
@@ -185,8 +114,7 @@ module "virtual_machine_scale_set" {
   admin_username                = each.value.admin_username
   os_type                       = each.value.os_type
   source_image_reference        = each.value.source_image_reference
-  admin_ssh_public_key          = each.value.os_type == "Linux" ? tls_private_key.vmss[each.key].public_key_openssh : null
-  admin_password                = each.value.os_type == "Windows" ? random_password.vmss_windows[each.key].result : null
+  admin_password                = var.vm_admin_password
   os_disk                       = each.value.os_disk
   data_disks                    = each.value.data_disks
   scaling                       = each.value.scaling
@@ -383,7 +311,7 @@ module "postgresql" {
   location               = module.resource_group.location
   delegated_subnet_id    = module.network.subnet_ids["postgresql"]
   private_dns_zone_id    = module.private_dns.zone_ids["privatelink.postgres.database.azure.com"]
-  administrator_password = random_password.postgresql[each.key].result
+  administrator_password = var.database_admin_password
   database_name          = local.resource_names.postgresql_servers[each.key].database_name
   administrator_login    = each.value.administrator_login
   sku_name               = each.value.sku_name
@@ -405,7 +333,7 @@ module "mysql" {
   location               = module.resource_group.location
   delegated_subnet_id    = module.network.subnet_ids["mysql"]
   private_dns_zone_id    = module.private_dns.zone_ids["privatelink.mysql.database.azure.com"]
-  administrator_password = random_password.mysql[each.key].result
+  administrator_password = var.database_admin_password
   database_name          = local.resource_names.mysql_servers[each.key].database_name
   administrator_login    = each.value.administrator_login
   sku_name               = each.value.sku_name

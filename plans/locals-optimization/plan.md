@@ -87,6 +87,32 @@ If more than one SQL Managed Instance is ever needed, lifting the one-entry
 limit requires deciding between one subnet (with its own NSG and route table)
 per instance and a shared subnet; each instance already has its own NN.
 
+## Credentials: lab approach, to replace before production
+
+Since 2026-10-28 VMs and scale sets (Windows and Linux, no SSH keys) share one
+initial password, `vm_admin_password`, and PostgreSQL and MySQL servers share
+`database_admin_password`. Both are sensitive inputs set outside git
+(git-ignored tfvars or `TF_VAR_*` pipeline secrets); users change the VM
+password after first sign-in. The VM and scale set modules ignore later
+changes to `admin_password`, because a change would replace the machine.
+Azure SQL and SQL Managed Instance use Entra ID only and have no password.
+
+Before production, decide:
+
+- **Where passwords come from:** generated per resource or per type and
+  stored as Key Vault secrets in the resource group. Writing through Azure
+  Resource Manager (`azapi`, `Microsoft.KeyVault/vaults/secrets`) works from
+  any pipeline agent despite the private vault; `azurerm_key_vault_secret`
+  needs an agent that can reach the vault's private endpoint. Readers need
+  network access to the vault and Key Vault Secrets User.
+- **Entra ID sign-in instead of passwords:** VM login extensions with the
+  Virtual Machine Administrator/User Login roles, and Entra admins on
+  PostgreSQL and MySQL; local passwords only as break-glass secrets.
+- **Forced change at first login:** Linux via cloud-init (`chage -d 0`);
+  Windows via a script extension, but NLA usually blocks RDP sign-in for an
+  account that must change its password, so test it before relying on it.
+- **Scale sets:** every new instance starts with the initial password.
+
 ## Operational notes from the 2026-10-28 live test
 
 ### App Service capacity error (`409 Conflict`, extended code `03029`)

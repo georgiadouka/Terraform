@@ -216,6 +216,9 @@ variables {
   postgresql_servers         = {}
   mysql_servers              = {}
   tags                       = {}
+  # Mock-only values; real passwords never go into committed files.
+  vm_admin_password       = "MockOnly-Passw0rd!123"
+  database_admin_password = "MockOnly-DbPassw0rd!456"
 }
 
 run "linux_defaults" {
@@ -224,10 +227,7 @@ run "linux_defaults" {
     condition = (
       output.virtual_machines["primary"].os_type == "Linux" &&
       output.virtual_machines["primary"].name == "vm-primary-metlen-lab-test1" &&
-      length(tls_private_key.vm) == 1 &&
-      contains(keys(output.vm_ssh_public_keys), "primary") &&
-      length(random_password.vm_windows) == 0 &&
-      length(output.vm_windows_admin_passwords) == 0 &&
+      output.virtual_machines["primary"].admin_username == "azureadmin" &&
       output.function_apps["primary"].os_type == "Linux" &&
       output.function_apps["primary"].hostname == "func-linux.azurewebsites.net" &&
       output.generated_resource_names.virtual_network == "M-AZU-VNT-IT-PPA-ECM-PRV-DEV-SWE" &&
@@ -242,7 +242,7 @@ run "linux_defaults" {
         load_balancers       = "PPAECMDEVPRV08"
       }
     )
-    error_message = "Linux defaults must retain SSH credentials without a Windows password, and network names must follow the METLEN VNT and <DPT><APP><ENV>PRV<NN> subnet patterns."
+    error_message = "Linux defaults must sign in with the default admin username, and network names must follow the METLEN VNT and <DPT><APP><ENV>PRV<NN> subnet patterns."
   }
 }
 
@@ -262,13 +262,56 @@ run "windows_and_node" {
   assert {
     condition = (
       output.virtual_machines["primary"].os_type == "Windows" &&
-      length(tls_private_key.vm) == 0 &&
-      length(output.vm_ssh_public_keys) == 0 &&
-      length(random_password.vm_windows) == 1 &&
-      contains(keys(output.vm_windows_admin_passwords), "primary")
+      output.virtual_machines["primary"].admin_username == "azureadmin"
     )
-    error_message = "Windows must generate password credentials instead of an SSH key."
+    error_message = "A Windows VM must sign in with the admin username and the shared vm_admin_password."
   }
+}
+
+run "reject_missing_vm_admin_password" {
+  command = plan
+  variables {
+    vm_admin_password = null
+  }
+  expect_failures = [var.vm_admin_password]
+}
+
+run "reject_weak_vm_admin_password" {
+  command = plan
+  variables {
+    vm_admin_password = "alllowercaseletters"
+  }
+  expect_failures = [var.vm_admin_password]
+}
+
+run "vm_admin_password_optional_without_machines" {
+  command = plan
+  variables {
+    virtual_machines  = {}
+    vm_admin_password = null
+  }
+  assert {
+    condition     = length(module.virtual_machine) == 0
+    error_message = "vm_admin_password must only be required when VMs or scale sets exist."
+  }
+}
+
+run "reject_missing_database_admin_password" {
+  command = plan
+  variables {
+    mysql_servers           = { primary = {} }
+    database_admin_password = null
+  }
+  expect_failures = [var.database_admin_password]
+}
+
+run "reject_weak_database_admin_password" {
+  command = plan
+  variables {
+    postgresql_servers      = { primary = {} }
+    database_admin_password = "Short1!"
+  }
+  expect_failures = [var.database_admin_password]
 }
 
 run "multiple_virtual_machines" {
@@ -294,14 +337,12 @@ run "multiple_virtual_machines" {
     condition = (
       length(module.virtual_machine) == 3 &&
       length(output.virtual_machines) == 3 &&
-      length(output.vm_ssh_public_keys) == 2 &&
-      length(output.vm_windows_admin_passwords) == 1 &&
       output.virtual_machines["api"].name == "vm-api-metlen-lab-test1" &&
       output.virtual_machines["worker"].name == "vm-worker-metlen-lab-test1" &&
       output.virtual_machines["admin"].name == "vm-admin-metlen-lab-test1" &&
       output.virtual_machines["admin"].os_type == "Windows"
     )
-    error_message = "Each virtual_machines entry must create one independently named VM with credentials matching its operating system."
+    error_message = "Each virtual_machines entry must create one independently named VM."
   }
 }
 
@@ -331,11 +372,10 @@ run "vmss_linux_autoscale" {
       local.resource_names.virtual_machine_scale_sets["web"].network_interface_name == "nic-vmss-web-metlen-lab-test1" &&
       local.resource_names.virtual_machine_scale_sets["web"].autoscale_setting_name == "autoscale-web-metlen-lab-test1" &&
       output.virtual_machine_scale_sets["web"].computer_name_prefix == "vmss${substr(sha1("web"), 0, 5)}" &&
-      contains(keys(output.vmss_ssh_public_keys), "web") &&
-      length(output.vmss_windows_admin_passwords) == 0 &&
+      output.virtual_machine_scale_sets["web"].admin_username == "azureadmin" &&
       length(module.virtual_machine_scale_set) == 1
     )
-    error_message = "A Linux scale set entry must create a keyed scale set with its own SSH key, names, hostname prefix, and autoscaling."
+    error_message = "A Linux scale set entry must create a keyed scale set with its own names, hostname prefix, and autoscaling."
   }
 }
 
@@ -350,12 +390,9 @@ run "vmss_windows_fixed" {
     condition = (
       output.virtual_machine_scale_sets["jobs"].os_type == "Windows" &&
       output.virtual_machine_scale_sets["jobs"].scaling_mode == "fixed" &&
-      length(output.virtual_machine_scale_sets["jobs"].computer_name_prefix) <= 9 &&
-      length(output.vmss_ssh_public_keys) == 0 &&
-      contains(keys(random_password.vmss_windows), "jobs") &&
-      length(tls_private_key.vmss) == 0
+      length(output.virtual_machine_scale_sets["jobs"].computer_name_prefix) <= 9
     )
-    error_message = "A Windows scale set entry must use a generated password, fixed capacity, and a hostname prefix within the Windows limit."
+    error_message = "A Windows scale set entry must use fixed capacity and a hostname prefix within the Windows limit."
   }
 }
 
@@ -372,8 +409,6 @@ run "multiple_vm_scale_sets" {
   assert {
     condition = (
       length(module.virtual_machine_scale_set) == 3 &&
-      keys(tls_private_key.vmss) == ["api", "web"] &&
-      keys(random_password.vmss_windows) == ["jobs"] &&
       length(distinct([for names in values(local.resource_names.virtual_machine_scale_sets) : names.computer_name_prefix])) == 3 &&
       length(distinct([for names in values(local.resource_names.virtual_machine_scale_sets) : names.name])) == 3 &&
       length(distinct([for names in values(local.resource_names.virtual_machine_scale_sets) : names.autoscale_setting_name])) == 3 &&
@@ -381,7 +416,7 @@ run "multiple_vm_scale_sets" {
       length(module.nat_gateway) == 1 &&
       length(module.virtual_machine) == 0
     )
-    error_message = "Each scale set entry must have its own names, hostname prefix, and credentials while sharing the VM subnet and NAT Gateway."
+    error_message = "Each scale set entry must have its own names and hostname prefix while sharing the VM subnet and NAT Gateway."
   }
 }
 
@@ -425,15 +460,7 @@ run "disabled_services" {
   assert {
     condition = (
       length(output.virtual_machines) == 0 &&
-      length(output.vm_ssh_public_keys) == 0 &&
-      length(output.vm_windows_admin_passwords) == 0 &&
-      length(tls_private_key.vm) == 0 &&
-      length(random_password.vm_windows) == 0 &&
       length(output.virtual_machine_scale_sets) == 0 &&
-      length(output.vmss_ssh_public_keys) == 0 &&
-      length(output.vmss_windows_admin_passwords) == 0 &&
-      length(tls_private_key.vmss) == 0 &&
-      length(random_password.vmss_windows) == 0 &&
       length(module.function_app) == 0 &&
       length(module.function_storage) == 0 &&
       length(output.function_apps) == 0 &&
@@ -1562,7 +1589,6 @@ run "multiple_mysql_servers" {
   assert {
     condition = (
       length(module.mysql) == 2 &&
-      length(random_password.mysql) == 2 &&
       local.resource_names.mysql_servers["primary"].server_name == "m-azu-mys-it-ppa-ecm-dev-swe-00" &&
       local.resource_names.mysql_servers["primary"].database_name == "primary" &&
       local.resource_names.mysql_servers["reports"].server_name == "m-azu-mys-it-ppa-ecm-dev-swe-01" &&
@@ -1573,10 +1599,9 @@ run "multiple_mysql_servers" {
       output.mysql_servers["primary"].name == "m-azu-mys-it-ppa-ecm-dev-swe-00" &&
       output.mysql_servers["primary"].administrator_login == "mysqladminuser" &&
       !output.mysql_servers["primary"].high_availability_enabled &&
-      output.mysql_servers["reports"].high_availability_enabled &&
-      toset(keys(output.mysql_administrator_passwords)) == toset(["primary", "reports"])
+      output.mysql_servers["reports"].high_availability_enabled
     )
-    error_message = "Each mysql_servers entry must create its own named server, database, and password, while all servers share one delegated subnet and DNS zone."
+    error_message = "Each mysql_servers entry must create its own named server and database, while all servers share one delegated subnet and DNS zone."
   }
 }
 
@@ -1585,7 +1610,6 @@ run "mysql_is_opt_in" {
   assert {
     condition = (
       length(module.mysql) == 0 &&
-      length(random_password.mysql) == 0 &&
       !local.subnet_enabled.mysql &&
       !contains(local.private_dns_zones, "privatelink.mysql.database.azure.com") &&
       length(output.mysql_servers) == 0
@@ -1691,7 +1715,6 @@ run "multiple_postgresql_servers" {
   assert {
     condition = (
       length(module.postgresql) == 3 &&
-      length(random_password.postgresql) == 3 &&
       local.resource_names.postgresql_servers["primary"].server_name == "m-azu-pgs-it-ppa-ecm-dev-swe-00" &&
       local.resource_names.postgresql_servers["primary"].database_name == "primary" &&
       local.resource_names.postgresql_servers["reports"].server_name == "m-azu-pgs-it-ppa-ecm-dev-swe-01" &&
@@ -1703,10 +1726,9 @@ run "multiple_postgresql_servers" {
       output.postgresql_servers["primary"].name == "m-azu-pgs-it-ppa-ecm-dev-swe-00" &&
       output.postgresql_servers["primary"].administrator_login == "pgadminuser" &&
       !output.postgresql_servers["primary"].high_availability_enabled &&
-      output.postgresql_servers["ha"].high_availability_enabled &&
-      toset(keys(output.postgresql_administrator_passwords)) == toset(["primary", "reports", "ha"])
+      output.postgresql_servers["ha"].high_availability_enabled
     )
-    error_message = "Each postgresql_servers entry must create its own named server, database, and password, while all servers share one delegated subnet and DNS zone."
+    error_message = "Each postgresql_servers entry must create its own named server and database, while all servers share one delegated subnet and DNS zone."
   }
 }
 
@@ -1715,7 +1737,6 @@ run "postgresql_is_opt_in" {
   assert {
     condition = (
       length(module.postgresql) == 0 &&
-      length(random_password.postgresql) == 0 &&
       !local.subnet_enabled.postgresql &&
       !contains(local.private_dns_zones, "privatelink.postgres.database.azure.com") &&
       length(output.postgresql_servers) == 0

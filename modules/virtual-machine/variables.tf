@@ -67,13 +67,16 @@ variable "admin_username" {
 }
 
 variable "admin_ssh_public_key" {
-  description = "OpenSSH public key required for Linux administrator access."
+  description = "Optional OpenSSH public key for Linux administrator access. A Linux virtual machine needs admin_ssh_public_key, admin_password, or both."
   type        = string
   default     = null
 
   validation {
-    condition     = var.os_type != "Linux" || try(trimspace(var.admin_ssh_public_key) != "", false)
-    error_message = "admin_ssh_public_key must be nonempty for Linux virtual machines."
+    condition = var.os_type != "Linux" || (
+      try(trimspace(var.admin_ssh_public_key) != "", false) ||
+      try(trimspace(var.admin_password) != "", false)
+    )
+    error_message = "A Linux virtual machine needs a nonempty admin_ssh_public_key, admin_password, or both."
   }
 }
 
@@ -90,7 +93,7 @@ variable "os_type" {
 }
 
 variable "admin_password" {
-  description = "Administrator password required for Windows; generated and supplied by the caller."
+  description = "Administrator password: required for Windows, optional for Linux (enables password sign-in). Supplied by the caller."
   type        = string
   default     = null
   sensitive   = true

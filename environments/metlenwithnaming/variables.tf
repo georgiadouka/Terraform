@@ -237,8 +237,59 @@ variable "subnet_cidrs" {
   }
 }
 
+# Lab approach: one known initial password per resource type, set outside git
+# (git-ignored tfvars or TF_VAR_* pipeline secret) and changed by users after
+# first sign-in. Production should use generated passwords stored in Key Vault.
+variable "vm_admin_password" {
+  description = "Initial administrator password shared by every VM and scale set (Windows and Linux; Linux SSH keys are not used). Required when virtual_machines or virtual_machine_scale_sets is non-empty. Set it in a git-ignored tfvars file or as TF_VAR_vm_admin_password, never in a committed file. Users change it after first sign-in; Terraform ignores later changes to this value for existing machines. 12-72 characters with at least three of lower case, upper case, digits and special characters."
+  type        = string
+  default     = null
+  sensitive   = true
+
+  validation {
+    condition = (
+      length(var.virtual_machines) + length(var.virtual_machine_scale_sets) == 0 ||
+      var.vm_admin_password != null
+    )
+    error_message = "vm_admin_password is required when virtual_machines or virtual_machine_scale_sets is non-empty. Set it in a git-ignored tfvars file or as TF_VAR_vm_admin_password."
+  }
+
+  validation {
+    condition = var.vm_admin_password == null || (
+      length(var.vm_admin_password) >= 12 &&
+      length(var.vm_admin_password) <= 72 &&
+      length([for pattern in ["[a-z]", "[A-Z]", "[0-9]", "[^a-zA-Z0-9]"] : pattern if can(regex(pattern, var.vm_admin_password))]) >= 3
+    )
+    error_message = "vm_admin_password must be 12-72 characters (Linux allows at most 72) with at least three of: lower case, upper case, digits, special characters."
+  }
+}
+
+variable "database_admin_password" {
+  description = "Initial administrator password shared by every PostgreSQL and MySQL Flexible Server. Required when postgresql_servers or mysql_servers is non-empty. Set it in a git-ignored tfvars file or as TF_VAR_database_admin_password, never in a committed file. 12-128 characters with at least three of lower case, upper case, digits and special characters. Azure SQL and SQL Managed Instance use Entra ID only and need no password."
+  type        = string
+  default     = null
+  sensitive   = true
+
+  validation {
+    condition = (
+      length(var.postgresql_servers) + length(var.mysql_servers) == 0 ||
+      var.database_admin_password != null
+    )
+    error_message = "database_admin_password is required when postgresql_servers or mysql_servers is non-empty. Set it in a git-ignored tfvars file or as TF_VAR_database_admin_password."
+  }
+
+  validation {
+    condition = var.database_admin_password == null || (
+      length(var.database_admin_password) >= 12 &&
+      length(var.database_admin_password) <= 128 &&
+      length([for pattern in ["[a-z]", "[A-Z]", "[0-9]", "[^a-zA-Z0-9]"] : pattern if can(regex(pattern, var.database_admin_password))]) >= 3
+    )
+    error_message = "database_admin_password must be 12-128 characters with at least three of: lower case, upper case, digits, special characters."
+  }
+}
+
 variable "virtual_machines" {
-  description = "Linux or Windows virtual machines keyed by a stable logical name. Defaults to none; add one entry per VM."
+  description = "Linux or Windows virtual machines keyed by a stable logical name. Defaults to none; add one entry per VM. Every VM signs in with admin_username and the shared vm_admin_password (Linux VMs use password sign-in, no SSH keys)."
   type = map(object({
     size           = optional(string, "Standard_B2s_v2")
     admin_username = optional(string, "azureadmin")
@@ -290,7 +341,7 @@ variable "virtual_machines" {
 }
 
 variable "virtual_machine_scale_sets" {
-  description = "Linux or Windows Virtual Machine Scale Sets keyed by a stable logical name. Defaults to none; add one entry per scale set."
+  description = "Linux or Windows Virtual Machine Scale Sets keyed by a stable logical name. Defaults to none; add one entry per scale set. Every instance signs in with admin_username and the shared vm_admin_password (Linux uses password sign-in, no SSH keys); new instances always start with that initial password."
   type = map(object({
     size                          = optional(string, "Standard_B2s_v2")
     admin_username                = optional(string, "azureadmin")
@@ -1073,7 +1124,7 @@ variable "sql_managed_instances" {
 }
 
 variable "postgresql_servers" {
-  description = "PostgreSQL Flexible Servers keyed by a stable logical name. Each entry creates one server with one database and its own generated administrator password; all servers share the delegated postgresql subnet and the privatelink.postgres.database.azure.com zone. Server names follow m-azu-pgs-<bu>-<dpt>-<app>-<env>-<reg>-<sequence> (global, lowercase); sequence is the two-digit NN and must be unique per server. The database name is chosen by the application (database_name) and defaults to the entry key. Defaults to none."
+  description = "PostgreSQL Flexible Servers keyed by a stable logical name. Each entry creates one server with one database; every server uses database_admin_password as its administrator password, and all servers share the delegated postgresql subnet and the privatelink.postgres.database.azure.com zone. Server names follow m-azu-pgs-<bu>-<dpt>-<app>-<env>-<reg>-<sequence> (global, lowercase); sequence is the two-digit NN and must be unique per server. The database name is chosen by the application (database_name) and defaults to the entry key. Defaults to none."
   type = map(object({
     sequence            = optional(string, "00")
     database_name       = optional(string)
@@ -1138,7 +1189,7 @@ variable "postgresql_servers" {
 }
 
 variable "mysql_servers" {
-  description = "MySQL Flexible Servers keyed by a stable logical name. Each entry creates one server with one database and its own generated administrator password; all servers share the delegated mysql subnet and the privatelink.mysql.database.azure.com zone. Server names follow m-azu-mys-<bu>-<dpt>-<app>-<env>-<reg>-<sequence> (global, lowercase); sequence is the two-digit NN and must be unique per server. The database name is chosen by the application (database_name), defaults to the entry key, and must be lowercase because MySQL stores database names in lowercase. Defaults to none."
+  description = "MySQL Flexible Servers keyed by a stable logical name. Each entry creates one server with one database; every server uses database_admin_password as its administrator password, and all servers share the delegated mysql subnet and the privatelink.mysql.database.azure.com zone. Server names follow m-azu-mys-<bu>-<dpt>-<app>-<env>-<reg>-<sequence> (global, lowercase); sequence is the two-digit NN and must be unique per server. The database name is chosen by the application (database_name), defaults to the entry key, and must be lowercase because MySQL stores database names in lowercase. Defaults to none."
   type = map(object({
     sequence            = optional(string, "00")
     database_name       = optional(string)

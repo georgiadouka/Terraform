@@ -15,13 +15,16 @@ mock_provider "azurerm" {
 }
 
 variables {
-  subscription_id = "00000000-0000-0000-0000-000000000000"
-  tenant_id       = "22222222-2222-2222-2222-222222222222"
-  naming          = { unique_suffix = "test1" }
-  project_name    = "metlen"
-  environment     = "lab"
-  naming_tokens   = { business_unit = "IT", department = "PPA", application = "ECM", environment = "DEV" }
-  address_space   = ["10.42.0.0/20"]
+  # Mock-only values; real passwords never go into committed files.
+  vm_admin_password       = "MockOnly-Passw0rd!123"
+  database_admin_password = "MockOnly-DbPassw0rd!456"
+  subscription_id         = "00000000-0000-0000-0000-000000000000"
+  tenant_id               = "22222222-2222-2222-2222-222222222222"
+  naming                  = { unique_suffix = "test1" }
+  project_name            = "metlen"
+  environment             = "lab"
+  naming_tokens           = { business_unit = "IT", department = "PPA", application = "ECM", environment = "DEV" }
+  address_space           = ["10.42.0.0/20"]
   hub_peering = {
     hub_virtual_network_id = "/subscriptions/33333333-3333-3333-3333-333333333333/resourceGroups/rg-hub/providers/Microsoft.Network/virtualNetworks/vnet-hub"
   }

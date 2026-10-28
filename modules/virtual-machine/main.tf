@@ -56,15 +56,20 @@ resource "azurerm_linux_virtual_machine" "this" {
   location                        = var.location
   size                            = var.size
   admin_username                  = var.admin_username
-  disable_password_authentication = true
+  admin_password                  = var.admin_password
+  disable_password_authentication = var.admin_password == null
   network_interface_ids           = [azurerm_network_interface.this.id]
   secure_boot_enabled             = true
   vtpm_enabled                    = true
   tags                            = var.tags
 
-  admin_ssh_key {
-    username   = var.admin_username
-    public_key = var.admin_ssh_public_key
+  dynamic "admin_ssh_key" {
+    for_each = var.admin_ssh_public_key == null ? [] : [var.admin_ssh_public_key]
+
+    content {
+      username   = var.admin_username
+      public_key = admin_ssh_key.value
+    }
   }
 
   os_disk {
@@ -79,6 +84,12 @@ resource "azurerm_linux_virtual_machine" "this" {
     offer     = local.source_image_reference.offer
     sku       = local.source_image_reference.sku
     version   = local.source_image_reference.version
+  }
+
+  # A changed admin_password would replace the VM. Users change the password
+  # inside the OS after first sign-in, so Terraform keeps the initial value.
+  lifecycle {
+    ignore_changes = [admin_password]
   }
 }
 
@@ -109,6 +120,12 @@ resource "azurerm_windows_virtual_machine" "this" {
     offer     = local.source_image_reference.offer
     sku       = local.source_image_reference.sku
     version   = local.source_image_reference.version
+  }
+
+  # A changed admin_password would replace the VM. Users change the password
+  # inside the OS after first sign-in, so Terraform keeps the initial value.
+  lifecycle {
+    ignore_changes = [admin_password]
   }
 }
 

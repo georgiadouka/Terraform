@@ -18,16 +18,19 @@ mock_provider "azurerm" {
 # Every lab input is pinned here so results never depend on a local
 # terraform.tfvars or *.auto.tfvars, which terraform test loads automatically.
 variables {
-  subscription_id       = "00000000-0000-0000-0000-000000000000"
-  tenant_id             = "22222222-2222-2222-2222-222222222222"
-  naming                = { unique_suffix = "test1" }
-  virtual_machines      = {}
-  storage_accounts      = {}
-  premium_file_accounts = {}
-  storage_use_azuread   = true
-  location              = "swedencentral"
-  project_name          = "metlen"
-  environment           = "lab"
+  # Mock-only values; real passwords never go into committed files.
+  vm_admin_password       = "MockOnly-Passw0rd!123"
+  database_admin_password = "MockOnly-DbPassw0rd!456"
+  subscription_id         = "00000000-0000-0000-0000-000000000000"
+  tenant_id               = "22222222-2222-2222-2222-222222222222"
+  naming                  = { unique_suffix = "test1" }
+  virtual_machines        = {}
+  storage_accounts        = {}
+  premium_file_accounts   = {}
+  storage_use_azuread     = true
+  location                = "swedencentral"
+  project_name            = "metlen"
+  environment             = "lab"
   naming_tokens = {
     business_unit = "IT"
     department    = "PPA"

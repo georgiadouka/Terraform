@@ -212,6 +212,21 @@ run "missing_linux_key" {
   expect_failures = [var.admin_ssh_public_key]
 }
 
+run "linux_password_only" {
+  command = plan
+  variables {
+    admin_ssh_public_key = null
+    admin_password       = "MockOnly-Passw0rd!123"
+  }
+  assert {
+    condition = (
+      !azurerm_linux_virtual_machine.this[0].disable_password_authentication &&
+      length(azurerm_linux_virtual_machine.this[0].admin_ssh_key) == 0
+    )
+    error_message = "A Linux VM with only admin_password must enable password sign-in and have no SSH key."
+  }
+}
+
 run "blank_linux_key" {
   command = plan
   variables { admin_ssh_public_key = " " }

@@ -83,6 +83,18 @@ subnet_cidrs = {
   load_balancers = "10.42.9.0/26"
 }
 
+# Initial passwords (lab approach). Every VM and scale set signs in with its
+# admin_username and vm_admin_password (Linux too: no SSH keys), and every
+# PostgreSQL and MySQL server uses database_admin_password. Users change the
+# VM password after first sign-in.
+# Never put real values in this example or any committed file: set them in
+# your git-ignored lab.tfvars, or as TF_VAR_vm_admin_password and
+# TF_VAR_database_admin_password (for example pipeline secret variables).
+# 12+ characters with at least three of lower case, upper case, digits and
+# special characters (VM passwords at most 72).
+# vm_admin_password       = "<set in lab.tfvars or TF_VAR_vm_admin_password>"
+# database_admin_password = "<set in lab.tfvars or TF_VAR_database_admin_password>"
+
 virtual_machines = {
   primary = {
     # Linux or Windows. Changing OS replaces this VM.
@@ -456,7 +468,7 @@ sql_managed_instances = {}
 # }
 
 # One entry per PostgreSQL Flexible Server; an empty map creates none. Each
-# server gets one database and its own generated password, and all servers
+# server gets one database and uses database_admin_password, and all servers
 # share the delegated subnet_cidrs.postgresql subnet (/28 or larger; one address
 # per server, four with HA) and one private DNS zone. Keys are stable logical
 # names; changing a key replaces that server. The smoke test uses the "primary"
@@ -491,7 +503,7 @@ postgresql_servers = {
 }
 
 # One entry per MySQL Flexible Server; an empty map creates none. Each server
-# gets one database and its own generated password, and all servers share the
+# gets one database and uses database_admin_password, and all servers share the
 # delegated subnet_cidrs.mysql subnet (one address per server, two with HA) and
 # one private DNS zone. Keys are stable logical names; changing a key replaces
 # that server. The smoke test uses the "primary" server by default.

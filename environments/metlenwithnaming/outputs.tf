@@ -46,20 +46,10 @@ output "virtual_machines" {
       name               = vm.name
       private_ip_address = vm.private_ip_address
       os_type            = var.virtual_machines[key].os_type
+      admin_username     = var.virtual_machines[key].admin_username
       data_disk_ids      = vm.data_disk_ids
     }
   }
-}
-
-output "vm_ssh_public_keys" {
-  description = "Generated SSH public keys keyed by Linux VM name."
-  value       = { for key, private_key in tls_private_key.vm : key => private_key.public_key_openssh }
-}
-
-output "vm_windows_admin_passwords" {
-  description = "Generated administrator passwords keyed by Windows VM name. Stored in Terraform state; retrieve only when needed."
-  value       = { for key, password in random_password.vm_windows : key => password.result }
-  sensitive   = true
 }
 
 output "virtual_machine_scale_sets" {
@@ -69,23 +59,13 @@ output "virtual_machine_scale_sets" {
       id                   = scale_set.id
       name                 = scale_set.name
       os_type              = scale_set.os_type
+      admin_username       = var.virtual_machine_scale_sets[key].admin_username
       principal_id         = scale_set.principal_id
       autoscale_setting_id = scale_set.autoscale_setting_id
       scaling_mode         = scale_set.scaling_mode
       computer_name_prefix = local.resource_names.virtual_machine_scale_sets[key].computer_name_prefix
     }
   }
-}
-
-output "vmss_ssh_public_keys" {
-  description = "Generated SSH public keys keyed by Linux scale set name."
-  value       = { for key, private_key in tls_private_key.vmss : key => private_key.public_key_openssh }
-}
-
-output "vmss_windows_admin_passwords" {
-  description = "Generated administrator passwords keyed by Windows scale set name. Stored in Terraform state; retrieve only when needed."
-  value       = { for key, password in random_password.vmss_windows : key => password.result }
-  sensitive   = true
 }
 
 output "nat_gateway_id" {
@@ -209,11 +189,7 @@ output "postgresql_servers" {
   }
 }
 
-output "postgresql_administrator_passwords" {
-  description = "Generated administrator passwords keyed by PostgreSQL server name. Stored in Terraform state; retrieve only when needed."
-  value       = { for key, password in random_password.postgresql : key => password.result }
-  sensitive   = true
-}
+
 
 output "mysql_servers" {
   description = "MySQL Flexible Server details keyed by the configured logical server name."
@@ -228,12 +204,6 @@ output "mysql_servers" {
       high_availability_enabled = var.mysql_servers[key].high_availability.enabled
     }
   }
-}
-
-output "mysql_administrator_passwords" {
-  description = "Generated administrator passwords keyed by MySQL server name. Stored in Terraform state; retrieve only when needed."
-  value       = { for key, password in random_password.mysql : key => password.result }
-  sensitive   = true
 }
 
 output "cosmos_db_accounts" {

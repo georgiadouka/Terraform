@@ -67,17 +67,22 @@ resource "azurerm_linux_virtual_machine_scale_set" "this" {
   sku                             = var.size
   instances                       = var.scaling.default_instances
   admin_username                  = var.admin_username
+  admin_password                  = var.admin_password
   computer_name_prefix            = var.computer_name_prefix
-  disable_password_authentication = true
+  disable_password_authentication = var.admin_password == null
   zones                           = length(var.zones) > 0 ? var.zones : null
   upgrade_mode                    = var.upgrade_mode
   secure_boot_enabled             = true
   vtpm_enabled                    = true
   tags                            = var.tags
 
-  admin_ssh_key {
-    username   = var.admin_username
-    public_key = var.admin_ssh_public_key
+  dynamic "admin_ssh_key" {
+    for_each = var.admin_ssh_public_key == null ? [] : [var.admin_ssh_public_key]
+
+    content {
+      username   = var.admin_username
+      public_key = admin_ssh_key.value
+    }
   }
 
   identity {
@@ -123,8 +128,10 @@ resource "azurerm_linux_virtual_machine_scale_set" "this" {
     }
   }
 
+  # A changed admin_password would replace the scale set; instances keep the
+  # initial password, which users change inside the OS.
   lifecycle {
-    ignore_changes = [instances]
+    ignore_changes = [instances, admin_password]
   }
 }
 
@@ -188,8 +195,10 @@ resource "azurerm_windows_virtual_machine_scale_set" "this" {
     }
   }
 
+  # A changed admin_password would replace the scale set; instances keep the
+  # initial password, which users change inside the OS.
   lifecycle {
-    ignore_changes = [instances]
+    ignore_changes = [instances, admin_password]
   }
 }
 
