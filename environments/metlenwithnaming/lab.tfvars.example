@@ -251,13 +251,21 @@ load_balancers = {}
 #   }
 # }
 
-# One shared gateway is created when VM, VMSS, or Container Apps is configured and is
-# associated with the VM subnet and every Container Apps environment subnet.
+# Optional outbound NAT Gateway, associated per subnet. It (and its Public IP)
+# is created only when subnets lists at least one subnet key: virtual_machines,
+# web_app_integration, function_integration, private_endpoints, postgresql,
+# mysql, load_balancers or container_apps/<environment key>. Leave subnets
+# empty (or remove this block) in hub-and-spoke designs where egress goes
+# through the hub, for example with a route_tables entry that sends 0.0.0.0/0
+# to the hub firewall. New Azure subnets have no default outbound access, so
+# VMs and Container Apps (image pulls) need one of the two, or a route table
+# managed outside these templates.
 # The gateway is M-AZU-NGW-<BU>-<DPT>-<APP>-<ENV>-<REG>-<sequence> and its
 # Public IP M-AZU-PIP-<BU>-<DPT>-<APP>-<ENV>-<REG>-<sequence>.
 nat_gateway = {
   sequence                = "00"
   idle_timeout_in_minutes = 4
+  subnets                 = ["virtual_machines", "container_apps/primary"]
 }
 
 # NSGs are off. Each entry creates
@@ -293,8 +301,10 @@ network_security_groups = {}
 # Route tables are off. Each entry creates
 # M-AZU-UDR-<BU>-<DPT>-<APP>-<classification>-<ENV>-<REG>[-<sequence>] and
 # associates it with the listed subnet keys (same keys as NSGs). A 0.0.0.0/0
-# route overrides NAT Gateway egress for its subnets. A subnet may appear in
-# only one table. classification and sequence work as for NSGs.
+# route overrides NAT Gateway egress for its subnets (Terraform warns when a
+# subnet has both). In hub-and-spoke, an egress table like the example below
+# replaces the NAT Gateway. A subnet may appear in only one table.
+# classification and sequence work as for NSGs.
 route_tables = {}
 
 # route_tables = {

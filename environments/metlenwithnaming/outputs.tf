@@ -69,7 +69,7 @@ output "virtual_machine_scale_sets" {
 }
 
 output "nat_gateway_id" {
-  description = "Shared NAT Gateway ID when the VM, VMSS, or Container Apps is enabled."
+  description = "Shared NAT Gateway ID, or null when nat_gateway.subnets is empty."
   value       = try(module.nat_gateway[0].id, null)
 }
 
@@ -91,7 +91,7 @@ output "load_balancers" {
 }
 
 output "nat_gateway_public_ip_address" {
-  description = "Shared static outbound IPv4 address for the VM/VMSS and Container Apps subnets."
+  description = "Static outbound IPv4 address of the subnets in nat_gateway.subnets, or null when no NAT Gateway is created."
   value       = try(module.nat_gateway[0].public_ip_address, null)
 }
 

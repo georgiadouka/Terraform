@@ -746,6 +746,7 @@ run "nat_gateway_and_public_ip_share_the_nn" {
   command = plan
   variables {
     virtual_machine_scale_sets = { app = {} }
+    nat_gateway                = { subnets = ["virtual_machines"] }
   }
   assert {
     condition = (

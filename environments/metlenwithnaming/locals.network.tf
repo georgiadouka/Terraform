@@ -14,13 +14,18 @@ locals {
 
   virtual_machine_subnet_required = length(var.virtual_machines) > 0 || length(var.virtual_machine_scale_sets) > 0
 
-  nat_gateway_required = local.virtual_machine_subnet_required || length(var.container_apps_environments) > 0
+  # Subnets whose outbound traffic leaves through the NAT Gateway. Opt-in per
+  # subnet; with none listed no NAT Gateway or Public IP is created. New Azure
+  # subnets have no default outbound access, so VMs and Container Apps then
+  # need a 0.0.0.0/0 route, for example to a hub firewall.
+  nat_gateway_subnet_keys = var.nat_gateway.subnets
+  nat_gateway_required    = length(local.nat_gateway_subnet_keys) > 0
 
-  # Subnets whose outbound traffic leaves through the NAT Gateway.
-  nat_gateway_subnet_keys = concat(
-    local.virtual_machine_subnet_required ? ["virtual_machines"] : [],
-    [for environment_key in keys(var.container_apps_environments) : "container_apps/${environment_key}"]
-  )
+  # Subnets with a 0.0.0.0/0 route, which takes precedence over the NAT Gateway.
+  default_route_subnet_keys = flatten([
+    for route_table in values(var.route_tables) : route_table.subnets
+    if anytrue([for route in values(route_table.routes) : route.address_prefix == "0.0.0.0/0"])
+  ])
 
   subnet_enabled = {
     private_endpoints    = local.private_endpoints_required

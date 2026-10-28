@@ -174,6 +174,15 @@ module "nat_gateway" {
   tags                    = local.common_tags
 }
 
+# A 0.0.0.0/0 user-defined route takes precedence over the NAT Gateway
+# (warning only).
+check "nat_gateway_bypassed" {
+  assert {
+    condition     = length(setintersection(toset(local.nat_gateway_subnet_keys), toset(local.default_route_subnet_keys))) == 0
+    error_message = "These nat_gateway.subnets entries also have a route table with a 0.0.0.0/0 route, which takes precedence, so the NAT Gateway is not used for them (but is still billed): ${join(", ", setintersection(toset(local.nat_gateway_subnet_keys), toset(local.default_route_subnet_keys)))}."
+  }
+}
+
 module "network_security_group" {
   for_each = var.network_security_groups
   source   = "../../modules/network-security-group"

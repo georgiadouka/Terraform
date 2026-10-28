@@ -413,10 +413,10 @@ run "multiple_vm_scale_sets" {
       length(distinct([for names in values(local.resource_names.virtual_machine_scale_sets) : names.name])) == 3 &&
       length(distinct([for names in values(local.resource_names.virtual_machine_scale_sets) : names.autoscale_setting_name])) == 3 &&
       local.subnet_enabled.virtual_machines &&
-      length(module.nat_gateway) == 1 &&
+      length(module.nat_gateway) == 0 &&
       length(module.virtual_machine) == 0
     )
-    error_message = "Each scale set entry must have its own names and hostname prefix while sharing the VM subnet and NAT Gateway."
+    error_message = "Each scale set entry must have its own names and hostname prefix while sharing the VM subnet; no NAT Gateway unless nat_gateway.subnets lists it."
   }
 }
 
@@ -437,6 +437,7 @@ run "vmss_only_keeps_shared_network" {
     virtual_machine_scale_sets = { app = {} }
     function_apps              = {}
     app_service_plans          = {}
+    nat_gateway                = { subnets = ["virtual_machines"] }
   }
   assert {
     condition = (
@@ -446,8 +447,93 @@ run "vmss_only_keeps_shared_network" {
       length(module.virtual_machine) == 0 &&
       length(module.virtual_machine_scale_set) == 1
     )
-    error_message = "A VMSS-only lab must retain the shared VM subnet and NAT Gateway without creating the standalone VM."
+    error_message = "A VMSS-only lab must retain the shared VM subnet and its NAT Gateway without creating the standalone VM."
   }
+}
+
+run "nat_gateway_is_opt_in" {
+  command = plan
+  assert {
+    condition = (
+      !local.nat_gateway_required &&
+      length(module.nat_gateway) == 0 &&
+      output.nat_gateway_id == null &&
+      output.nat_gateway_public_ip_address == null
+    )
+    error_message = "Without nat_gateway.subnets no NAT Gateway or Public IP may be created, even when VMs exist."
+  }
+}
+
+run "nat_gateway_per_subnet" {
+  command = plan
+  variables {
+    nat_gateway = { subnets = ["virtual_machines", "function_integration"] }
+  }
+  assert {
+    condition = (
+      length(module.nat_gateway) == 1 &&
+      toset(local.nat_gateway_subnet_keys) == toset(["virtual_machines", "function_integration"])
+    )
+    error_message = "The NAT Gateway must be associated with exactly the subnets listed in nat_gateway.subnets."
+  }
+}
+
+run "hub_and_spoke_egress_without_nat_gateway" {
+  command = plan
+  variables {
+    route_tables = {
+      egress = {
+        subnets = ["virtual_machines"]
+        routes = {
+          default-to-hub = {
+            address_prefix         = "0.0.0.0/0"
+            next_hop_type          = "VirtualAppliance"
+            next_hop_in_ip_address = "10.0.0.4"
+          }
+        }
+      }
+    }
+  }
+  assert {
+    condition     = length(module.nat_gateway) == 0 && length(module.route_table) == 1
+    error_message = "A spoke that routes 0.0.0.0/0 to the hub must deploy without a NAT Gateway."
+  }
+}
+
+run "warn_when_route_bypasses_nat_gateway" {
+  command = plan
+  variables {
+    nat_gateway = { subnets = ["virtual_machines"] }
+    route_tables = {
+      egress = {
+        subnets = ["virtual_machines"]
+        routes = {
+          default-to-hub = {
+            address_prefix         = "0.0.0.0/0"
+            next_hop_type          = "VirtualAppliance"
+            next_hop_in_ip_address = "10.0.0.4"
+          }
+        }
+      }
+    }
+  }
+  expect_failures = [check.nat_gateway_bypassed]
+}
+
+run "reject_nat_gateway_subnet_not_deployed" {
+  command = plan
+  variables {
+    nat_gateway = { subnets = ["mysql"] }
+  }
+  expect_failures = [var.nat_gateway]
+}
+
+run "reject_duplicate_nat_gateway_subnet" {
+  command = plan
+  variables {
+    nat_gateway = { subnets = ["virtual_machines", "virtual_machines"] }
+  }
+  expect_failures = [var.nat_gateway]
 }
 
 run "disabled_services" {
@@ -1153,11 +1239,11 @@ run "container_apps_single_environment" {
       local.planned_subnet_address_prefixes["container_apps/primary"] == ["10.42.2.0/27"] &&
       !contains(keys(local.subnets), "container_apps/spare") &&
       local.planned_subnet_address_prefixes["container_apps/spare"] == ["10.42.3.0/27"] &&
-      contains(local.nat_gateway_subnet_keys, "container_apps/primary") &&
+      length(module.nat_gateway) == 0 &&
       length(output.container_apps_environments["primary"].dedicated_workload_profile_names) == 0 &&
       output.container_apps_environments["primary"].apps["hello"].workload_profile_name == "Consumption"
     )
-    error_message = "An environment must use the subnet_cidrs.container_apps range with its own key, behind the NAT Gateway, while unused ranges are only reserved."
+    error_message = "An environment must use the subnet_cidrs.container_apps range with its own key, with no NAT Gateway unless listed, while unused ranges are only reserved."
   }
 }
 
@@ -1189,6 +1275,7 @@ run "multiple_container_apps_environments" {
         }
       }
     }
+    nat_gateway = { subnets = ["container_apps/primary", "container_apps/jobs"] }
   }
   assert {
     condition = (

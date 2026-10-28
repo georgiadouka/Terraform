@@ -502,10 +502,11 @@ variable "load_balancers" {
 }
 
 variable "nat_gateway" {
-  description = "Shared outbound NAT Gateway settings for the VM, VMSS, and Container Apps subnets. The gateway is named M-AZU-NGW-<BU>-<DPT>-<APP>-<ENV>-<REG>-<sequence> and its Public IP M-AZU-PIP-<BU>-<DPT>-<APP>-<ENV>-<REG>-<sequence>; sequence is the two-digit NN."
+  description = "Optional shared outbound NAT Gateway. It is created only when subnets lists at least one subnet key (for example virtual_machines or container_apps/primary); the default is none, which suits hub-and-spoke designs where egress goes through the hub (for example a route_tables entry with 0.0.0.0/0 to the hub firewall). Any deployed subnet except sql_managed_instance can be listed, each at most once. The gateway is named M-AZU-NGW-<BU>-<DPT>-<APP>-<ENV>-<REG>-<sequence> and its Public IP M-AZU-PIP-<BU>-<DPT>-<APP>-<ENV>-<REG>-<sequence>; sequence is the two-digit NN."
   type = object({
     sequence                = optional(string, "00")
     idle_timeout_in_minutes = optional(number, 4)
+    subnets                 = optional(list(string), [])
   })
   default  = {}
   nullable = false
@@ -513,6 +514,19 @@ variable "nat_gateway" {
   validation {
     condition     = can(regex("^[0-9]{2}$", var.nat_gateway.sequence))
     error_message = "nat_gateway.sequence must be two digits, for example 00."
+  }
+
+  validation {
+    condition = alltrue([
+      for subnet_key in var.nat_gateway.subnets :
+      subnet_key != "sql_managed_instance" && contains(local.deployed_subnet_keys, subnet_key)
+    ])
+    error_message = "Every nat_gateway.subnets entry must be a deployed subnet key other than sql_managed_instance. Deployed subnet keys: ${join(", ", local.deployed_subnet_keys)}."
+  }
+
+  validation {
+    condition     = length(var.nat_gateway.subnets) == length(distinct(var.nat_gateway.subnets))
+    error_message = "A subnet can be listed only once in nat_gateway.subnets."
   }
 }
 
