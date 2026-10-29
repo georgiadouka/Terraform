@@ -237,8 +237,30 @@ output "container_apps_environments" {
   }
 }
 
+output "databricks_workspaces" {
+  description = "Azure Databricks workspace details keyed by the configured logical workspace name. workspace_url is the host for the databricks provider; access_connector_id is the Unity Catalog storage credential identity."
+  value = {
+    for key, workspace in module.databricks : key => {
+      id                               = workspace.id
+      name                             = workspace.name
+      workspace_url                    = workspace.workspace_url
+      workspace_id                     = workspace.workspace_id
+      network_access                   = workspace.network_access
+      managed_resource_group_name      = workspace.managed_resource_group_name
+      root_storage_account_name        = workspace.root_storage_account_name
+      network_security_group_name      = workspace.network_security_group_name
+      host_subnet_id                   = module.network.subnet_ids["databricks/${key}/host"]
+      container_subnet_id              = module.network.subnet_ids["databricks/${key}/container"]
+      access_connector_id              = workspace.access_connector_id
+      access_connector_principal_id    = workspace.access_connector_principal_id
+      browser_authentication_workspace = var.databricks_workspaces[key].browser_authentication_workspace
+      delete_lock_id                   = try(azurerm_management_lock.databricks_browser_authentication[key].id, null)
+    }
+  }
+}
+
 output "log_analytics_workspace_id" {
-  description = "Shared Log Analytics workspace ID when any Container Apps environment exists."
+  description = "Shared Log Analytics workspace ID when any Container Apps environment or Databricks diagnostic setting exists."
   value       = try(module.log_analytics[0].id, null)
 }
 
@@ -353,6 +375,12 @@ output "private_endpoint_ids" {
     }
     function_storage = {
       for app_key, endpoints in module.function_storage_private_endpoints : app_key => endpoints.ids
+    }
+    databricks_workspaces = {
+      for workspace_key, workspace in var.databricks_workspaces : workspace_key => {
+        databricks_ui_api      = try(module.private_endpoints["databricks/${workspace_key}/databricks_ui_api"].id, null)
+        browser_authentication = try(module.databricks_browser_authentication_private_endpoint["databricks/${workspace_key}/browser_authentication"].id, null)
+      }
     }
   }
 }

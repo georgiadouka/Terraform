@@ -163,7 +163,7 @@ variable "address_space" {
 }
 
 variable "subnet_cidrs" {
-  description = "CIDR prefix for each lab subnet. container_apps maps each Container Apps environment key to its own range; load_balancers is one range shared by every load balancer frontend. Ranges are reserved and overlap-checked even when unused; a subnet is created only when something uses it."
+  description = "CIDR prefix for each lab subnet. container_apps maps each Container Apps environment key to its own range; databricks maps each Databricks workspace key to its host and container ranges (/28 or larger, /26 or larger recommended); load_balancers is one range shared by every load balancer frontend. Ranges are reserved and overlap-checked even when unused; a subnet is created only when something uses it."
   type = object({
     private_endpoints    = string
     virtual_machines     = string
@@ -173,7 +173,11 @@ variable "subnet_cidrs" {
     mysql                = string
     sql_managed_instance = string
     container_apps       = optional(map(string), {})
-    load_balancers       = optional(string)
+    databricks = optional(map(object({
+      host      = string
+      container = string
+    })), {})
+    load_balancers = optional(string)
   })
   default = {
     private_endpoints    = "10.42.0.0/24"
@@ -198,7 +202,8 @@ variable "subnet_cidrs" {
           var.subnet_cidrs.sql_managed_instance
         ],
         var.subnet_cidrs.load_balancers == null ? [] : [var.subnet_cidrs.load_balancers],
-        values(var.subnet_cidrs.container_apps)
+        values(var.subnet_cidrs.container_apps),
+        flatten([for cidrs in values(var.subnet_cidrs.databricks) : [cidrs.host, cidrs.container]])
       ) :
       can(cidrnetmask(prefix)) &&
       can(cidrhost(prefix, 0)) &&
@@ -234,6 +239,26 @@ variable "subnet_cidrs" {
   validation {
     condition     = var.subnet_cidrs.load_balancers == null || try(tonumber(split("/", var.subnet_cidrs.load_balancers)[1]) <= 29, false)
     error_message = "subnet_cidrs.load_balancers must be /29 or larger."
+  }
+
+  validation {
+    condition = alltrue([
+      for key in keys(var.subnet_cidrs.databricks) :
+      can(regex("^[a-z]([a-z0-9-]{0,10}[a-z0-9])?$", key)) && !strcontains(key, "--")
+    ])
+    error_message = "subnet_cidrs.databricks keys must match Databricks workspace keys: 1-12 lowercase alphanumeric or hyphen characters, starting with a letter, ending with a letter or digit, without consecutive hyphens."
+  }
+
+  # Azure Databricks accepts /28 and recommends /26 or larger: every cluster
+  # node takes one address in each subnet.
+  validation {
+    condition = alltrue(flatten([
+      for cidrs in values(var.subnet_cidrs.databricks) : [
+        for prefix in [cidrs.host, cidrs.container] :
+        try(tonumber(split("/", prefix)[1]) <= 28, false)
+      ]
+    ]))
+    error_message = "Every subnet_cidrs.databricks host and container range must be /28 or larger (/26 or larger is recommended)."
   }
 }
 
@@ -531,7 +556,7 @@ variable "nat_gateway" {
 }
 
 variable "log_analytics_workspace" {
-  description = "Settings for the Log Analytics workspace shared by every Container Apps environment (created only when container_apps_environments is non-empty). The workspace is named M-AZU-LAW-<BU>-<DPT>-<APP>-<ENV>-<REG>-<sequence>; sequence is the two-digit NN."
+  description = "Settings for the Log Analytics workspace shared by every Container Apps environment and by the diagnostic settings of Databricks workspaces (created only when container_apps_environments is non-empty or a databricks_workspaces entry has diagnostics enabled). The workspace is named M-AZU-LAW-<BU>-<DPT>-<APP>-<ENV>-<REG>-<sequence>; sequence is the two-digit NN."
   type = object({
     sequence = optional(string, "00")
   })
@@ -590,21 +615,22 @@ variable "network_security_groups" {
     condition = (
       length(distinct(concat(
         [for nsg in values(var.network_security_groups) : "${nsg.classification}-${coalesce(nsg.sequence, "none")}"],
-        [for instance in values(var.sql_managed_instances) : "PRV-${coalesce(instance.network_sequence, "none")}"]
+        [for instance in values(var.sql_managed_instances) : "PRV-${coalesce(instance.network_sequence, "none")}"],
+        [for workspace in values(var.databricks_workspaces) : "PRV-${coalesce(workspace.network_sequence, workspace.sequence)}"]
       ))) ==
-      length(var.network_security_groups) + length(var.sql_managed_instances)
+      length(var.network_security_groups) + length(var.sql_managed_instances) + length(var.databricks_workspaces)
     )
-    error_message = "Network security group names must be unique: give each group with the same classification its own sequence (including the sql_managed_instances network_sequence)."
+    error_message = "Network security group names must be unique: give each group with the same classification its own sequence (including the sql_managed_instances network_sequence and the databricks_workspaces network_sequence, which defaults to the workspace sequence)."
   }
 
   validation {
     condition = alltrue(flatten([
       for nsg in values(var.network_security_groups) : [
         for subnet_key in nsg.subnets :
-        subnet_key != "sql_managed_instance" && contains(local.deployed_subnet_keys, subnet_key)
+        subnet_key != "sql_managed_instance" && !startswith(subnet_key, "databricks/") && contains(local.deployed_subnet_keys, subnet_key)
       ]
     ]))
-    error_message = "Every network_security_groups subnets entry must be a deployed subnet key other than sql_managed_instance. Deployed subnet keys: ${join(", ", local.deployed_subnet_keys)}."
+    error_message = "Every network_security_groups subnets entry must be a deployed subnet key other than sql_managed_instance and the databricks/ subnets, whose modules attach their own group. Deployed subnet keys: ${join(", ", local.deployed_subnet_keys)}."
   }
 
   validation {
@@ -951,11 +977,15 @@ variable "container_apps_environments" {
     condition = (
       length(distinct(concat(
         [for environment in values(var.container_apps_environments) : environment.subnet_number],
-        [for subnet_key, enabled in local.subnet_enabled : local.subnet_numbers[subnet_key] if enabled]
+        [for subnet_key, enabled in local.subnet_enabled : local.subnet_numbers[subnet_key] if enabled],
+        flatten([for workspace in values(var.databricks_workspaces) : [workspace.host_subnet_number, workspace.container_subnet_number]])
       ))) ==
-      length(var.container_apps_environments) + length([for enabled in values(local.subnet_enabled) : enabled if enabled])
+      length(var.container_apps_environments) + length([for enabled in values(local.subnet_enabled) : enabled if enabled]) + 2 * length(var.databricks_workspaces)
     )
-    error_message = "Every container_apps_environments subnet_number must be unique and must not reuse the number of another deployed subnet (${join(", ", [for subnet_key, enabled in local.subnet_enabled : "${subnet_key}=${local.subnet_numbers[subnet_key]}" if enabled])})."
+    error_message = "Every container_apps_environments subnet_number must be unique and must not reuse the number of another deployed subnet (${join(", ", concat(
+      [for subnet_key, enabled in local.subnet_enabled : "${subnet_key}=${local.subnet_numbers[subnet_key]}" if enabled],
+      flatten([for key, workspace in var.databricks_workspaces : ["databricks/${key}/host=${workspace.host_subnet_number}", "databricks/${key}/container=${workspace.container_subnet_number}"]])
+    ))})."
   }
 
   validation {
@@ -1096,6 +1126,146 @@ variable "cosmos_db_accounts" {
       )
     ])
     error_message = "Every cosmos_db_accounts database_name and container_name (the entry key when unset) must meet the rules of its API: NoSQL and Gremlin 1-255 characters without / \\ # ? and no trailing space; MongoDB 1-63 letters, digits, hyphens and underscores; Cassandra a letter followed by up to 47 letters, digits and underscores (no hyphens, so keys with hyphens need explicit names); Table container a letter followed by 2-62 letters and digits."
+  }
+}
+
+variable "databricks_workspaces" {
+  description = "Premium Azure Databricks workspaces keyed by a stable logical name, injected into the lab VNet with secure cluster connectivity (no public IPs on clusters). Defaults to none. Each workspace uses the subnet_cidrs.databricks entry with the same key for its host and container subnets (delegated to Azure Databricks and numbered host_subnet_number and container_subnet_number in the METLEN subnet name <DPT><APP><ENV>PRV<NN>), and gets its own NSG on both subnets. network_access is private (default: databricks_ui_api Private Endpoint for users and clusters, public access disabled), backend_private (Private Endpoint for clusters only, users over the internet) or public. One private workspace per region hosts the browser_authentication Private Endpoint that browser sign-in to every private workspace uses; following Microsoft's guidance, it is a dedicated workspace (browser_authentication_workspace = true, network_access private) that runs no workloads, gets no databricks_ui_api endpoint or Access Connector, and is protected by a CanNotDelete lock unless delete_lock = false. Without one, sign-in to private workspaces works only when a hub already provides the endpoint (Terraform warns). Clusters need outbound internet access: list both subnets in nat_gateway.subnets or route them to a hub firewall. Names: workspace and Access Connector M-AZU-DBR-<BU>-<DPT>-<APP>-<ENV>-<REG>-<sequence>, managed resource group M-AZU-RGP-<BU>-<DPT>-<APP>-<ENV>-<REG>-<sequence>, NSG M-AZU-NSG-<BU>-<DPT>-<APP>-PRV-<ENV>-<REG>-<network_sequence, default sequence>, root (DBFS) storage mazusoa...<storage_sequence> (null lets Azure generate it). access_connector creates the Unity Catalog managed identity and grants it Storage Blob Data Contributor on the listed storage_accounts keys; diagnostics sends the workspace resource logs to the shared Log Analytics workspace: every category (allLogs, the only category group Azure Databricks supports) or only the listed categories."
+  type = map(object({
+    sequence                         = optional(string, "00")
+    sku                              = optional(string, "premium")
+    network_access                   = optional(string, "private")
+    browser_authentication_workspace = optional(bool, false)
+    delete_lock                      = optional(bool, true)
+    host_subnet_number               = optional(number, 10)
+    container_subnet_number          = optional(number, 11)
+    network_sequence                 = optional(string)
+    storage_sequence                 = optional(string)
+    access_connector = optional(object({
+      enabled          = optional(bool, true)
+      storage_accounts = optional(list(string), [])
+    }), {})
+    diagnostics = optional(object({
+      enabled    = optional(bool, true)
+      categories = optional(list(string), [])
+    }), {})
+  }))
+  default  = {}
+  nullable = false
+
+  validation {
+    condition = alltrue([
+      for key in keys(var.databricks_workspaces) :
+      can(regex("^[a-z]([a-z0-9-]{0,10}[a-z0-9])?$", key)) && !strcontains(key, "--")
+    ])
+    error_message = "databricks_workspaces keys must be 1-12 lowercase alphanumeric or hyphen characters, start with a letter, end with a letter or digit, and not contain consecutive hyphens."
+  }
+
+  validation {
+    condition = alltrue([
+      for workspace in values(var.databricks_workspaces) :
+      can(regex("^[0-9]{2}$", workspace.sequence)) &&
+      (workspace.network_sequence == null || can(regex("^[0-9]{2}$", workspace.network_sequence))) &&
+      (workspace.storage_sequence == null || can(regex("^[0-9]{2}$", workspace.storage_sequence)))
+    ])
+    error_message = "Every databricks_workspaces sequence must be two digits, for example 00, and every network_sequence and storage_sequence null or two digits."
+  }
+
+  validation {
+    condition     = length(distinct([for workspace in values(var.databricks_workspaces) : workspace.sequence])) == length(var.databricks_workspaces)
+    error_message = "Every databricks_workspaces entry needs a unique sequence because workspace and managed resource group names must be unique. Current sequences: ${join(", ", [for key, workspace in var.databricks_workspaces : "${key}=${workspace.sequence}"])}."
+  }
+
+  # Standard tier workspaces cannot be created since 1 April 2026.
+  validation {
+    condition = alltrue([
+      for workspace in values(var.databricks_workspaces) :
+      contains(["premium", "trial"], workspace.sku) &&
+      contains(["private", "backend_private", "public"], workspace.network_access) &&
+      length(distinct(workspace.diagnostics.categories)) == length(workspace.diagnostics.categories) &&
+      alltrue([for category in workspace.diagnostics.categories : can(regex("^[A-Za-z][A-Za-z0-9]*$", category))])
+    ])
+    error_message = "Every databricks_workspaces entry needs sku premium or trial, network_access private, backend_private or public, and unique diagnostics.categories names such as clusters or unityCatalog (empty sends every category)."
+  }
+
+  validation {
+    condition = (
+      length([for workspace in values(var.databricks_workspaces) : workspace if workspace.browser_authentication_workspace]) <= 1 &&
+      alltrue([
+        for workspace in values(var.databricks_workspaces) :
+        !workspace.browser_authentication_workspace || (
+          workspace.network_access == "private" &&
+          length(workspace.access_connector.storage_accounts) == 0
+        )
+      ])
+    )
+    error_message = "At most one databricks_workspaces entry can be the browser_authentication_workspace; it must use network_access = \"private\" and list no access_connector.storage_accounts (it runs no workloads)."
+  }
+
+  validation {
+    condition = alltrue([
+      for key in keys(var.databricks_workspaces) :
+      contains(keys(var.subnet_cidrs.databricks), key)
+    ])
+    error_message = "Every databricks_workspaces key needs a subnet_cidrs.databricks entry with the same key, for example subnet_cidrs = { databricks = { analytics = { host = \"10.42.8.0/26\", container = \"10.42.8.64/26\" } } }."
+  }
+
+  validation {
+    condition = alltrue(flatten([
+      for workspace in values(var.databricks_workspaces) : [
+        for number in [workspace.host_subnet_number, workspace.container_subnet_number] :
+        number >= 1 && number <= 99 && floor(number) == number
+      ]
+    ]))
+    error_message = "databricks_workspaces host_subnet_number and container_subnet_number must be whole numbers from 1 to 99 (the two-digit NN of the METLEN subnet name)."
+  }
+
+  # Fixed subnet roles keep their numbers reserved even when unused, so this
+  # check needs no reference to the enabled subnets (that would form a cycle
+  # through the Private Endpoint catalog). Clashes with Container Apps
+  # environments are checked in container_apps_environments.
+  validation {
+    condition = (
+      length(distinct(concat(
+        flatten([for workspace in values(var.databricks_workspaces) : [workspace.host_subnet_number, workspace.container_subnet_number]]),
+        values(local.subnet_numbers)
+      ))) ==
+      2 * length(var.databricks_workspaces) + length(local.subnet_numbers)
+    )
+    error_message = "Every databricks_workspaces host_subnet_number and container_subnet_number must be unique and must not reuse a number reserved for a fixed subnet (${join(", ", [for subnet_key, number in local.subnet_numbers : "${subnet_key}=${number}"])})."
+  }
+
+  validation {
+    condition = (
+      length(distinct(concat(
+        [for workspace in values(var.databricks_workspaces) : workspace.storage_sequence if workspace.storage_sequence != null],
+        [for account in values(var.storage_accounts) : account.sequence],
+        [for account in values(var.premium_file_accounts) : account.sequence],
+        [for app in values(var.function_apps) : app.storage_sequence]
+      ))) ==
+      length([for workspace in values(var.databricks_workspaces) : workspace if workspace.storage_sequence != null]) +
+      length(var.storage_accounts) + length(var.premium_file_accounts) + length(var.function_apps)
+    )
+    error_message = "Storage Account names must be unique, so every databricks_workspaces storage_sequence must differ from the others and from every storage_accounts and premium_file_accounts sequence and function_apps storage_sequence."
+  }
+
+  validation {
+    condition = alltrue(flatten([
+      for workspace in values(var.databricks_workspaces) : [
+        for account_key in workspace.access_connector.storage_accounts :
+        workspace.access_connector.enabled && contains(keys(var.storage_accounts), account_key)
+      ]
+    ]))
+    error_message = "databricks_workspaces access_connector.storage_accounts entries must be storage_accounts keys, and need access_connector.enabled = true."
+  }
+
+  # Azure Databricks VNet injection requires a /16 to /24 virtual network.
+  validation {
+    condition = length(var.databricks_workspaces) == 0 || alltrue([
+      for prefix in var.address_space :
+      try(tonumber(split("/", prefix)[1]) >= 16 && tonumber(split("/", prefix)[1]) <= 24, false)
+    ])
+    error_message = "Azure Databricks VNet injection requires every address_space prefix to be between /16 and /24."
   }
 }
 

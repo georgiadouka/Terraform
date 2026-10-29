@@ -281,6 +281,10 @@ When a parent's name changes, its endpoints follow automatically.
 | Container Apps environment | `container_apps_environments[<key>].name` | Full | `M-AZU-CEV-IT-PPA-ECM-DEV-SWE-00` |
 | Container Apps environment subnet | `container_apps_environments[<key>].subnet_name` | Subnet | `PPAECMDEVPRV09` |
 | Container Apps | `container_apps_environments[<key>].apps[<app>]` | Lowercase | `m-azu-cap-it-ppa-ecm-dev-swe-00` |
+| Databricks workspace / Access Connector | `databricks_workspaces[<key>].name` / `.access_connector_name` | Full | `M-AZU-DBR-IT-PPA-ECM-DEV-SWE-00` (both) |
+| Databricks managed resource group | `databricks_workspaces[<key>].managed_resource_group_name` | Full (RGP with the workspace NN) | `M-AZU-RGP-IT-PPA-ECM-DEV-SWE-00` |
+| Databricks root (DBFS) storage | `databricks_workspaces[<key>].root_storage_account_name` (null without `storage_sequence`) | Compact | `mazusoaitppaecmdevswe08` |
+| Databricks NSG / subnets | `databricks_workspaces[<key>].network_security_group_name`, `.host_subnet_name`, `.container_subnet_name` | Network / Subnet | `M-AZU-NSG-IT-PPA-ECM-PRV-DEV-SWE-00`, `PPAECMDEVPRV10`, `PPAECMDEVPRV11` |
 | Load Balancer | `load_balancers[<key>].name` | Full | `M-AZU-LBL-IT-PPA-ECM-DEV-SWE-00` |
 | Load Balancer parts | `load_balancers[<key>].frontend_ip_configuration_name`, … | Fixed / key | `frontend`, `backend`, `http` |
 | NAT Gateway / its Public IP | `nat_gateway` / `nat_public_ip` (NN from `nat_gateway.sequence`) | Full | `M-AZU-NGW-IT-PPA-ECM-DEV-SWE-00` / `M-AZU-PIP-IT-PPA-ECM-DEV-SWE-00` |

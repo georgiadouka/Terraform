@@ -121,6 +121,7 @@ Limits are taken from Microsoft Learn.
 |---|---|---|---|---|
 | Container Registry | ACR | Global | 5–50, letters and digits only | Lowercase-alphanumeric |
 | Cosmos DB account | CDB | Global | 3–44, lowercase, digits, hyphens | Lowercase-hyphenated |
+| Azure Databricks workspace | DBR (chosen 2026-10-29) | Resource group | 3–64, letters, digits, underscores, hyphens | Full |
 | MySQL Flexible Server | MYS | Global | 3–63, lowercase, digits, hyphens | Lowercase-hyphenated |
 | PostgreSQL Flexible Server | PGS | Global | 3–63, lowercase, digits, hyphens | Lowercase-hyphenated |
 | Log Analytics workspace | LAW | Resource group | 4–63, letters, digits, hyphens | Full |
@@ -213,7 +214,7 @@ then, and how the Terraform implementation applies them, are recorded in
 
 | Finding | Status |
 |---|---|
-| R-16, R-30 (missing codes) | Partly resolved. Agreed on 2026-10-28: `LAW` (Log Analytics workspace), `PIP` (Public IP) and `NGW` (NAT Gateway), as suggested in Section 5, plus `SMI` (SQL Managed Instance) and `SEL` (SQL Elastic Pool). All five still need adding to the naming register by METLEN. `ACR`, `CDB`, `MYS` and `PGS` remain working assumptions. |
+| R-16, R-30 (missing codes) | Partly resolved. Agreed on 2026-10-28: `LAW` (Log Analytics workspace), `PIP` (Public IP) and `NGW` (NAT Gateway), as suggested in Section 5, plus `SMI` (SQL Managed Instance) and `SEL` (SQL Elastic Pool). All five still need adding to the naming register by METLEN. `DBR` (Azure Databricks) was chosen on 2026-10-29 and also needs adding. `ACR`, `CDB`, `MYS` and `PGS` remain working assumptions. |
 | R-28, D-04 (SQL database name) | Resolved differently: database names (Azure SQL, PostgreSQL, MySQL, Cosmos DB) are chosen by the application and follow no convention; D-04 now only concerns the server code. Blob containers and file shares follow the same rule. |
 | R-21 (VM dependants) | Open. VMs, scale sets, NICs and disks still use the sample naming until the server naming standard is referenced. |
 | All other findings and Section 6 questions | Open. |

@@ -115,8 +115,46 @@ locals {
         subresource = pair[1]
         dns_zone    = "privatelink.${pair[1]}.core.windows.net"
       }
+    },
+    # One databricks_ui_api endpoint per private or backend_private workload
+    # workspace serves both users (front-end) and clusters (back-end) because
+    # it sits in the workspace VNet. The browser authentication workspace
+    # must not have one.
+    {
+      for workspace_key, workspace in var.databricks_workspaces :
+      "databricks/${workspace_key}/databricks_ui_api" => {
+        enabled     = workspace.network_access != "public" && !workspace.browser_authentication_workspace
+        deployed_by = "private_endpoints"
+        target      = "databricks/${workspace_key}"
+        subresource = "databricks_ui_api"
+        dns_zone    = "privatelink.azuredatabricks.net"
+      }
+    },
+    # Browser sign-in to every private workspace in the region goes through the
+    # one browser_authentication endpoint on the dedicated browser
+    # authentication workspace. It has its own call, after the other
+    # endpoints, and the workspace's delete lock waits for it.
+    {
+      for workspace_key in local.databricks_browser_authentication_keys :
+      "databricks/${workspace_key}/browser_authentication" => {
+        enabled     = true
+        deployed_by = "databricks_browser_authentication_private_endpoint"
+        target      = "databricks/${workspace_key}"
+        subresource = "browser_authentication"
+        dns_zone    = "privatelink.azuredatabricks.net"
+      }
     }
   )
+
+  databricks_browser_authentication_keys = sort([
+    for key, workspace in var.databricks_workspaces : key
+    if workspace.browser_authentication_workspace
+  ])
+
+  databricks_browser_authentication_private_endpoints = {
+    for key, endpoint in local.private_endpoint_catalog : key => endpoint
+    if endpoint.enabled && endpoint.deployed_by == "databricks_browser_authentication_private_endpoint"
+  }
 
   service_private_endpoints = {
     for key, endpoint in local.private_endpoint_catalog : key => endpoint
@@ -149,7 +187,8 @@ locals {
     { for key, name in local.resource_names.cosmos_db_accounts : "cosmos_db/${key}" => name },
     { for key, name in local.resource_names.key_vaults : "key_vault/${key}" => name },
     { for key, name in local.resource_names.storage_accounts : "storage/${key}" => name },
-    { for key, name in local.resource_names.premium_file_accounts : "premium_files/${key}" => name }
+    { for key, name in local.resource_names.premium_file_accounts : "premium_files/${key}" => name },
+    { for key, workspace in local.resource_names.databricks_workspaces : "databricks/${key}" => workspace.name }
   )
 
   # <PARENTNAME>-<SERVICE> (§4), where SERVICE is the lowercase Private Link
@@ -173,7 +212,8 @@ locals {
     { for key, server in module.azure_sql : "azure_sql/${key}" => server.server_id },
     { for key, account in module.cosmos_db : "cosmos_db/${key}" => account.id },
     { for key, vault in module.key_vault : "key_vault/${key}" => vault.id },
-    { for key, account in module.premium_files : "premium_files/${key}" => account.id }
+    { for key, account in module.premium_files : "premium_files/${key}" => account.id },
+    { for key, workspace in module.databricks : "databricks/${key}" => workspace.id }
   )
 
   private_dns_zones = setunion(

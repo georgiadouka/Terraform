@@ -52,6 +52,10 @@ locals {
       # Not in the METLEN register yet: working assumption. Account uses the
       # lowercase variant, database and container the compact family.
       cosmos_db_account = "CDB"
+      # Not in the METLEN register yet: chosen 2026-10-29. Used for the
+      # workspace and its Access Connector (different resource types, so
+      # they can share a name in one resource group).
+      databricks_workspace = "DBR"
     }
   }
 }

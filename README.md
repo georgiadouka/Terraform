@@ -88,7 +88,8 @@ when a module is checked on its own.
 | `mysql-flexible` | MySQL Flexible Server and database with optional HA | Delegated subnet and Private DNS |
 | `cosmos-db` | NoSQL, MongoDB, Cassandra, Gremlin, or Table account with serverless/manual/autoscale throughput | Public network disabled; API-specific Private Endpoint and DNS |
 | `container-apps` | Internal Container Apps environment with Consumption, optional dedicated workload profiles, and zero or more Container Apps | Dedicated delegated subnet, internal load balancer, and private wildcard DNS |
-| `log-analytics-workspace` | Log Analytics workspace shared by every Container Apps environment | N/A |
+| `log-analytics-workspace` | Log Analytics workspace shared by every Container Apps environment and by Databricks diagnostic settings | N/A |
+| `databricks-workspace` | Premium Azure Databricks workspace with VNet injection, its own NSG on both subnets, an optional Access Connector (Unity Catalog identity) with storage role assignments, and optional diagnostics to Log Analytics. Used by `environments/metlenwithnaming` | Two dedicated delegated subnets, no public IPs on clusters; `private` (default) or `backend_private` access through a `databricks_ui_api` Private Endpoint |
 | `app-service-plan` | App Service Plan (Basic, Standard, Premium or Elastic Premium) that one or more Web Apps or Function Apps run on | N/A |
 | `web-app` | Linux code, Windows code, or Linux container App Service Web App, on its own plan or an existing plan passed as `service_plan_id` | Public network disabled; Private Endpoint and outbound VNet integration |
 | `function-app` | Linux or Windows Elastic Premium Function App, on its own plan or an existing Elastic Premium plan passed as `service_plan_id` | Inbound Private Endpoint and outbound VNet integration |
@@ -667,6 +668,70 @@ container_apps_environments = {
 
 Changing an environment, app, or profile key renames and replaces that
 resource; adding or removing other entries does not rename existing ones.
+
+### Azure Databricks workspaces (metlenwithnaming)
+
+The [`metlenwithnaming`](environments/metlenwithnaming) environment creates
+Premium Azure Databricks workspaces from the `databricks_workspaces` map. Each
+entry gets two subnets from the `subnet_cidrs.databricks` entry with the same
+key, both delegated to `Microsoft.Databricks/workspaces` and covered by the
+workspace's own NSG, in which Azure Databricks manages its required rules.
+Clusters never get public IP addresses (secure cluster connectivity):
+
+```hcl
+subnet_cidrs = {
+  # ...
+  databricks = {
+    analytics = { host = "10.42.10.0/26", container = "10.42.10.64/26" }
+  }
+}
+
+nat_gateway = {
+  subnets = ["databricks/analytics/host", "databricks/analytics/container"]
+}
+
+databricks_workspaces = {
+  analytics = {
+    access_connector = { storage_accounts = ["primary"] }
+  }
+}
+```
+
+- `network_access` is `private` by default: public access is disabled and users
+  and clusters reach the workspace through one `databricks_ui_api` Private
+  Endpoint in the `privatelink.azuredatabricks.net` zone. `backend_private`
+  keeps the workspace UI on the internet and only clusters use the endpoint;
+  `public` creates no endpoint.
+- Browser sign-in to every private workspace in a region goes through a single
+  `browser_authentication` Private Endpoint. Following Microsoft's guidance it
+  lives on a dedicated workspace (`browser_authentication_workspace = true`,
+  private) that runs no workloads and gets no `databricks_ui_api` endpoint or
+  Access Connector. A `CanNotDelete` lock protects it (`delete_lock = false`
+  turns it off); `terraform destroy` removes the lock first. Without such an
+  entry Terraform warns, because sign-in then works only if a hub already
+  provides the endpoint.
+- Clusters need outbound internet access even with Private Link. List both
+  subnets in `nat_gateway.subnets` or route them to a hub firewall; Terraform
+  warns when a workspace has neither.
+- Subnets must be /28 or larger (/26 recommended), the VNet /16 to /24, and
+  neither can change after creation. The default subnet numbers are 10 (host)
+  and 11 (container); set `host_subnet_number` and `container_subnet_number`
+  for a second workspace.
+- The Access Connector is created by default; `storage_accounts` grants its
+  identity Storage Blob Data Contributor on those `storage_accounts` keys for
+  Unity Catalog. Diagnostics send every workspace log category (`allLogs`, the
+  only category group Azure Databricks supports) to the shared Log Analytics
+  workspace; list `diagnostics.categories` to send only some and limit cost.
+- Only the Azure resources are managed here. Clusters, jobs, Unity Catalog
+  objects and permissions belong to the `databricks/databricks` provider, using
+  the `workspace_url` from `terraform output databricks_workspaces`, preferably
+  in a separate configuration.
+- After `terraform destroy`, check the managed resource groups
+  (`M-AZU-RGP-…-<sequence>`). In the 2026-10-29 test, Azure Databricks added a
+  `unity-catalog-access-connector` to them when it activated the workspaces,
+  and they stayed behind with the root storage account after the workspaces
+  were deleted. Once the workspace is gone they have no deny assignment, so
+  `az group delete` removes them; otherwise the root storage name stays taken.
 
 ### App Service Web App modes
 

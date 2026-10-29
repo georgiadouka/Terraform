@@ -44,8 +44,22 @@ locals {
   # it without a dependency cycle.
   deployed_subnet_keys = concat(
     [for subnet_key, enabled in local.subnet_enabled : subnet_key if enabled],
-    [for environment_key in keys(var.container_apps_environments) : "container_apps/${environment_key}"]
+    [for environment_key in keys(var.container_apps_environments) : "container_apps/${environment_key}"],
+    keys(local.databricks_subnet_roles)
   )
+
+  # Host and container subnet of every Databricks workspace, keyed
+  # databricks/<workspace key>/<host|container>. Built from variables only
+  # (no resource names) for the same reason as deployed_subnet_keys.
+  databricks_subnet_roles = merge([
+    for workspace_key in keys(var.databricks_workspaces) : {
+      for role in ["host", "container"] :
+      "databricks/${workspace_key}/${role}" => {
+        workspace_key = workspace_key
+        role          = role
+      }
+    }
+  ]...)
 
   subnet_definitions = {
     private_endpoints = {
@@ -130,6 +144,26 @@ locals {
     }
   }
 
+  # Two dedicated subnets per Databricks workspace from the
+  # subnet_cidrs.databricks entry with the same key. Azure Databricks needs
+  # both delegated to it and attached to an NSG (the databricks-workspace
+  # module creates the NSG).
+  databricks_subnets = {
+    for subnet_key, subnet in local.databricks_subnet_roles : subnet_key => {
+      name             = local.resource_names.databricks_workspaces[subnet.workspace_key]["${subnet.role}_subnet_name"]
+      address_prefixes = [var.subnet_cidrs.databricks[subnet.workspace_key][subnet.role]]
+      delegation = {
+        name    = local.resource_names.databricks_workspaces[subnet.workspace_key]["${subnet.role}_subnet_delegation_name"]
+        service = "Microsoft.Databricks/workspaces"
+        actions = [
+          "Microsoft.Network/virtualNetworks/subnets/join/action",
+          "Microsoft.Network/virtualNetworks/subnets/prepareNetworkPolicies/action",
+          "Microsoft.Network/virtualNetworks/subnets/unprepareNetworkPolicies/action"
+        ]
+      }
+    }
+  }
+
   subnets = {
     for subnet_key, subnet in merge(
       {
@@ -137,7 +171,8 @@ locals {
         subnet_key => subnet
         if local.subnet_enabled[subnet_key]
       },
-      local.container_apps_subnets
+      local.container_apps_subnets,
+      local.databricks_subnets
     ) :
     subnet_key => merge(subnet, { default_outbound_access_enabled = false })
   }
@@ -153,6 +188,12 @@ locals {
     {
       for environment_key, cidr in var.subnet_cidrs.container_apps :
       "container_apps/${environment_key}" => [cidr]
-    }
+    },
+    merge([
+      for workspace_key, cidrs in var.subnet_cidrs.databricks : {
+        "databricks/${workspace_key}/host"      = [cidrs.host]
+        "databricks/${workspace_key}/container" = [cidrs.container]
+      }
+    ]...)
   )
 }

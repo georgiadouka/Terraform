@@ -81,6 +81,15 @@ subnet_cidrs = {
 
   # One range shared by every load balancer frontend IP; /29 or larger.
   load_balancers = "10.42.9.0/26"
+
+  # Host and container ranges per Databricks workspace, keyed by the workspace
+  # key in databricks_workspaces below; /28 or larger (/26 or larger
+  # recommended: each cluster node takes one address in each). They can't be
+  # resized after the workspace is created.
+  # databricks = {
+  #   analytics = { host = "10.42.10.0/26", container = "10.42.10.64/26" }
+  #   webauth   = { host = "10.42.10.128/28", container = "10.42.10.144/28" }
+  # }
 }
 
 # Initial passwords (lab approach). Every VM and scale set signs in with its
@@ -548,7 +557,8 @@ mysql_servers = {
 }
 
 # One Log Analytics workspace is shared by every Container Apps environment and
-# created only when at least one environment exists. Its name is
+# by Databricks diagnostic settings, and created only when one of them exists.
+# Its name is
 # M-AZU-LAW-<BU>-<DPT>-<APP>-<ENV>-<REG>-<sequence>.
 log_analytics_workspace = {
   sequence = "00"
@@ -634,6 +644,59 @@ cosmos_db_accounts = {}
 #       }
 #
 #       nosql_partition_key_paths = ["/partitionKey"]
+#   }
+# }
+
+# One entry per Premium Azure Databricks workspace; an empty map creates none.
+# Each workspace is injected into the lab VNet (subnet_cidrs.databricks entry
+# with the same key, both subnets delegated to Azure Databricks and covered by
+# the workspace's own NSG) and its clusters get no public IP addresses.
+# network_access:
+#   private         (default) public access off; users and clusters use the
+#                   databricks_ui_api Private Endpoint.
+#   backend_private users over the internet, clusters over the Private Endpoint.
+#   public          users and clusters over the internet.
+# Browser sign-in to private workspaces needs the region's single
+# browser_authentication endpoint. Microsoft recommends a dedicated workspace
+# for it: set browser_authentication_workspace = true on one private entry
+# that runs no workloads; it gets only that endpoint and a CanNotDelete lock
+# (delete_lock = false turns it off). Terraform warns when private workspaces
+# have none, for example because a hub already provides it.
+# Clusters need outbound internet access: add both subnets to
+# nat_gateway.subnets (databricks/<key>/host, databricks/<key>/container) or
+# route them to a hub firewall; Terraform warns otherwise.
+# Names: workspace and Access Connector M-AZU-DBR-...-<sequence>, managed
+# resource group M-AZU-RGP-...-<sequence>, NSG M-AZU-NSG-...-PRV-...-<sequence>,
+# subnets <DPT><APP><ENV>PRV<host/container_subnet_number>. DBR was chosen on
+# 2026-10-29 and is not in the register yet. Changing sequence, the subnet
+# numbers or ranges replaces the workspace and everything in it.
+databricks_workspaces = {}
+
+# databricks_workspaces = {
+#   analytics = {
+#     sequence                = "00"
+#     network_access          = "private"
+#     host_subnet_number      = 12 # 10 and 11 by default; the jobs example above uses 10
+#     container_subnet_number = 13
+#     storage_sequence        = "08" # optional: name the root (DBFS) storage account
+#
+#     # Unity Catalog identity with Storage Blob Data Contributor on these
+#     # storage_accounts keys.
+#     access_connector = { storage_accounts = ["primary"] }
+#
+#     # Workspace resource logs to the shared Log Analytics workspace: every
+#     # category by default (allLogs, the only category group Azure Databricks
+#     # supports), or only the listed ones to limit ingestion cost.
+#     diagnostics = { categories = ["accounts", "clusters", "jobs", "unityCatalog"] }
+#   }
+#
+#   # Dedicated browser authentication workspace (WEB_AUTH in Microsoft's
+#   # guidance). Small subnets are enough because it runs no clusters.
+#   webauth = {
+#     sequence                         = "01"
+#     browser_authentication_workspace = true
+#     host_subnet_number               = 14
+#     container_subnet_number          = 15
 #   }
 # }
 

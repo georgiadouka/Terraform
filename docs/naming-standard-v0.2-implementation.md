@@ -263,6 +263,27 @@ one must set the names explicitly. The Function App content share is not in
 this list: it is internal to the Functions host and always called
 `function-content` in the app's own host storage account.
 
+### 4.14 Azure Databricks (`DBR`, chosen 2026-10-29)
+
+The register has no code for Azure Databricks; `DBR` was chosen on
+2026-10-29 and still needs adding to the register. The workspace name is
+scoped to its resource group and allows 3-64 letters, digits, underscores and
+hyphens, so it uses the full family. Every other name the workspace needs
+reuses an existing family:
+
+| Item | Family | Example |
+|---|---|---|
+| Workspace | Full family with NN (`databricks_workspaces.<key>.sequence`) | `M-AZU-DBR-IT-PPA-GEO-DEV-SWE-00` |
+| Access Connector (Unity Catalog identity) | Same name as its workspace (another resource type, so no clash) | `M-AZU-DBR-IT-PPA-GEO-DEV-SWE-00` |
+| Managed resource group (created and locked by Azure Databricks) | Resource group family with the workspace NN (working assumption) | `M-AZU-RGP-IT-PPA-GEO-DEV-SWE-00` |
+| Root (DBFS) storage account | Storage compact family with `storage_sequence`; Azure-generated when not set | `mazusoaitppageodevswe08` |
+| NSG on both workspace subnets | Network family with `network_sequence` (default: the workspace NN), like SQL Managed Instance | `M-AZU-NSG-IT-PPA-GEO-PRV-DEV-SWE-00` |
+| Host and container subnets | Subnet pattern with `host_subnet_number` (default 10) and `container_subnet_number` (default 11) | `PPAGEODEVPRV10`, `PPAGEODEVPRV11` |
+| Private Endpoints | `<workspace>-<subresource>` | `M-AZU-DBR-IT-PPA-GEO-DEV-SWE-00-databricks_ui_api`, `…-browser_authentication` |
+
+The managed resource group NN must not clash with another resource group
+that carries the same NN; the main resource group has none.
+
 ## 5. Names already taken in Azure
 
 Several names generated from the standard's own examples were unavailable in
@@ -351,5 +372,6 @@ Decision IDs follow the register's Decision Log.
 | Codes for MySQL and PostgreSQL | `MYS` and `PGS` (working assumption) |
 | Code for Container Registry | `ACR` (working assumption) |
 | Code for Cosmos DB | `CDB` (working assumption) |
+| Code for Azure Databricks | `DBR` (chosen 2026-10-29, not yet in the register); managed resource group in the RGP family with the workspace NN (working assumption) |
 | Register entries for SQL Elastic Pool, SQL Managed Instance, NAT Gateway, Public IP and Log Analytics workspace | `SEL`, `SMI`, `NGW`, `PIP` and `LAW` (agreed, not yet in the register) |
 | Codes for the resources in 7.1 | Not yet implemented |

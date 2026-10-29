@@ -374,9 +374,10 @@ module "cosmos_db" {
   tags                          = local.common_tags
 }
 
-# One workspace shared by every Container Apps environment.
+# One workspace shared by every Container Apps environment and by the
+# Databricks diagnostic settings.
 module "log_analytics" {
-  count  = length(var.container_apps_environments) > 0 ? 1 : 0
+  count  = length(var.container_apps_environments) > 0 || length(local.databricks_diagnostics_keys) > 0 ? 1 : 0
   source = "../../modules/log-analytics-workspace"
 
   name                = local.resource_names.log_analytics_workspace
@@ -414,6 +415,85 @@ module "container_apps" {
   tags = local.common_tags
 
   depends_on = [module.nat_gateway]
+}
+
+locals {
+  databricks_diagnostics_keys = [
+    for key, workspace in var.databricks_workspaces : key if workspace.diagnostics.enabled
+  ]
+
+  # Workspaces whose host or container subnet has neither the NAT Gateway nor
+  # a 0.0.0.0/0 route: their clusters have no outbound internet access. The
+  # browser authentication workspace runs no clusters.
+  databricks_workspaces_without_egress = sort([
+    for key, workspace in var.databricks_workspaces : key
+    if !workspace.browser_authentication_workspace && anytrue([
+      for role in ["host", "container"] :
+      !contains(concat(local.nat_gateway_subnet_keys, local.default_route_subnet_keys), "databricks/${key}/${role}")
+    ])
+  ])
+
+  databricks_private_workspace_keys = sort([
+    for key, workspace in var.databricks_workspaces : key
+    if workspace.network_access == "private" && !workspace.browser_authentication_workspace
+  ])
+}
+
+# A warning rather than a validation error: the workspace deploys, but cluster
+# creation fails without egress.
+check "databricks_egress" {
+  assert {
+    condition     = length(local.databricks_workspaces_without_egress) == 0
+    error_message = "These databricks_workspaces have a host or container subnet without outbound internet access, so clusters cannot start: ${join(", ", local.databricks_workspaces_without_egress)}. List both databricks/<key>/host and databricks/<key>/container in nat_gateway.subnets, or give them a route_tables entry with 0.0.0.0/0 to a firewall."
+  }
+}
+
+# A warning: a hub may already provide the region's browser_authentication
+# endpoint in a shared privatelink.azuredatabricks.net zone.
+check "databricks_browser_authentication" {
+  assert {
+    condition     = length(local.databricks_private_workspace_keys) == 0 || length(local.databricks_browser_authentication_keys) > 0
+    error_message = "These private databricks_workspaces have no browser_authentication endpoint in this configuration, so browser sign-in works only if a hub already provides one: ${join(", ", local.databricks_private_workspace_keys)}. Add a dedicated entry with browser_authentication_workspace = true."
+  }
+}
+
+# The NSG association comes first (inside the module) and the NAT Gateway
+# before the workspace, so clusters can reach the control plane as soon as
+# the workspace exists.
+module "databricks" {
+  for_each = var.databricks_workspaces
+  source   = "../../modules/databricks-workspace"
+
+  name                        = local.resource_names.databricks_workspaces[each.key].name
+  resource_group_name         = module.resource_group.name
+  location                    = module.resource_group.location
+  sku                         = each.value.sku
+  managed_resource_group_name = local.resource_names.databricks_workspaces[each.key].managed_resource_group_name
+  root_storage_account_name   = local.resource_names.databricks_workspaces[each.key].root_storage_account_name
+  virtual_network_id          = module.network.id
+  host_subnet = {
+    name = local.resource_names.databricks_workspaces[each.key].host_subnet_name
+    id   = module.network.subnet_ids["databricks/${each.key}/host"]
+  }
+  container_subnet = {
+    name = local.resource_names.databricks_workspaces[each.key].container_subnet_name
+    id   = module.network.subnet_ids["databricks/${each.key}/container"]
+  }
+  network_security_group_name = local.resource_names.databricks_workspaces[each.key].network_security_group_name
+  network_access              = each.value.network_access
+  access_connector_name       = each.value.access_connector.enabled && !each.value.browser_authentication_workspace ? local.resource_names.databricks_workspaces[each.key].access_connector_name : null
+  access_connector_storage_account_ids = {
+    for account_key in each.value.access_connector.storage_accounts :
+    account_key => module.storage[account_key].id
+  }
+  diagnostics = each.value.diagnostics.enabled ? {
+    name                       = local.resource_names.log_analytics_workspace
+    log_analytics_workspace_id = module.log_analytics[0].id
+    categories                 = each.value.diagnostics.categories
+  } : null
+  tags = local.common_tags
+
+  depends_on = [module.nat_gateway, module.route_table]
 }
 
 module "app_service_plan" {
@@ -572,4 +652,40 @@ module "private_endpoints" {
   subresource_names               = [each.value.subresource]
   private_dns_zone_ids            = [module.private_dns.zone_ids[each.value.dns_zone]]
   tags                            = local.common_tags
+}
+
+module "databricks_browser_authentication_private_endpoint" {
+  for_each = local.databricks_browser_authentication_private_endpoints
+  source   = "../../modules/private-endpoint"
+
+  name                            = local.private_endpoint_names[each.key].name
+  private_service_connection_name = local.private_endpoint_names[each.key].private_service_connection_name
+  private_dns_zone_group_name     = local.private_endpoint_names[each.key].private_dns_zone_group_name
+  resource_group_name             = module.resource_group.name
+  location                        = module.resource_group.location
+  subnet_id                       = module.network.subnet_ids["private_endpoints"]
+  private_connection_resource_id  = local.private_endpoint_target_ids[each.value.target]
+  subresource_names               = [each.value.subresource]
+  private_dns_zone_ids            = [module.private_dns.zone_ids[each.value.dns_zone]]
+  tags                            = local.common_tags
+
+  depends_on = [module.private_endpoints]
+}
+
+# Deleting the browser authentication workspace breaks browser sign-in to
+# every private workspace in the region. The lock waits for the endpoint (a
+# CanNotDelete lock also blocks deleting its connection), so terraform destroy
+# removes the lock first.
+resource "azurerm_management_lock" "databricks_browser_authentication" {
+  for_each = toset([
+    for key in local.databricks_browser_authentication_keys : key
+    if var.databricks_workspaces[key].delete_lock
+  ])
+
+  name       = "do-not-delete-browser-authentication"
+  scope      = module.databricks[each.key].id
+  lock_level = "CanNotDelete"
+  notes      = "Hosts the browser_authentication Private Endpoint that browser sign-in to every private Azure Databricks workspace in the region uses."
+
+  depends_on = [module.databricks_browser_authentication_private_endpoint]
 }

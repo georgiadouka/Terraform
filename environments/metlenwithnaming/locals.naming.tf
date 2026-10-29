@@ -247,6 +247,27 @@ locals {
         }
       }
     }
+    # Workspace and Access Connector: M-AZU-DBR-<BU>-<DPT>-<APP>-<ENV>-<REG>-<NN>
+    # (3-64 letters, digits, underscores and hyphens, unique per resource
+    # group and type). The managed resource group that Azure Databricks
+    # creates uses the resource group family with the workspace NN; the
+    # optional root (DBFS) storage account the mazusoa... family with
+    # storage_sequence. The NSG uses the network family with network_sequence
+    # (default: the workspace NN), like SQL Managed Instance. The host and
+    # container subnets use the compact subnet pattern with their own numbers.
+    databricks_workspaces = {
+      for key, workspace in var.databricks_workspaces : key => {
+        name                             = join("-", ["M-AZU", local.metlen_codes.databricks_workspace, local.metlen_scope, local.metlen_placement, workspace.sequence])
+        access_connector_name            = join("-", ["M-AZU", local.metlen_codes.databricks_workspace, local.metlen_scope, local.metlen_placement, workspace.sequence])
+        managed_resource_group_name      = join("-", ["M-AZU", local.metlen_codes.resource_group, local.metlen_scope, local.metlen_placement, workspace.sequence])
+        root_storage_account_name        = workspace.storage_sequence == null ? null : "mazu${lower(local.metlen_codes.storage_account)}${local.metlen_compact_tokens}${workspace.storage_sequence}"
+        network_security_group_name      = join("-", ["M-AZU", local.metlen_codes.network_security_group, local.metlen_scope, "PRV", local.metlen_placement, coalesce(workspace.network_sequence, workspace.sequence)])
+        host_subnet_name                 = format("%s%02d", local.metlen_subnet_prefix, workspace.host_subnet_number)
+        container_subnet_name            = format("%s%02d", local.metlen_subnet_prefix, workspace.container_subnet_number)
+        host_subnet_delegation_name      = "${local.naming_prefixes.subnet_delegation}-databricks-${key}-host-${local.name_stem}"
+        container_subnet_delegation_name = "${local.naming_prefixes.subnet_delegation}-databricks-${key}-container-${local.name_stem}"
+      }
+    }
     # Container names are scoped to their app, so every app reuses this name.
     container_app_container = "${local.naming_prefixes.container_app_container}-${local.name_stem}"
     # M-AZU-LAW-<BU>-<DPT>-<APP>-<ENV>-<REG>-<NN>: one workspace shared by
