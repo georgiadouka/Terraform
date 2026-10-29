@@ -1,6 +1,16 @@
 locals {
   service_plan_id = var.service_plan_name == null ? var.service_plan_id : azurerm_service_plan.this[0].id
 
+  # The connection string goes through site_config: the provider reads the
+  # APPLICATIONINSIGHTS_CONNECTION_STRING app setting back into
+  # site_config.application_insights_connection_string, so setting it in
+  # app_settings would show a change on every plan.
+  application_insights_connection_string = try(var.application_insights.connection_string, null)
+
+  application_insights_settings = var.application_insights == null ? {} : (
+    var.application_insights.entra_authentication ? { APPLICATIONINSIGHTS_AUTHENTICATION_STRING = "Authorization=AAD" } : {}
+  )
+
   app_settings = merge({
     FUNCTIONS_WORKER_RUNTIME                 = var.runtime.name
     WEBSITE_CONTENTAZUREFILECONNECTIONSTRING = "DefaultEndpointsProtocol=https;AccountName=${var.storage_account_name};AccountKey=${var.storage_account_access_key};EndpointSuffix=core.windows.net"
@@ -10,7 +20,7 @@ locals {
     WEBSITE_ENABLE_SYNC_UPDATE_SITE          = "true"
     }, var.runtime.name == "dotnet" && var.runtime.version == "8.0" ? {
     FUNCTIONS_INPROC_NET8_ENABLED = "1"
-  } : {})
+  } : {}, local.application_insights_settings)
 }
 
 resource "azurerm_service_plan" "this" {
@@ -49,13 +59,14 @@ resource "azurerm_linux_function_app" "this" {
   app_settings = local.app_settings
 
   site_config {
-    always_on               = true
-    ftps_state              = "Disabled"
-    http2_enabled           = true
-    minimum_tls_version     = "1.2"
-    scm_minimum_tls_version = "1.2"
-    use_32_bit_worker       = false
-    vnet_route_all_enabled  = true
+    always_on                              = true
+    application_insights_connection_string = local.application_insights_connection_string
+    ftps_state                             = "Disabled"
+    http2_enabled                          = true
+    minimum_tls_version                    = "1.2"
+    scm_minimum_tls_version                = "1.2"
+    use_32_bit_worker                      = false
+    vnet_route_all_enabled                 = true
 
     application_stack {
       python_version              = var.runtime.name == "python" ? var.runtime.version : null
@@ -92,13 +103,14 @@ resource "azurerm_windows_function_app" "this" {
   }
 
   site_config {
-    always_on               = true
-    ftps_state              = "Disabled"
-    http2_enabled           = true
-    minimum_tls_version     = "1.2"
-    scm_minimum_tls_version = "1.2"
-    use_32_bit_worker       = false
-    vnet_route_all_enabled  = true
+    always_on                              = true
+    application_insights_connection_string = local.application_insights_connection_string
+    ftps_state                             = "Disabled"
+    http2_enabled                          = true
+    minimum_tls_version                    = "1.2"
+    scm_minimum_tls_version                = "1.2"
+    use_32_bit_worker                      = false
+    vnet_route_all_enabled                 = true
 
     application_stack {
       dotnet_version              = contains(["dotnet", "dotnet-isolated"], var.runtime.name) ? "v${var.runtime.version}" : null

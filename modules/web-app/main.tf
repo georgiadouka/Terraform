@@ -1,11 +1,24 @@
 locals {
   os_type         = var.mode == "windows" ? "Windows" : "Linux"
   service_plan_id = var.service_plan_name == null ? var.service_plan_id : azurerm_service_plan.this[0].id
+
+  # Container images bring their own SDK, so the App Service agent is turned
+  # on only for code deployments.
+  application_insights_settings = var.application_insights == null ? {} : merge(
+    { APPLICATIONINSIGHTS_CONNECTION_STRING = var.application_insights.connection_string },
+    var.application_insights.entra_authentication ? { APPLICATIONINSIGHTS_AUTHENTICATION_STRING = "Authorization=AAD" } : {},
+    var.mode == "container" ? {} : {
+      ApplicationInsightsAgent_EXTENSION_VERSION = var.mode == "windows" ? "~2" : "~3"
+      XDT_MicrosoftApplicationInsights_Mode      = "recommended"
+    }
+  )
+
   app_settings = merge(
     var.app_settings,
     var.mode == "container" ? {
       WEBSITES_PORT = tostring(var.container.port)
-    } : {}
+    } : {},
+    local.application_insights_settings
   )
 }
 

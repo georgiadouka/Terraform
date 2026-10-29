@@ -273,6 +273,9 @@ locals {
     # M-AZU-LAW-<BU>-<DPT>-<APP>-<ENV>-<REG>-<NN>: one workspace shared by
     # every Container Apps environment; 4-63 letters, digits and hyphens.
     log_analytics_workspace = join("-", ["M-AZU", local.metlen_codes.log_analytics, local.metlen_scope, local.metlen_placement, var.log_analytics_workspace.sequence])
+    # M-AZU-AIN-<BU>-<DPT>-<APP>-<ENV>-<REG>-<NN>: one Application Insights
+    # resource shared by every Function App and Web App; 1-255 characters.
+    application_insights = join("-", ["M-AZU", local.metlen_codes.application_insights, local.metlen_scope, local.metlen_placement, var.application_insights.sequence])
 
     # App Service family. Web App and Function App names are global
     # (<name>.azurewebsites.net). App Service Plans are declared once in

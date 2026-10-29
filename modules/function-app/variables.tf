@@ -119,6 +119,16 @@ variable "os_type" {
   }
 }
 
+variable "application_insights" {
+  description = "Application Insights connection. null sends no telemetry. With entra_authentication (default), the app authenticates with its system-assigned identity, which needs Monitoring Metrics Publisher on the resource."
+  type = object({
+    connection_string    = string
+    entra_authentication = optional(bool, true)
+  })
+  default   = null
+  sensitive = true
+}
+
 variable "tags" {
   description = "Tags applied to Function App resources."
   type        = map(string)

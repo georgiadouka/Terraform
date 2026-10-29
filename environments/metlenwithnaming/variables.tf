@@ -556,9 +556,11 @@ variable "nat_gateway" {
 }
 
 variable "log_analytics_workspace" {
-  description = "Settings for the Log Analytics workspace shared by every Container Apps environment and by the diagnostic settings of Databricks workspaces (created only when container_apps_environments is non-empty or a databricks_workspaces entry has diagnostics enabled). The workspace is named M-AZU-LAW-<BU>-<DPT>-<APP>-<ENV>-<REG>-<sequence>; sequence is the two-digit NN."
+  description = "Settings for the Log Analytics workspace shared by every Container Apps environment, the shared Application Insights resource and the diagnostic settings of Databricks workspaces (created only when one of them exists). The workspace is named M-AZU-LAW-<BU>-<DPT>-<APP>-<ENV>-<REG>-<sequence>; sequence is the two-digit NN. daily_quota_gb caps ingestion across everything that sends data to the workspace (Application Insights telemetry included; -1 removes the cap); retention_in_days is 30-730."
   type = object({
-    sequence = optional(string, "00")
+    sequence          = optional(string, "00")
+    daily_quota_gb    = optional(number, 0.1)
+    retention_in_days = optional(number, 30)
   })
   default  = {}
   nullable = false
@@ -566,6 +568,35 @@ variable "log_analytics_workspace" {
   validation {
     condition     = can(regex("^[0-9]{2}$", var.log_analytics_workspace.sequence))
     error_message = "log_analytics_workspace.sequence must be two digits, for example 00."
+  }
+
+  validation {
+    condition     = var.log_analytics_workspace.daily_quota_gb == -1 || var.log_analytics_workspace.daily_quota_gb > 0
+    error_message = "log_analytics_workspace.daily_quota_gb must be greater than 0, or -1 for no cap."
+  }
+
+  validation {
+    condition = (
+      var.log_analytics_workspace.retention_in_days >= 30 &&
+      var.log_analytics_workspace.retention_in_days <= 730 &&
+      floor(var.log_analytics_workspace.retention_in_days) == var.log_analytics_workspace.retention_in_days
+    )
+    error_message = "log_analytics_workspace.retention_in_days must be a whole number from 30 to 730."
+  }
+}
+
+variable "application_insights" {
+  description = "Settings for the workspace-based Application Insights resource shared by every function_apps and web_apps entry whose application_insights flag is true (the default). enabled = false turns telemetry off for every app, for example when the deployer cannot create role assignments. The resource is created only when at least one app uses it, stores its data in the shared Log Analytics workspace, and accepts only Microsoft Entra-authenticated telemetry: each app's system-assigned identity gets Monitoring Metrics Publisher, so the deployer needs rights to create role assignments. Telemetry leaves the VNet, so the function_integration and web_app_integration subnets need nat_gateway.subnets or a 0.0.0.0/0 route (Terraform warns otherwise). Named M-AZU-AIN-<BU>-<DPT>-<APP>-<ENV>-<REG>-<sequence>; sequence is the two-digit NN."
+  type = object({
+    enabled  = optional(bool, true)
+    sequence = optional(string, "00")
+  })
+  default  = {}
+  nullable = false
+
+  validation {
+    condition     = can(regex("^[0-9]{2}$", var.application_insights.sequence))
+    error_message = "application_insights.sequence must be two digits, for example 00."
   }
 }
 
@@ -1482,11 +1513,12 @@ variable "app_service_plans" {
 }
 
 variable "function_apps" {
-  description = "Private Elastic Premium Function Apps keyed by a stable logical name. Defaults to none; add one entry per app. service_plan is the key of an Elastic Premium app_service_plans entry, which also sets the app's OS; several Function Apps can share one plan. Each entry creates its own host Storage Account with its content share and Private Endpoints (blob, file, queue and table on the storage account, sites on the app); every app joins the shared function_integration subnet. Names follow M-AZU-FUN-<BU>-<DPT>-<APP>-<ENV>-<REG>[-<sequence>] for the app (global <name>.azurewebsites.net; the standard defines no NN, so at most one app may leave sequence null) and mazusoa...<storage_sequence> for its host storage (unique across all storage accounts)."
+  description = "Private Elastic Premium Function Apps keyed by a stable logical name. Defaults to none; add one entry per app. service_plan is the key of an Elastic Premium app_service_plans entry, which also sets the app's OS; several Function Apps can share one plan. Each entry creates its own host Storage Account with its content share and Private Endpoints (blob, file, queue and table on the storage account, sites on the app); every app joins the shared function_integration subnet. application_insights (default true) sends the app's telemetry to the shared Application Insights resource (see var.application_insights); set false to opt out. Names follow M-AZU-FUN-<BU>-<DPT>-<APP>-<ENV>-<REG>[-<sequence>] for the app (global <name>.azurewebsites.net; the standard defines no NN, so at most one app may leave sequence null) and mazusoa...<storage_sequence> for its host storage (unique across all storage accounts)."
   type = map(object({
-    service_plan     = string
-    sequence         = optional(string)
-    storage_sequence = optional(string, "00")
+    service_plan         = string
+    sequence             = optional(string)
+    storage_sequence     = optional(string, "00")
+    application_insights = optional(bool, true)
     runtime = optional(object({
       name    = optional(string, "python")
       version = optional(string, "3.11")
@@ -1544,11 +1576,12 @@ variable "function_apps" {
 }
 
 variable "web_apps" {
-  description = "Private App Service Web Apps keyed by a stable logical name. Defaults to none; add one entry per app. service_plan is the key of a Basic, Standard or Premium app_service_plans entry whose os_type matches mode (Windows for windows, Linux for linux and container); several Web Apps can share one plan. Each entry creates its own Private Endpoint; every app joins the shared web_app_integration subnet. Names follow M-AZU-APP-<BU>-<DPT>-<APP>-<ENV>-<REG>-<sequence> (global <name>.azurewebsites.net); sequence must be unique per app."
+  description = "Private App Service Web Apps keyed by a stable logical name. Defaults to none; add one entry per app. service_plan is the key of a Basic, Standard or Premium app_service_plans entry whose os_type matches mode (Windows for windows, Linux for linux and container); several Web Apps can share one plan. Each entry creates its own Private Endpoint; every app joins the shared web_app_integration subnet. application_insights (default true) sends the app's telemetry to the shared Application Insights resource (see var.application_insights) and, in linux and windows mode, turns on the App Service agent; container images need their own Application Insights SDK or OpenTelemetry distro. Set false to opt out. Names follow M-AZU-APP-<BU>-<DPT>-<APP>-<ENV>-<REG>-<sequence> (global <name>.azurewebsites.net); sequence must be unique per app."
   type = map(object({
-    service_plan = string
-    sequence     = optional(string, "00")
-    mode         = optional(string, "linux")
+    service_plan         = string
+    sequence             = optional(string, "00")
+    mode                 = optional(string, "linux")
+    application_insights = optional(bool, true)
     runtime = optional(object({
       name    = optional(string, "node")
       version = optional(string, "22")

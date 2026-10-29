@@ -208,14 +208,17 @@ variables {
   virtual_machine_scale_sets = {}
   nat_gateway                = {}
   log_analytics_workspace    = {}
-  key_vaults                 = {}
-  container_registries       = {}
-  azure_sql_servers          = {}
-  cosmos_db_accounts         = {}
-  sql_managed_instances      = {}
-  postgresql_servers         = {}
-  mysql_servers              = {}
-  tags                       = {}
+  # Telemetry is covered by application-insights.tftest.hcl; these apps have
+  # no NAT Gateway, which would trip the egress check.
+  application_insights  = { enabled = false }
+  key_vaults            = {}
+  container_registries  = {}
+  azure_sql_servers     = {}
+  cosmos_db_accounts    = {}
+  sql_managed_instances = {}
+  postgresql_servers    = {}
+  mysql_servers         = {}
+  tags                  = {}
   # Mock-only values; real passwords never go into committed files.
   vm_admin_password       = "MockOnly-Passw0rd!123"
   database_admin_password = "MockOnly-DbPassw0rd!456"

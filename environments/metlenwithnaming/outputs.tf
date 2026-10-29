@@ -260,8 +260,18 @@ output "databricks_workspaces" {
 }
 
 output "log_analytics_workspace_id" {
-  description = "Shared Log Analytics workspace ID when any Container Apps environment or Databricks diagnostic setting exists."
+  description = "Shared Log Analytics workspace ID when any Container Apps environment, Application Insights resource or Databricks diagnostic setting exists."
   value       = try(module.log_analytics[0].id, null)
+}
+
+output "application_insights" {
+  description = "Shared Application Insights resource (id, name, app_id and the keys of the apps sending telemetry), or null when no app uses it. The connection string is passed to the apps directly and is not output."
+  value = local.application_insights_required ? {
+    id     = module.application_insights[0].id
+    name   = module.application_insights[0].name
+    app_id = module.application_insights[0].app_id
+    apps   = sort(keys(local.application_insights_apps))
+  } : null
 }
 
 output "app_service_plans" {
@@ -292,6 +302,7 @@ output "function_apps" {
       service_plan_name     = local.resource_names.app_service_plans[var.function_apps[key].service_plan]
       storage_account_name  = module.function_storage[key].name
       storage_blob_hostname = "${module.function_storage[key].name}.blob.core.windows.net"
+      application_insights  = contains(keys(local.application_insights_apps), "function_app/${key}")
     }
   }
 }
@@ -300,14 +311,15 @@ output "web_apps" {
   description = "Private App Service Web App details keyed by the configured logical app name."
   value = {
     for key, app in module.web_app : key => {
-      id                = app.id
-      name              = local.resource_names.web_apps[key].name
-      hostname          = app.default_hostname
-      mode              = app.mode
-      principal_id      = app.principal_id
-      service_plan      = var.web_apps[key].service_plan
-      service_plan_id   = app.service_plan_id
-      service_plan_name = local.resource_names.app_service_plans[var.web_apps[key].service_plan]
+      id                   = app.id
+      name                 = local.resource_names.web_apps[key].name
+      hostname             = app.default_hostname
+      mode                 = app.mode
+      principal_id         = app.principal_id
+      service_plan         = var.web_apps[key].service_plan
+      service_plan_id      = app.service_plan_id
+      service_plan_name    = local.resource_names.app_service_plans[var.web_apps[key].service_plan]
+      application_insights = contains(keys(local.application_insights_apps), "web_app/${key}")
     }
   }
 }

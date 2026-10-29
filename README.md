@@ -88,7 +88,8 @@ when a module is checked on its own.
 | `mysql-flexible` | MySQL Flexible Server and database with optional HA | Delegated subnet and Private DNS |
 | `cosmos-db` | NoSQL, MongoDB, Cassandra, Gremlin, or Table account with serverless/manual/autoscale throughput | Public network disabled; API-specific Private Endpoint and DNS |
 | `container-apps` | Internal Container Apps environment with Consumption, optional dedicated workload profiles, and zero or more Container Apps | Dedicated delegated subnet, internal load balancer, and private wildcard DNS |
-| `log-analytics-workspace` | Log Analytics workspace shared by every Container Apps environment and by Databricks diagnostic settings | N/A |
+| `log-analytics-workspace` | Log Analytics workspace shared by every Container Apps environment, the Application Insights resource and Databricks diagnostic settings | N/A |
+| `application-insights` | Workspace-based Application Insights with local authentication disabled and Monitoring Metrics Publisher for the listed identities. Used by `environments/metlenwithnaming` for every Web App and Function App | Telemetry egress through NAT Gateway or a firewall; no Private Link (AMPLS) yet |
 | `databricks-workspace` | Premium Azure Databricks workspace with VNet injection, its own NSG on both subnets, an optional Access Connector (Unity Catalog identity) with storage role assignments, and optional diagnostics to Log Analytics. Used by `environments/metlenwithnaming` | Two dedicated delegated subnets, no public IPs on clusters; `private` (default) or `backend_private` access through a `databricks_ui_api` Private Endpoint |
 | `app-service-plan` | App Service Plan (Basic, Standard, Premium or Elastic Premium) that one or more Web Apps or Function Apps run on | N/A |
 | `web-app` | Linux code, Windows code, or Linux container App Service Web App, on its own plan or an existing plan passed as `service_plan_id` | Public network disabled; Private Endpoint and outbound VNet integration |
@@ -733,6 +734,60 @@ databricks_workspaces = {
   were deleted. Once the workspace is gone they have no deny assignment, so
   `az group delete` removes them; otherwise the root storage name stays taken.
 
+### Application Insights (metlenwithnaming)
+
+The [`metlenwithnaming`](environments/metlenwithnaming) environment creates one
+workspace-based Application Insights resource,
+`M-AZU-AIN-<BU>-<DPT>-<APP>-<ENV>-<REG>-<NN>`, shared by every Web App and
+Function App. It is on by default whenever at least one app exists and stores
+its data in the shared Log Analytics workspace (`M-AZU-LAW-…`), which is then
+created too:
+
+```hcl
+nat_gateway = {
+  subnets = ["web_app_integration", "function_integration"]
+}
+
+log_analytics_workspace = {
+  daily_quota_gb = 1 # default 0.1; -1 removes the cap
+}
+
+application_insights = {
+  sequence = "00" # enabled = false turns telemetry off for every app
+}
+
+function_apps = {
+  jobs = { service_plan = "functions", storage_sequence = "05", application_insights = false }
+}
+```
+
+- Ingestion is Microsoft Entra-only. Local (instrumentation key)
+  authentication is disabled, each app sets
+  `APPLICATIONINSIGHTS_AUTHENTICATION_STRING = Authorization=AAD`, and its
+  system-assigned identity gets Monitoring Metrics Publisher on the resource.
+  The deployer therefore needs rights to create role assignments (Owner, User
+  Access Administrator or Role Based Access Control Administrator); set
+  `application_insights.enabled = false` otherwise.
+- Web Apps in `linux` and `windows` mode also turn on the App Service agent
+  (`ApplicationInsightsAgent_EXTENSION_VERSION` `~3`/`~2`). `container` mode
+  gets only the connection settings; the image needs its own Application
+  Insights SDK or OpenTelemetry distro.
+- Telemetry goes to the public Azure Monitor ingestion endpoint. Subnets are
+  private and the apps route all outbound traffic through the VNet, so list
+  `web_app_integration` and `function_integration` in `nat_gateway.subnets` or
+  route them to a hub firewall; Terraform warns when an app has neither.
+  Azure Monitor Private Link Scope is not implemented yet.
+- Application Insights data counts against the Log Analytics daily cap
+  (0.1 GB by default). Once the cap is reached, ingestion stops until the next
+  day; raise `log_analytics_workspace.daily_quota_gb` for real workloads.
+- Set `application_insights = false` on a `web_apps` or `function_apps` entry
+  to opt that app out. When no app uses it, neither resource is created.
+- Azure adds a "Failure Anomalies" smart detector alert rule to every new
+  Application Insights resource. The provider setting
+  `application_insights { disable_generated_rule = true }` in `providers.tf`
+  disables it on create and deletes it on destroy; without it the leftover
+  rule blocked `terraform destroy` of the resource group in the live test.
+
 ### App Service Web App modes
 
 `web_app.mode` creates exactly one App Service Web App:
@@ -880,6 +935,7 @@ terraform -chdir=modules\virtual-machine test
 terraform -chdir=modules\container-registry test
 terraform -chdir=modules\web-app test
 terraform -chdir=modules\function-app test
+terraform -chdir=modules\application-insights test
 terraform -chdir=modules\postgresql-flexible test
 terraform -chdir=modules\mysql-flexible test
 terraform -chdir=modules\container-apps test

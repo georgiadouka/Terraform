@@ -268,13 +268,14 @@ load_balancers = {}
 # through the hub, for example with a route_tables entry that sends 0.0.0.0/0
 # to the hub firewall.
 # Subnets are private: a subnet with neither a NAT Gateway nor a 0.0.0.0/0
-# route has no internet egress (Container Apps also need it to pull images).
+# route has no internet egress (Container Apps also need it to pull images, and
+# Web Apps and Function Apps to send telemetry to Application Insights).
 # The gateway is M-AZU-NGW-<BU>-<DPT>-<APP>-<ENV>-<REG>-<sequence> and its
 # Public IP M-AZU-PIP-<BU>-<DPT>-<APP>-<ENV>-<REG>-<sequence>.
 nat_gateway = {
   sequence                = "00"
   idle_timeout_in_minutes = 4
-  subnets                 = ["virtual_machines", "container_apps/primary"]
+  subnets                 = ["virtual_machines", "container_apps/primary", "web_app_integration", "function_integration"]
 }
 
 # NSGs are off. Each entry creates
@@ -556,11 +557,33 @@ mysql_servers = {
   # }
 }
 
-# One Log Analytics workspace is shared by every Container Apps environment and
-# by Databricks diagnostic settings, and created only when one of them exists.
-# Its name is
+# One Log Analytics workspace is shared by every Container Apps environment, the
+# Application Insights resource and Databricks diagnostic settings, and created
+# only when one of them exists. Its name is
 # M-AZU-LAW-<BU>-<DPT>-<APP>-<ENV>-<REG>-<sequence>.
 log_analytics_workspace = {
+  sequence = "00"
+
+  # Daily ingestion cap in GB for everything sent to the workspace, including
+  # Application Insights telemetry; ingestion stops for the rest of the day
+  # once reached. -1 removes the cap.
+  daily_quota_gb = 0.1
+
+  # 30-730 days.
+  retention_in_days = 30
+}
+
+# One workspace-based Application Insights resource shared by every Web App and
+# Function App (each app can opt out with application_insights = false). It is
+# named M-AZU-AIN-<BU>-<DPT>-<APP>-<ENV>-<REG>-<sequence> and accepts only
+# Microsoft Entra-authenticated telemetry: each app's managed identity gets
+# Monitoring Metrics Publisher, so the deployer needs rights to create role
+# assignments. Telemetry leaves the VNet: list web_app_integration and
+# function_integration in nat_gateway.subnets (or route 0.0.0.0/0 to a
+# firewall), otherwise Terraform warns. enabled = false turns it off for every
+# app.
+application_insights = {
+  enabled  = true
   sequence = "00"
 }
 
@@ -759,6 +782,11 @@ web_apps = {
     }
 
     app_settings = {}
+
+    # Send telemetry to the shared Application Insights resource (default).
+    # linux and windows modes also turn on the App Service agent; container
+    # images need their own Application Insights SDK or OpenTelemetry distro.
+    application_insights = true
   }
 
   # api = {
@@ -802,6 +830,9 @@ function_apps = {
       name    = "python"
       version = "3.11"
     }
+
+    # Send telemetry to the shared Application Insights resource (default).
+    application_insights = true
   }
 
   # jobs = {

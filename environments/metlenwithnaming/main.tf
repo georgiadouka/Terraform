@@ -374,16 +374,59 @@ module "cosmos_db" {
   tags                          = local.common_tags
 }
 
-# One workspace shared by every Container Apps environment and by the
-# Databricks diagnostic settings.
+locals {
+  # Apps that send telemetry to the shared Application Insights resource,
+  # mapped to the integration subnet their outbound traffic uses.
+  application_insights_apps = var.application_insights.enabled ? merge(
+    { for key, app in var.function_apps : "function_app/${key}" => "function_integration" if app.application_insights },
+    { for key, app in var.web_apps : "web_app/${key}" => "web_app_integration" if app.application_insights }
+  ) : {}
+  application_insights_required = length(local.application_insights_apps) > 0
+
+  application_insights_without_egress = sort([
+    for key, subnet_key in local.application_insights_apps : key
+    if !contains(concat(local.nat_gateway_subnet_keys, local.default_route_subnet_keys), subnet_key)
+  ])
+}
+
+# One workspace shared by every Container Apps environment, the Application
+# Insights resource and the Databricks diagnostic settings.
 module "log_analytics" {
-  count  = length(var.container_apps_environments) > 0 || length(local.databricks_diagnostics_keys) > 0 ? 1 : 0
+  count  = length(var.container_apps_environments) > 0 || length(local.databricks_diagnostics_keys) > 0 || local.application_insights_required ? 1 : 0
   source = "../../modules/log-analytics-workspace"
 
   name                = local.resource_names.log_analytics_workspace
   resource_group_name = module.resource_group.name
   location            = module.resource_group.location
+  daily_quota_gb      = var.log_analytics_workspace.daily_quota_gb
+  retention_in_days   = var.log_analytics_workspace.retention_in_days
   tags                = local.common_tags
+}
+
+# Entra-only ingestion: every app authenticates with its system-assigned
+# identity, which gets Monitoring Metrics Publisher here.
+module "application_insights" {
+  count  = local.application_insights_required ? 1 : 0
+  source = "../../modules/application-insights"
+
+  name                = local.resource_names.application_insights
+  resource_group_name = module.resource_group.name
+  location            = module.resource_group.location
+  workspace_id        = module.log_analytics[0].id
+  metrics_publisher_principal_ids = merge(
+    { for key in keys(var.function_apps) : "function_app/${key}" => module.function_app[key].principal_id if contains(keys(local.application_insights_apps), "function_app/${key}") },
+    { for key in keys(var.web_apps) : "web_app/${key}" => module.web_app[key].principal_id if contains(keys(local.application_insights_apps), "web_app/${key}") }
+  )
+  tags = local.common_tags
+}
+
+# A warning rather than a validation error: the apps deploy, but telemetry
+# cannot leave the private integration subnet.
+check "application_insights_egress" {
+  assert {
+    condition     = length(local.application_insights_without_egress) == 0
+    error_message = "These apps send telemetry to Application Insights but their integration subnet has no outbound internet access, so no telemetry arrives: ${join(", ", local.application_insights_without_egress)}. Add function_integration or web_app_integration to nat_gateway.subnets, give it a route_tables entry with 0.0.0.0/0 to a firewall, or set application_insights = false on the app."
+  }
 }
 
 module "container_apps" {
@@ -540,6 +583,7 @@ module "web_app" {
   runtime                   = each.value.runtime
   container                 = each.value.container
   app_settings              = each.value.app_settings
+  application_insights      = contains(keys(local.application_insights_apps), "web_app/${each.key}") ? { connection_string = module.application_insights[0].connection_string } : null
   tags                      = local.common_tags
 }
 
@@ -598,6 +642,7 @@ module "function_app" {
   virtual_network_subnet_id  = module.network.subnet_ids["function_integration"]
   os_type                    = var.app_service_plans[each.value.service_plan].os_type
   runtime                    = each.value.runtime
+  application_insights       = contains(keys(local.application_insights_apps), "function_app/${each.key}") ? { connection_string = module.application_insights[0].connection_string } : null
   tags                       = local.common_tags
 
   depends_on = [module.function_storage_private_endpoints]

@@ -63,7 +63,7 @@ test AT-02).
 | `network_security_groups.<key>.classification`, `route_tables.<key>.classification` | PUB/PRV | `"PRV"` (default) |
 | `container_apps_environments.<key>.subnet_number` | Subnet number of that environment | `9` |
 | `app_service_plans.<key>.sequence`, `function_apps.<key>.storage_sequence`, `function_apps.<key>.sequence`, `sql_managed_instances.<key>.network_sequence` | NN of App Service Plans and of resources created for a service | `"00"`, `"01"` |
-| `nat_gateway.sequence`, `log_analytics_workspace.sequence` | NN of the shared NAT Gateway (and its Public IP) and of the shared Log Analytics workspace | `"00"` (default) |
+| `nat_gateway.sequence`, `log_analytics_workspace.sequence`, `application_insights.sequence` | NN of the shared NAT Gateway (and its Public IP), of the shared Log Analytics workspace and of the shared Application Insights resource | `"00"` (default) |
 | `storage_accounts.<key>.containers`, the `file_shares` keys, `<server>.database_name`, `cosmos_db_accounts.<key>.container_name` | Names chosen by the application, used as-is (no convention) | `"invoices"`, `"appdb"` |
 
 Logical keys in maps (for example `storage_accounts.primary`) never appear in
@@ -162,7 +162,7 @@ name = join("-", compact(["M-AZU", local.metlen_codes.function_app, local.metlen
 
 Used for: Resource Group, Web App, App Service Plans, Function App, Container
 Apps Environment, Load Balancer, SQL elastic pool, NAT Gateway, Public IP,
-Log Analytics workspace.
+Log Analytics workspace, Application Insights.
 
 ### 6.2 Network family
 
@@ -289,6 +289,7 @@ When a parent's name changes, its endpoints follow automatically.
 | Load Balancer parts | `load_balancers[<key>].frontend_ip_configuration_name`, … | Fixed / key | `frontend`, `backend`, `http` |
 | NAT Gateway / its Public IP | `nat_gateway` / `nat_public_ip` (NN from `nat_gateway.sequence`) | Full | `M-AZU-NGW-IT-PPA-ECM-DEV-SWE-00` / `M-AZU-PIP-IT-PPA-ECM-DEV-SWE-00` |
 | Log Analytics workspace | `log_analytics_workspace` (NN from `log_analytics_workspace.sequence`) | Full | `M-AZU-LAW-IT-PPA-ECM-DEV-SWE-00` |
+| Application Insights | `application_insights` (NN from `application_insights.sequence`) | Full | `M-AZU-AIN-IT-PPA-ECM-DEV-SWE-00` |
 | Function App content share | `function_apps[<key>].content_share_name` | Fixed | `function-content` |
 | Private Endpoints | `local.private_endpoint_names[<endpoint>]` | Derived | `mazusoaitppaecmdevswe00-blob` |
 
@@ -351,7 +352,9 @@ Public IP and Log Analytics codes agreed on 2026-10-28, and check that invalid
 inputs are rejected. The names of the working-assumption types (Container
 Registry, Cosmos DB, PostgreSQL, MySQL) and the SQL elastic pool are pinned
 with their resources in
-[tests/configuration.tftest.hcl](../environments/metlenwithnaming/tests/configuration.tftest.hcl).
+[tests/configuration.tftest.hcl](../environments/metlenwithnaming/tests/configuration.tftest.hcl),
+and the Application Insights name (`AIN`, agreed on 2026-10-29) in
+[tests/application-insights.tftest.hcl](../environments/metlenwithnaming/tests/application-insights.tftest.hcl).
 
 ## 10. Sample naming still in the locals
 

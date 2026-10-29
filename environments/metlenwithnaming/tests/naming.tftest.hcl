@@ -47,9 +47,12 @@ variables {
     mysql                = "10.42.6.0/24"
     sql_managed_instance = "10.42.7.0/27"
   }
-  virtual_machine_scale_sets  = {}
-  nat_gateway                 = {}
-  log_analytics_workspace     = {}
+  virtual_machine_scale_sets = {}
+  nat_gateway                = {}
+  log_analytics_workspace    = {}
+  # Telemetry is covered by application-insights.tftest.hcl; these apps have
+  # no NAT Gateway, which would trip the egress check.
+  application_insights        = { enabled = false }
   key_vaults                  = {}
   container_registries        = {}
   azure_sql_servers           = {}

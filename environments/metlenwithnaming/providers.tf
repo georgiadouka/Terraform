@@ -13,6 +13,15 @@ provider "azurerm" {
       purge_soft_delete_on_destroy    = true #for production turn into false
       recover_soft_deleted_key_vaults = true
     }
+
+    # Azure adds a "Failure Anomalies - <name>" smart detector alert rule to
+    # every new Application Insights resource. Terraform does not manage it; if
+    # it outlives the resource it blocks deleting the resource group (seen in
+    # the 2026-10-29 live test). With this setting the provider disables the
+    # rule on create and deletes it on destroy.
+    application_insights {
+      disable_generated_rule = true
+    }
   }
 }
 
