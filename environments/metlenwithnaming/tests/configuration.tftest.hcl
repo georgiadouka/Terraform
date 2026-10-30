@@ -198,19 +198,18 @@ variables {
   virtual_networks = {
     main = {
       address_space = ["10.42.0.0/20"]
-      subnet_cidrs = {
-        private_endpoints    = "10.42.0.0/24"
-        virtual_machines     = "10.42.1.0/24"
-        web_app_integration  = "10.42.8.0/26"
-        function_integration = "10.42.4.0/24"
-        postgresql           = "10.42.5.0/24"
-        mysql                = "10.42.6.0/24"
-        sql_managed_instance = "10.42.7.0/27"
+      subnets = {
+        private_endpoints    = { cidr = "10.42.0.0/24", number = 1 }
+        virtual_machines     = { cidr = "10.42.1.0/24", number = 2 }
+        web_app_integration  = { cidr = "10.42.8.0/26", number = 3 }
+        function_integration = { cidr = "10.42.4.0/24", number = 4 }
+        postgresql           = { cidr = "10.42.5.0/24", number = 5 }
+        mysql                = { cidr = "10.42.6.0/24", number = 6 }
+        sql_managed_instance = { cidr = "10.42.7.0/27", number = 7 }
       }
     }
   }
   virtual_machine_scale_sets = {}
-  nat_gateways               = {}
   log_analytics_workspace    = {}
   # Telemetry is covered by application-insights.tftest.hcl; these apps have
   # no NAT Gateway, which would trip the egress check.
@@ -246,7 +245,6 @@ run "linux_defaults" {
         postgresql           = "PPAECMDEVPRV05"
         mysql                = "PPAECMDEVPRV06"
         sql_managed_instance = "PPAECMDEVPRV07"
-        load_balancers       = "PPAECMDEVPRV08"
       }
     )
     error_message = "Linux defaults must sign in with the default admin username, and network names must follow the METLEN VNT and <DPT><APP><ENV>PRV<NN> subnet patterns."
@@ -419,11 +417,11 @@ run "multiple_vm_scale_sets" {
       length(distinct([for names in values(local.resource_names.virtual_machine_scale_sets) : names.computer_name_prefix])) == 3 &&
       length(distinct([for names in values(local.resource_names.virtual_machine_scale_sets) : names.name])) == 3 &&
       length(distinct([for names in values(local.resource_names.virtual_machine_scale_sets) : names.autoscale_setting_name])) == 3 &&
-      local.subnet_enabled.main.virtual_machines &&
+      contains(keys(local.subnets.main), "virtual_machines") &&
       length(module.nat_gateway) == 0 &&
       length(module.virtual_machine) == 0
     )
-    error_message = "Each scale set entry must have its own names and hostname prefix while sharing the VM subnet; no NAT Gateway unless nat_gateways.main.subnets lists it."
+    error_message = "Each scale set entry must have its own names and hostname prefix while sharing the VM subnet; no NAT Gateway unless the VM subnet sets nat_gateway = true."
   }
 }
 
@@ -444,12 +442,18 @@ run "vmss_only_keeps_shared_network" {
     virtual_machine_scale_sets = { app = {} }
     function_apps              = {}
     app_service_plans          = {}
-    nat_gateways               = { main = { subnets = ["virtual_machines"] } }
+    virtual_networks = {
+      main = merge(var.virtual_networks.main, {
+        subnets = merge(var.virtual_networks.main.subnets, {
+          virtual_machines = { cidr = "10.42.1.0/24", number = 2, nat_gateway = true }
+        })
+      })
+    }
   }
   assert {
     condition = (
       length(local.nat_gateways_required) == 1 &&
-      local.subnet_enabled.main.virtual_machines &&
+      contains(keys(local.subnets.main), "virtual_machines") &&
       length(module.nat_gateway) == 1 &&
       length(module.virtual_machine) == 0 &&
       length(module.virtual_machine_scale_set) == 1
@@ -466,30 +470,43 @@ run "nat_gateway_is_opt_in" {
       length(module.nat_gateway) == 0 &&
       length(output.nat_gateways) == 0
     )
-    error_message = "Without nat_gateways.main.subnets no NAT Gateway or Public IP may be created, even when VMs exist."
+    error_message = "Without a subnet that sets nat_gateway = true no NAT Gateway or Public IP may be created, even when VMs exist."
   }
 }
 
 run "nat_gateway_per_subnet" {
   command = plan
   variables {
-    nat_gateways = { main = { subnets = ["virtual_machines", "function_integration"] } }
+    virtual_networks = {
+      main = merge(var.virtual_networks.main, {
+        subnets = merge(var.virtual_networks.main.subnets, {
+          virtual_machines     = { cidr = "10.42.1.0/24", number = 2, nat_gateway = true }
+          function_integration = { cidr = "10.42.4.0/24", number = 4, nat_gateway = true }
+        })
+      })
+    }
   }
   assert {
     condition = (
       length(module.nat_gateway) == 1 &&
       toset(local.nat_gateway_subnet_keys) == toset(["main/virtual_machines", "main/function_integration"])
     )
-    error_message = "The NAT Gateway must be associated with exactly the subnets listed in nat_gateways.main.subnets."
+    error_message = "The NAT Gateway must be associated with exactly the subnets that set nat_gateway = true."
   }
 }
 
 run "hub_and_spoke_egress_without_nat_gateway" {
   command = plan
   variables {
+    virtual_networks = {
+      main = merge(var.virtual_networks.main, {
+        subnets = merge(var.virtual_networks.main.subnets, {
+          virtual_machines = { cidr = "10.42.1.0/24", number = 2, route_table = "egress" }
+        })
+      })
+    }
     route_tables = {
       egress = {
-        subnets = ["virtual_machines"]
         routes = {
           default-to-hub = {
             address_prefix         = "0.0.0.0/0"
@@ -509,10 +526,15 @@ run "hub_and_spoke_egress_without_nat_gateway" {
 run "warn_when_route_bypasses_nat_gateway" {
   command = plan
   variables {
-    nat_gateways = { main = { subnets = ["virtual_machines"] } }
+    virtual_networks = {
+      main = merge(var.virtual_networks.main, {
+        subnets = merge(var.virtual_networks.main.subnets, {
+          virtual_machines = { cidr = "10.42.1.0/24", number = 2, nat_gateway = true, route_table = "egress" }
+        })
+      })
+    }
     route_tables = {
       egress = {
-        subnets = ["virtual_machines"]
         routes = {
           default-to-hub = {
             address_prefix         = "0.0.0.0/0"
@@ -526,26 +548,25 @@ run "warn_when_route_bypasses_nat_gateway" {
   expect_failures = [check.nat_gateway_bypassed]
 }
 
-run "reject_nat_gateway_subnet_not_deployed" {
+# The SQL Managed Instance module manages the subnet's networking.
+run "reject_nat_gateway_on_sql_managed_instance_subnet" {
   command = plan
   variables {
-    nat_gateways = { main = { subnets = ["mysql"] } }
+    virtual_networks = {
+      main = merge(var.virtual_networks.main, {
+        subnets = merge(var.virtual_networks.main.subnets, {
+          sql_managed_instance = { cidr = "10.42.7.0/27", number = 7, nat_gateway = true }
+        })
+      })
+    }
   }
-  expect_failures = [var.nat_gateways]
-}
-
-run "reject_duplicate_nat_gateway_subnet" {
-  command = plan
-  variables {
-    nat_gateways = { main = { subnets = ["virtual_machines", "virtual_machines"] } }
-  }
-  expect_failures = [var.nat_gateways]
+  expect_failures = [var.virtual_networks]
 }
 
 run "subnets_are_private" {
   command = plan
   variables {
-    virtual_networks = { main = merge(var.virtual_networks.main, { subnet_cidrs = merge(var.virtual_networks.main.subnet_cidrs, { container_apps = { primary = "10.42.2.0/27" } }) }) }
+    virtual_networks = { main = merge(var.virtual_networks.main, { subnets = merge(var.virtual_networks.main.subnets, { "container_apps/primary" = { cidr = "10.42.2.0/27", number = 9 } }) }) }
     container_apps_environments = {
       primary = {}
     }
@@ -573,14 +594,14 @@ run "disabled_services" {
       length(module.function_app) == 0 &&
       length(module.function_storage) == 0 &&
       length(output.function_apps) == 0 &&
-      !local.subnet_enabled.main.function_integration &&
+      contains(keys(local.subnets.main), "function_integration") &&
       length(output.container_registries) == 0 &&
       length(output.web_apps) == 0 &&
       length(module.app_service_plan) == 0 &&
       length(output.container_apps_environments) == 0 &&
       output.log_analytics_workspace_id == null
     )
-    error_message = "Disabled services must not generate VM credentials or a Function App."
+    error_message = "Disabled services must not generate VM credentials or a Function App, while the listed subnets stay."
   }
 }
 
@@ -602,7 +623,7 @@ run "web_app_linux_default" {
       output.app_service_plans["web"].sku_name == "B1" &&
       length(module.app_service_plan) == 2 &&
       length(module.web_app) == 1 &&
-      local.subnet_enabled.main.web_app_integration &&
+      contains(keys(local.subnets.main), "web_app_integration") &&
       contains(keys(module.private_endpoints), "web_app/primary") &&
       output.private_endpoint_ids.web_apps["primary"] != null
     )
@@ -796,7 +817,7 @@ run "warn_unused_app_service_plan" {
 run "reject_web_apps_on_two_plans_below_26" {
   command = plan
   variables {
-    virtual_networks = { main = merge(var.virtual_networks.main, { subnet_cidrs = merge(var.virtual_networks.main.subnet_cidrs, { web_app_integration = "10.42.8.0/27" }) }) }
+    virtual_networks = { main = merge(var.virtual_networks.main, { subnets = merge(var.virtual_networks.main.subnets, { web_app_integration = { cidr = "10.42.8.0/27", number = 3 } }) }) }
     app_service_plans = merge(var.app_service_plans, {
       portal = { sequence = "00" }
       api    = { sequence = "02" }
@@ -812,7 +833,7 @@ run "reject_web_apps_on_two_plans_below_26" {
 run "web_apps_on_one_plan_allow_small_subnet" {
   command = plan
   variables {
-    virtual_networks  = { main = merge(var.virtual_networks.main, { subnet_cidrs = merge(var.virtual_networks.main.subnet_cidrs, { web_app_integration = "10.42.8.0/28" }) }) }
+    virtual_networks  = { main = merge(var.virtual_networks.main, { subnets = merge(var.virtual_networks.main.subnets, { web_app_integration = { cidr = "10.42.8.0/28", number = 3 } }) }) }
     app_service_plans = merge(var.app_service_plans, { web = { sequence = "00" } })
     web_apps = {
       portal = { service_plan = "web" }
@@ -1017,8 +1038,7 @@ run "multiple_key_vaults" {
       length([for key in keys(module.private_endpoints) : key if startswith(key, "key_vault/")]) == 2 &&
       local.private_endpoint_names["key_vault/secrets"].name == "mazukvaitppaecmdevswe01-vault" &&
       length(output.private_endpoint_ids.key_vaults) == 2 &&
-      contains(local.private_dns_zones, "privatelink.vaultcore.azure.net") &&
-      local.subnet_enabled.main.private_endpoints
+      contains(local.private_dns_zones, "privatelink.vaultcore.azure.net")
     )
     error_message = "Each key_vaults entry must create one distinctly named Key Vault with its own vault Private Endpoint."
   }
@@ -1238,12 +1258,13 @@ run "reject_shared_key_provider_with_keyless_account" {
 run "container_apps_single_environment" {
   command = plan
   variables {
-    virtual_networks = { main = merge(var.virtual_networks.main, { subnet_cidrs = merge(var.virtual_networks.main.subnet_cidrs, {
-      container_apps = {
-        primary = "10.42.2.0/27"
-        spare   = "10.42.3.0/27"
-      }
-    }) }) }
+    virtual_networks = {
+      main = merge(var.virtual_networks.main, {
+        subnets = merge(var.virtual_networks.main.subnets, {
+          "container_apps/primary" = { cidr = "10.42.2.0/27", number = 9 }
+        })
+      })
+    }
     container_apps_environments = {
       primary = { apps = { hello = {} } }
     }
@@ -1260,14 +1281,11 @@ run "container_apps_single_environment" {
       local.subnets.main["container_apps/primary"].name == "PPAECMDEVPRV09" &&
       local.subnets.main["container_apps/primary"].address_prefixes == ["10.42.2.0/27"] &&
       local.subnets.main["container_apps/primary"].delegation.service == "Microsoft.App/environments" &&
-      local.planned_subnet_address_prefixes.main["container_apps/primary"] == ["10.42.2.0/27"] &&
-      !contains(keys(local.subnets.main), "container_apps/spare") &&
-      local.planned_subnet_address_prefixes.main["container_apps/spare"] == ["10.42.3.0/27"] &&
       length(module.nat_gateway) == 0 &&
       length(output.container_apps_environments["primary"].dedicated_workload_profile_names) == 0 &&
       output.container_apps_environments["primary"].apps["hello"].workload_profile_name == "Consumption"
     )
-    error_message = "An environment must use the subnet_cidrs.container_apps range with its own key, with no NAT Gateway unless listed, while unused ranges are only reserved."
+    error_message = "An environment must use the container_apps/<key> subnet with its own key, with no NAT Gateway unless the subnet sets nat_gateway = true."
   }
 }
 
@@ -1275,12 +1293,14 @@ run "multiple_container_apps_environments" {
   command = plan
   variables {
     virtual_machines = {}
-    virtual_networks = { main = merge(var.virtual_networks.main, { subnet_cidrs = merge(var.virtual_networks.main.subnet_cidrs, {
-      container_apps = {
-        primary = "10.42.2.0/27"
-        jobs    = "10.42.3.0/24"
-      }
-    }) }) }
+    virtual_networks = {
+      main = merge(var.virtual_networks.main, {
+        subnets = merge(var.virtual_networks.main.subnets, {
+          "container_apps/primary" = { cidr = "10.42.2.0/27", number = 9, nat_gateway = true }
+          "container_apps/jobs"    = { cidr = "10.42.3.0/24", number = 8, nat_gateway = true }
+        })
+      })
+    }
     container_apps_environments = {
       primary = {
         apps = {
@@ -1289,8 +1309,7 @@ run "multiple_container_apps_environments" {
         }
       }
       jobs = {
-        sequence      = "01"
-        subnet_number = 8
+        sequence = "01"
         dedicated_workload_profiles = {
           general = { workload_profile_type = "D4" }
         }
@@ -1299,7 +1318,6 @@ run "multiple_container_apps_environments" {
         }
       }
     }
-    nat_gateways = { main = { subnets = ["container_apps/primary", "container_apps/jobs"] } }
   }
   assert {
     condition = (
@@ -1327,7 +1345,7 @@ run "multiple_container_apps_environments" {
 run "container_apps_multiple_profiles" {
   command = plan
   variables {
-    virtual_networks = { main = merge(var.virtual_networks.main, { subnet_cidrs = merge(var.virtual_networks.main.subnet_cidrs, { container_apps = { primary = "10.42.2.0/23" } }) }) }
+    virtual_networks = { main = merge(var.virtual_networks.main, { subnets = merge(var.virtual_networks.main.subnets, { "container_apps/primary" = { cidr = "10.42.2.0/23", number = 9 } }) }) }
     container_apps_environments = {
       primary = {
         dedicated_workload_profiles = {
@@ -1358,7 +1376,7 @@ run "container_apps_long_profile_prefix" {
       unique_suffix = "test1"
       prefixes      = { container_apps_profile = "longprefix" }
     }
-    virtual_networks = { main = merge(var.virtual_networks.main, { subnet_cidrs = merge(var.virtual_networks.main.subnet_cidrs, { container_apps = { primary = "10.42.2.0/27" } }) }) }
+    virtual_networks = { main = merge(var.virtual_networks.main, { subnets = merge(var.virtual_networks.main.subnets, { "container_apps/primary" = { cidr = "10.42.2.0/27", number = 9 } }) }) }
     container_apps_environments = {
       primary = {
         dedicated_workload_profiles = {
@@ -1382,7 +1400,7 @@ run "container_apps_long_profile_prefix" {
 run "container_app_names_fit_azure_limits" {
   command = plan
   variables {
-    virtual_networks = { main = merge(var.virtual_networks.main, { subnet_cidrs = merge(var.virtual_networks.main.subnet_cidrs, { container_apps = { longenvname1 = "10.42.2.0/27" } }) }) }
+    virtual_networks = { main = merge(var.virtual_networks.main, { subnets = merge(var.virtual_networks.main.subnets, { "container_apps/longenvname1" = { cidr = "10.42.2.0/27", number = 9 } }) }) }
     container_apps_environments = {
       longenvname1 = { sequence = "99", apps = { longappname1 = { sequence = "99" } } }
     }
@@ -1400,7 +1418,7 @@ run "container_app_names_fit_azure_limits" {
 run "reject_container_apps_environment_without_range" {
   command = plan
   variables {
-    virtual_networks = { main = merge(var.virtual_networks.main, { subnet_cidrs = merge(var.virtual_networks.main.subnet_cidrs, { container_apps = { primary = "10.42.2.0/27" } }) }) }
+    virtual_networks = { main = merge(var.virtual_networks.main, { subnets = merge(var.virtual_networks.main.subnets, { "container_apps/primary" = { cidr = "10.42.2.0/27", number = 9 } }) }) }
     container_apps_environments = {
       jobs = {}
     }
@@ -1411,7 +1429,7 @@ run "reject_container_apps_environment_without_range" {
 run "reject_small_container_apps_subnet" {
   command = plan
   variables {
-    virtual_networks = { main = merge(var.virtual_networks.main, { subnet_cidrs = merge(var.virtual_networks.main.subnet_cidrs, { container_apps = { primary = "10.42.2.0/28" } }) }) }
+    virtual_networks = { main = merge(var.virtual_networks.main, { subnets = merge(var.virtual_networks.main.subnets, { "container_apps/primary" = { cidr = "10.42.2.0/28", number = 9 } }) }) }
   }
   expect_failures = [var.virtual_networks]
 }
@@ -1419,7 +1437,7 @@ run "reject_small_container_apps_subnet" {
 run "reject_invalid_container_apps_range_key" {
   command = plan
   variables {
-    virtual_networks = { main = merge(var.virtual_networks.main, { subnet_cidrs = merge(var.virtual_networks.main.subnet_cidrs, { container_apps = { "Primary_1" = "10.42.2.0/27" } }) }) }
+    virtual_networks = { main = merge(var.virtual_networks.main, { subnets = merge(var.virtual_networks.main.subnets, { "container_apps/Primary_1" = { cidr = "10.42.2.0/27", number = 9 } }) }) }
   }
   expect_failures = [var.virtual_networks]
 }
@@ -1427,7 +1445,7 @@ run "reject_invalid_container_apps_range_key" {
 run "reject_invalid_container_apps_environment_key" {
   command = plan
   variables {
-    virtual_networks = { main = merge(var.virtual_networks.main, { subnet_cidrs = merge(var.virtual_networks.main.subnet_cidrs, { container_apps = { primary = "10.42.2.0/27" } }) }) }
+    virtual_networks = { main = merge(var.virtual_networks.main, { subnets = merge(var.virtual_networks.main.subnets, { "container_apps/primary" = { cidr = "10.42.2.0/27", number = 9 } }) }) }
     container_apps_environments = {
       "primary-" = {}
     }
@@ -1438,7 +1456,7 @@ run "reject_invalid_container_apps_environment_key" {
 run "reject_overlong_container_app_key" {
   command = plan
   variables {
-    virtual_networks = { main = merge(var.virtual_networks.main, { subnet_cidrs = merge(var.virtual_networks.main.subnet_cidrs, { container_apps = { primary = "10.42.2.0/27" } }) }) }
+    virtual_networks = { main = merge(var.virtual_networks.main, { subnets = merge(var.virtual_networks.main.subnets, { "container_apps/primary" = { cidr = "10.42.2.0/27", number = 9 } }) }) }
     container_apps_environments = {
       primary = { apps = { thirteenchars = {} } }
     }
@@ -1450,15 +1468,17 @@ run "reject_duplicate_container_app_sequence_across_environments" {
   command = plan
   variables {
     virtual_machines = {}
-    virtual_networks = { main = merge(var.virtual_networks.main, { subnet_cidrs = merge(var.virtual_networks.main.subnet_cidrs, {
-      container_apps = {
-        primary = "10.42.2.0/27"
-        jobs    = "10.42.3.0/27"
-      }
-    }) }) }
+    virtual_networks = {
+      main = merge(var.virtual_networks.main, {
+        subnets = merge(var.virtual_networks.main.subnets, {
+          "container_apps/primary" = { cidr = "10.42.2.0/27", number = 9 }
+          "container_apps/jobs"    = { cidr = "10.42.3.0/27", number = 8 }
+        })
+      })
+    }
     container_apps_environments = {
       primary = { apps = { hello = {} } }
-      jobs    = { sequence = "01", subnet_number = 8, apps = { worker = {} } }
+      jobs    = { sequence = "01", apps = { worker = {} } }
     }
   }
   expect_failures = [var.container_apps_environments]
@@ -1468,15 +1488,17 @@ run "reject_duplicate_container_apps_environment_sequence" {
   command = plan
   variables {
     virtual_machines = {}
-    virtual_networks = { main = merge(var.virtual_networks.main, { subnet_cidrs = merge(var.virtual_networks.main.subnet_cidrs, {
-      container_apps = {
-        primary = "10.42.2.0/27"
-        jobs    = "10.42.3.0/27"
-      }
-    }) }) }
+    virtual_networks = {
+      main = merge(var.virtual_networks.main, {
+        subnets = merge(var.virtual_networks.main.subnets, {
+          "container_apps/primary" = { cidr = "10.42.2.0/27", number = 9 }
+          "container_apps/jobs"    = { cidr = "10.42.3.0/27", number = 8 }
+        })
+      })
+    }
     container_apps_environments = {
       primary = {}
-      jobs    = { subnet_number = 8 }
+      jobs    = {}
     }
   }
   expect_failures = [var.container_apps_environments]
@@ -1485,7 +1507,7 @@ run "reject_duplicate_container_apps_environment_sequence" {
 run "load_balancer_with_vm_and_vmss_members" {
   command = plan
   variables {
-    virtual_networks = { main = merge(var.virtual_networks.main, { subnet_cidrs = merge(var.virtual_networks.main.subnet_cidrs, { load_balancers = "10.42.9.0/26" }) }) }
+    virtual_networks = { main = merge(var.virtual_networks.main, { subnets = merge(var.virtual_networks.main.subnets, { load_balancers = { cidr = "10.42.9.0/26", number = 8 } }) }) }
     virtual_machines = {
       primary = { load_balancer = "web" }
       worker  = { data_disks = {} }
@@ -1510,8 +1532,7 @@ run "load_balancer_with_vm_and_vmss_members" {
       local.resource_names.load_balancers["web"].rules["http"] == "http" &&
       local.subnets.main["load_balancers"].name == "PPAECMDEVPRV08" &&
       local.subnets.main["load_balancers"].address_prefixes == ["10.42.9.0/26"] &&
-      !can(local.subnets.main["load_balancers"].delegation) &&
-      local.planned_subnet_address_prefixes.main["load_balancers"] == ["10.42.9.0/26"] &&
+      local.subnets.main["load_balancers"].delegation == null &&
       !contains(local.nat_gateway_subnet_keys, "main/load_balancers") &&
       output.load_balancers["web"].virtual_machines == tolist(["primary"]) &&
       output.load_balancers["web"].virtual_machine_scale_sets == tolist(["app"])
@@ -1523,7 +1544,7 @@ run "load_balancer_with_vm_and_vmss_members" {
 run "multiple_load_balancers_share_one_subnet" {
   command = plan
   variables {
-    virtual_networks = { main = merge(var.virtual_networks.main, { subnet_cidrs = merge(var.virtual_networks.main.subnet_cidrs, { load_balancers = "10.42.9.0/26" }) }) }
+    virtual_networks = { main = merge(var.virtual_networks.main, { subnets = merge(var.virtual_networks.main.subnets, { load_balancers = { cidr = "10.42.9.0/26", number = 8 } }) }) }
     virtual_machines = {
       primary = { load_balancer = "web" }
       db      = { load_balancer = "data" }
@@ -1562,17 +1583,17 @@ run "multiple_load_balancers_share_one_subnet" {
   }
 }
 
-run "no_load_balancer_subnet_without_load_balancers" {
+run "load_balancer_subnet_exists_without_load_balancers" {
   command = plan
   variables {
-    virtual_networks = { main = merge(var.virtual_networks.main, { subnet_cidrs = merge(var.virtual_networks.main.subnet_cidrs, { load_balancers = "10.42.9.0/26" }) }) }
+    virtual_networks = { main = merge(var.virtual_networks.main, { subnets = merge(var.virtual_networks.main.subnets, { load_balancers = { cidr = "10.42.9.0/26", number = 8 } }) }) }
   }
   assert {
     condition = (
-      !contains(keys(local.subnets.main), "load_balancers") &&
-      local.planned_subnet_address_prefixes.main["load_balancers"] == ["10.42.9.0/26"]
+      length(module.load_balancer) == 0 &&
+      local.subnets.main["load_balancers"].address_prefixes == ["10.42.9.0/26"]
     )
-    error_message = "The load balancer range must be reserved but not created until a load balancer exists."
+    error_message = "A listed load_balancers subnet must be created even before any load balancer exists."
   }
 }
 
@@ -1609,7 +1630,7 @@ run "reject_unknown_load_balancer_on_vmss" {
 run "reject_load_balancer_subnet_smaller_than_29" {
   command = plan
   variables {
-    virtual_networks = { main = merge(var.virtual_networks.main, { subnet_cidrs = merge(var.virtual_networks.main.subnet_cidrs, { load_balancers = "10.42.9.0/30" }) }) }
+    virtual_networks = { main = merge(var.virtual_networks.main, { subnets = merge(var.virtual_networks.main.subnets, { load_balancers = { cidr = "10.42.9.0/30", number = 8 } }) }) }
   }
   expect_failures = [var.virtual_networks]
 }
@@ -1617,7 +1638,7 @@ run "reject_load_balancer_subnet_smaller_than_29" {
 run "reject_reserved_load_balancer_ip" {
   command = plan
   variables {
-    virtual_networks = { main = merge(var.virtual_networks.main, { subnet_cidrs = merge(var.virtual_networks.main.subnet_cidrs, { load_balancers = "10.42.9.0/28" }) }) }
+    virtual_networks = { main = merge(var.virtual_networks.main, { subnets = merge(var.virtual_networks.main.subnets, { load_balancers = { cidr = "10.42.9.0/28", number = 8 } }) }) }
     load_balancers = {
       web = { private_ip_address = "10.42.9.3" }
     }
@@ -1628,7 +1649,7 @@ run "reject_reserved_load_balancer_ip" {
 run "reject_broadcast_load_balancer_ip" {
   command = plan
   variables {
-    virtual_networks = { main = merge(var.virtual_networks.main, { subnet_cidrs = merge(var.virtual_networks.main.subnet_cidrs, { load_balancers = "10.42.9.0/28" }) }) }
+    virtual_networks = { main = merge(var.virtual_networks.main, { subnets = merge(var.virtual_networks.main.subnets, { load_balancers = { cidr = "10.42.9.0/28", number = 8 } }) }) }
     load_balancers = {
       web = { private_ip_address = "10.42.9.15" }
     }
@@ -1639,7 +1660,7 @@ run "reject_broadcast_load_balancer_ip" {
 run "reject_load_balancer_ip_outside_subnet" {
   command = plan
   variables {
-    virtual_networks = { main = merge(var.virtual_networks.main, { subnet_cidrs = merge(var.virtual_networks.main.subnet_cidrs, { load_balancers = "10.42.9.0/28" }) }) }
+    virtual_networks = { main = merge(var.virtual_networks.main, { subnets = merge(var.virtual_networks.main.subnets, { load_balancers = { cidr = "10.42.9.0/28", number = 8 } }) }) }
     load_balancers = {
       web = { private_ip_address = "10.42.10.4" }
     }
@@ -1650,7 +1671,7 @@ run "reject_load_balancer_ip_outside_subnet" {
 run "reject_duplicate_load_balancer_ips" {
   command = plan
   variables {
-    virtual_networks = { main = merge(var.virtual_networks.main, { subnet_cidrs = merge(var.virtual_networks.main.subnet_cidrs, { load_balancers = "10.42.9.0/28" }) }) }
+    virtual_networks = { main = merge(var.virtual_networks.main, { subnets = merge(var.virtual_networks.main.subnets, { load_balancers = { cidr = "10.42.9.0/28", number = 8 } }) }) }
     load_balancers = {
       web = { private_ip_address = "10.42.9.4" }
       api = { private_ip_address = "10.42.9.4" }
@@ -1662,7 +1683,7 @@ run "reject_duplicate_load_balancer_ips" {
 run "reject_invalid_load_balancer_key" {
   command = plan
   variables {
-    virtual_networks = { main = merge(var.virtual_networks.main, { subnet_cidrs = merge(var.virtual_networks.main.subnet_cidrs, { load_balancers = "10.42.9.0/28" }) }) }
+    virtual_networks = { main = merge(var.virtual_networks.main, { subnets = merge(var.virtual_networks.main.subnets, { load_balancers = { cidr = "10.42.9.0/28", number = 8 } }) }) }
     load_balancers = {
       "web-" = {}
     }
@@ -1673,7 +1694,7 @@ run "reject_invalid_load_balancer_key" {
 run "reject_invalid_load_balancer_rule_key" {
   command = plan
   variables {
-    virtual_networks = { main = merge(var.virtual_networks.main, { subnet_cidrs = merge(var.virtual_networks.main.subnet_cidrs, { load_balancers = "10.42.9.0/28" }) }) }
+    virtual_networks = { main = merge(var.virtual_networks.main, { subnets = merge(var.virtual_networks.main.subnets, { load_balancers = { cidr = "10.42.9.0/28", number = 8 } }) }) }
     load_balancers = {
       web = {
         probes = { http = { port = 80 } }
@@ -1702,7 +1723,6 @@ run "multiple_mysql_servers" {
       local.resource_names.mysql_servers["primary"].server_name == "m-azu-mys-it-ppa-ecm-dev-swe-00" &&
       local.resource_names.mysql_servers["primary"].database_name == "primary" &&
       local.resource_names.mysql_servers["reports"].server_name == "m-azu-mys-it-ppa-ecm-dev-swe-01" &&
-      local.subnet_enabled.main.mysql &&
       local.subnets.main["mysql"].delegation.service == "Microsoft.DBforMySQL/flexibleServers" &&
       length([for key in keys(local.subnets.main) : key if startswith(key, "mysql")]) == 1 &&
       contains(local.private_dns_zones, "privatelink.mysql.database.azure.com") &&
@@ -1720,11 +1740,11 @@ run "mysql_is_opt_in" {
   assert {
     condition = (
       length(module.mysql) == 0 &&
-      !local.subnet_enabled.main.mysql &&
+      contains(keys(local.subnets.main), "mysql") &&
       !contains(local.private_dns_zones, "privatelink.mysql.database.azure.com") &&
       length(output.mysql_servers) == 0
     )
-    error_message = "An empty mysql_servers map must create no server, password, subnet, or DNS zone."
+    error_message = "An empty mysql_servers map must create no server, password or DNS zone, while the listed mysql subnet stays."
   }
 }
 
@@ -1781,7 +1801,7 @@ run "reject_invalid_mysql_server_key" {
 run "reject_mysql_subnet_too_small" {
   command = plan
   variables {
-    virtual_networks = { main = merge(var.virtual_networks.main, { subnet_cidrs = merge(var.virtual_networks.main.subnet_cidrs, { mysql = "10.42.6.0/29" }) }) }
+    virtual_networks = { main = merge(var.virtual_networks.main, { subnets = merge(var.virtual_networks.main.subnets, { mysql = { cidr = "10.42.6.0/29", number = 6 } }) }) }
     mysql_servers = {
       one = { sku_name = "GP_Standard_D2ds_v4", high_availability = { enabled = true } }
       two = { sequence = "01", sku_name = "GP_Standard_D2ds_v4", high_availability = { enabled = true } }
@@ -1793,7 +1813,7 @@ run "reject_mysql_subnet_too_small" {
 run "mysql_subnet_exactly_full" {
   command = plan
   variables {
-    virtual_networks = { main = merge(var.virtual_networks.main, { subnet_cidrs = merge(var.virtual_networks.main.subnet_cidrs, { mysql = "10.42.6.0/29" }) }) }
+    virtual_networks = { main = merge(var.virtual_networks.main, { subnets = merge(var.virtual_networks.main.subnets, { mysql = { cidr = "10.42.6.0/29", number = 6 } }) }) }
     mysql_servers = {
       one = { sku_name = "GP_Standard_D2ds_v4", high_availability = { enabled = true } }
       two = { sequence = "01" }
@@ -1828,7 +1848,6 @@ run "multiple_postgresql_servers" {
       local.resource_names.postgresql_servers["primary"].server_name == "m-azu-pgs-it-ppa-ecm-dev-swe-00" &&
       local.resource_names.postgresql_servers["primary"].database_name == "primary" &&
       local.resource_names.postgresql_servers["reports"].server_name == "m-azu-pgs-it-ppa-ecm-dev-swe-01" &&
-      local.subnet_enabled.main.postgresql &&
       local.subnets.main["postgresql"].delegation.service == "Microsoft.DBforPostgreSQL/flexibleServers" &&
       contains(local.subnets.main["postgresql"].service_endpoints, "Microsoft.Storage") &&
       length([for key in keys(local.subnets.main) : key if startswith(key, "postgresql")]) == 1 &&
@@ -1847,11 +1866,11 @@ run "postgresql_is_opt_in" {
   assert {
     condition = (
       length(module.postgresql) == 0 &&
-      !local.subnet_enabled.main.postgresql &&
+      contains(keys(local.subnets.main), "postgresql") &&
       !contains(local.private_dns_zones, "privatelink.postgres.database.azure.com") &&
       length(output.postgresql_servers) == 0
     )
-    error_message = "An empty postgresql_servers map must create no server, password, subnet, or DNS zone."
+    error_message = "An empty postgresql_servers map must create no server, password or DNS zone, while the listed postgresql subnet stays."
   }
 }
 
@@ -1930,7 +1949,7 @@ run "reject_invalid_postgresql_server_key" {
 run "reject_postgresql_subnet_below_minimum" {
   command = plan
   variables {
-    virtual_networks   = { main = merge(var.virtual_networks.main, { subnet_cidrs = merge(var.virtual_networks.main.subnet_cidrs, { postgresql = "10.42.5.0/29" }) }) }
+    virtual_networks   = { main = merge(var.virtual_networks.main, { subnets = merge(var.virtual_networks.main.subnets, { postgresql = { cidr = "10.42.5.0/29", number = 5 } }) }) }
     postgresql_servers = { primary = {} }
   }
   expect_failures = [var.postgresql_servers]
@@ -1939,7 +1958,7 @@ run "reject_postgresql_subnet_below_minimum" {
 run "reject_postgresql_subnet_too_small" {
   command = plan
   variables {
-    virtual_networks = { main = merge(var.virtual_networks.main, { subnet_cidrs = merge(var.virtual_networks.main.subnet_cidrs, { postgresql = "10.42.5.0/28" }) }) }
+    virtual_networks = { main = merge(var.virtual_networks.main, { subnets = merge(var.virtual_networks.main.subnets, { postgresql = { cidr = "10.42.5.0/28", number = 5 } }) }) }
     postgresql_servers = {
       one   = { high_availability = { enabled = true } }
       two   = { sequence = "01", high_availability = { enabled = true } }
@@ -1952,7 +1971,7 @@ run "reject_postgresql_subnet_too_small" {
 run "postgresql_subnet_exactly_full" {
   command = plan
   variables {
-    virtual_networks = { main = merge(var.virtual_networks.main, { subnet_cidrs = merge(var.virtual_networks.main.subnet_cidrs, { postgresql = "10.42.5.0/28" }) }) }
+    virtual_networks = { main = merge(var.virtual_networks.main, { subnets = merge(var.virtual_networks.main.subnets, { postgresql = { cidr = "10.42.5.0/28", number = 5 } }) }) }
     postgresql_servers = {
       one   = { high_availability = { enabled = true } }
       two   = { sequence = "01", high_availability = { enabled = true } }
@@ -2056,7 +2075,7 @@ run "multiple_function_apps" {
 run "function_apps_share_a_plan" {
   command = plan
   variables {
-    virtual_networks = { main = merge(var.virtual_networks.main, { subnet_cidrs = merge(var.virtual_networks.main.subnet_cidrs, { function_integration = "10.42.4.0/28" }) }) }
+    virtual_networks = { main = merge(var.virtual_networks.main, { subnets = merge(var.virtual_networks.main.subnets, { function_integration = { cidr = "10.42.4.0/28", number = 4 } }) }) }
     function_apps = {
       primary = { service_plan = "functions", storage_sequence = "09" }
       jobs    = { service_plan = "functions", sequence = "02", storage_sequence = "10" }
@@ -2124,7 +2143,7 @@ run "reject_invalid_function_app_key" {
 run "reject_function_apps_on_two_plans_below_26" {
   command = plan
   variables {
-    virtual_networks = { main = merge(var.virtual_networks.main, { subnet_cidrs = merge(var.virtual_networks.main.subnet_cidrs, { function_integration = "10.42.4.0/27" }) }) }
+    virtual_networks = { main = merge(var.virtual_networks.main, { subnets = merge(var.virtual_networks.main.subnets, { function_integration = { cidr = "10.42.4.0/27", number = 4 } }) }) }
     app_service_plans = {
       functions = { sequence = "01", sku_name = "EP1" }
       jobs      = { sequence = "03", sku_name = "EP1" }

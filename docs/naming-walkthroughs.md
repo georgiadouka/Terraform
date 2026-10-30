@@ -203,79 +203,85 @@ network_security_groups = {
 ## 3. Walkthrough: subnet names
 
 Subnets use a compact pattern, `<DPT><APP><ENV><PUB|PRV><NN>`, for example
-`PPAGEODEVPRV01`; PUB/PRV is the classification of the subnet's VNet. Subnet
-names are scoped to their VNet, so every VNet reuses the same numbers. There
-are two paths to a subnet name.
+`PPAGEODEVPRV01`; PUB/PRV is the classification of the subnet's VNet and NN
+the `number` set on the subnet. Subnet names are scoped to their VNet, so
+every VNet can reuse the same numbers.
 
-### 3.1 Fixed roles
+### 3.1 The number comes from the subnet
+
+Every subnet is listed under its VNet with a required `number`:
+
+```hcl
+# lab.tfvars
+virtual_networks = {
+  main = {
+    address_space = ["10.42.0.0/20"]
+    subnets = {
+      private_endpoints        = { cidr = "10.42.0.0/24", number = 1 }
+      virtual_machines         = { cidr = "10.42.1.0/24", number = 2, nat_gateway = true }
+      "container_apps/primary" = { cidr = "10.42.2.0/27", number = 9, nat_gateway = true }
+    }
+  }
+}
+```
 
 ```hcl
 # locals.naming.tf (condensed)
 metlen_subnet_prefix = "${var.naming_tokens.department}${var.naming_tokens.application}${var.naming_tokens.environment}"   # PPAGEODEV
-subnet_numbers = {
-  private_endpoints = 1, virtual_machines = 2, web_app_integration = 3, function_integration = 4,
-  postgresql = 5, mysql = 6, sql_managed_instance = 7, load_balancers = 8
-}
 # resource_names.virtual_networks[<key>].subnets
 subnets = {
-  for subnet_key, number in local.subnet_numbers :
-  subnet_key => format("%s%s%02d", local.metlen_subnet_prefix, network.classification, number)
+  for subnet_key, subnet in network.subnets :
+  subnet_key => format("%s%s%02d", local.metlen_subnet_prefix, network.classification, subnet.number)
 }
 ```
 
-`format("%02d", 1)` pads to `01`. The number belongs to the **role**, so
-names never shift when another subnet is switched on or off.
+`format("%02d", 1)` pads to `01`. Because the number is written on the subnet,
+names never shift when another subnet is added or removed. Container Apps
+environments (`container_apps/<key>`) and Databricks workspaces
+(`databricks/<key>/<host|container>`) are named the same way. The validation
+in `variables.tf` rejects a number outside 1 to 99 or one used twice in the
+same VNet; `2` for a Container Apps subnet fails the plan in a VNet whose VM
+subnet already uses `2`, but is fine in another VNet. The examples keep one
+convention: private endpoints 1, VMs 2, Web App integration 3, Function
+integration 4, PostgreSQL 5, MySQL 6, SQL Managed Instance 7, load balancers
+8, Container Apps 9 and Databricks 10 and up.
 
-### 3.2 Container Apps environments: the number comes from the input
-
-```hcl
-container_apps_environments = { primary = { ... } }   # subnet_number defaults to 9
-```
-
-`subnet_name = format("%s%s%02d", local.metlen_subnet_prefix, <classification of the environment's VNet>, environment.subnet_number)`
-gives `PPAGEODEVPRV09`. The environment lives in the VNet whose
-`subnet_cidrs.container_apps` lists its key. The validation in `variables.tf`
-rejects a `subnet_number` that is outside 1 to 99 or that equals the number of
-another subnet deployed in the same VNet; setting it to `2` while that VNet
-holds the VM subnet fails the plan, but `2` is fine in a VNet without one.
-Databricks workspaces work the same way with `host_subnet_number` and
-`container_subnet_number` (defaults 10 and 11).
-
-### 3.3 From name to subnet (`locals.network.tf`)
+### 3.2 From name to subnet (`locals.network.tf`)
 
 [locals.network.tf](../environments/metlenwithnaming/locals.network.tf) only
-consumes the names:
+consumes the names. The subnet key sets the role, and the role the
+delegation, endpoint policies and service endpoints:
 
 ```hcl
-subnet_definitions = {
-  for network_key, network in var.virtual_networks : network_key => {
-    virtual_machines = { name = local.resource_names.virtual_networks[network_key].subnets.virtual_machines, address_prefixes = [network.subnet_cidrs.virtual_machines] }
-    ...
-  }
-}
 subnets = {
-  for network_key in keys(var.virtual_networks) : network_key => merge(
-    { for subnet_key, subnet in local.subnet_definitions[network_key] : subnet_key => subnet if local.subnet_enabled[network_key][subnet_key] },
-    <the Container Apps and Databricks subnets placed in this VNet>
-  )
+  for network_key, network in var.virtual_networks : network_key => {
+    for subnet_key, subnet in network.subnets : subnet_key => {
+      name             = local.resource_names.virtual_networks[network_key].subnets[subnet_key]
+      address_prefixes = [subnet.cidr]
+      delegation       = <from the role, for example Microsoft.DBforPostgreSQL/flexibleServers for postgresql>
+      ...
+    }
+  }
 }
 ```
 
 `main.tf` passes `local.subnets[<key>]` to the `module "network"` instance of
-each VNet. A name is **always computed**, but a subnet is **created only if a
-resource placed in that VNet needs it**:
+each VNet. **Every listed subnet is created**, whether or not a resource uses
+it, and nothing else is: the subnets are independent of the workloads. With
+the `lab.tfvars` used here:
 
-| Role | NN | Name | Created with `lab.tfvars`? | Why |
-|---|---|---|---|---|
-| `private_endpoints` | 1 | `PPAGEODEVPRV01` | Yes | Private endpoints are enabled |
-| `virtual_machines` | 2 | `PPAGEODEVPRV02` | Yes | VMs and scale sets are defined |
-| `web_app_integration` | 3 | `PPAGEODEVPRV03` | Yes | `web_apps` is not empty |
-| `function_integration` | 4 | `PPAGEODEVPRV04` | Yes | `function_apps` is not empty |
-| `postgresql` | 5 | `PPAGEODEVPRV05` | Yes | `postgresql_servers` is not empty |
-| `mysql` | 6 | `PPAGEODEVPRV06` | Yes | `mysql_servers` is not empty |
-| `sql_managed_instance` | 7 | `PPAGEODEVPRV07` | No | `sql_managed_instances` is empty |
-| `load_balancers` | 8 | `PPAGEODEVPRV08` | No | `load_balancers` is empty |
-| `container_apps/primary` | 9 | `PPAGEODEVPRV09` | Yes | Environment `primary` exists |
+| Subnet key | NN | Name | Used by |
+|---|---|---|---|
+| `private_endpoints` | 1 | `PPAGEODEVPRV01` | Private endpoints |
+| `virtual_machines` | 2 | `PPAGEODEVPRV02` | VMs and scale sets |
+| `web_app_integration` | 3 | `PPAGEODEVPRV03` | `web_apps` |
+| `function_integration` | 4 | `PPAGEODEVPRV04` | `function_apps` |
+| `postgresql` | 5 | `PPAGEODEVPRV05` | `postgresql_servers` |
+| `mysql` | 6 | `PPAGEODEVPRV06` | `mysql_servers` |
+| `container_apps/primary` | 9 | `PPAGEODEVPRV09` | Environment `primary` |
+
+Removing all `postgresql_servers` would leave `PPAGEODEVPRV05` in place until
+the `postgresql` line is removed from `subnets`.
 
 ## 4. Walkthrough: a Storage Account and its private endpoints
 
@@ -493,7 +499,7 @@ container_apps_environments = {
 | Name | Mechanism | Built from | Result |
 |---|---|---|---|
 | Environment | Full family | `CEV`, scope, placement, `environment.sequence` (`"00"`) | `M-AZU-CEV-IT-PPA-GEO-DEV-SWE-00` |
-| Subnet | Subnet family | prefix + `subnet_number` (`9`) | `PPAGEODEVPRV09` |
+| Subnet | Subnet family | prefix + the `number` of the `container_apps/primary` subnet (`9`) | `PPAGEODEVPRV09` |
 | App `hello` | Lowercase variant | `CAP`, scope, placement, `app.sequence` (`"00"`), then `lower()` | `m-azu-cap-it-ppa-geo-dev-swe-00` |
 | Subnet delegation | Legacy stem | `dlg-container-apps-<key>-<stem>` | `dlg-container-apps-primary-metlen-lab-<suffix>` |
 | Private DNS links | Derived | name of each linked VNet (the environment's zone is linked to every VNet) | `M-AZU-VNT-IT-PPA-GEO-PRV-DEV-SWE` |

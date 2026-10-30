@@ -18,13 +18,12 @@ module "network" {
   for_each = var.virtual_networks
   source   = "../../modules/network"
 
-  name                            = local.resource_names.virtual_networks[each.key].name
-  resource_group_name             = module.resource_group.name
-  location                        = module.resource_group.location
-  address_space                   = each.value.address_space
-  subnets                         = local.subnets[each.key]
-  planned_subnet_address_prefixes = local.planned_subnet_address_prefixes[each.key]
-  tags                            = local.common_tags
+  name                = local.resource_names.virtual_networks[each.key].name
+  resource_group_name = module.resource_group.name
+  location            = module.resource_group.location
+  address_space       = each.value.address_space
+  subnets             = local.subnets[each.key]
+  tags                = local.common_tags
 }
 
 # Hub side first, so allow_gateway_transit exists before the spoke side sets
@@ -203,7 +202,7 @@ module "nat_gateway" {
 check "nat_gateway_bypassed" {
   assert {
     condition     = length(setintersection(toset(local.nat_gateway_subnet_keys), toset(local.default_route_subnet_keys))) == 0
-    error_message = "These nat_gateways subnets (<VNet key>/<subnet key>) also have a route table with a 0.0.0.0/0 route, which takes precedence, so the NAT Gateway is not used for them (but is still billed): ${join(", ", setintersection(toset(local.nat_gateway_subnet_keys), toset(local.default_route_subnet_keys)))}."
+    error_message = "These subnets (<VNet key>/<subnet key>) set nat_gateway = true but also have a route table with a 0.0.0.0/0 route, which takes precedence, so the NAT Gateway is not used for them (but is still billed): ${join(", ", setintersection(toset(local.nat_gateway_subnet_keys), toset(local.default_route_subnet_keys)))}."
   }
 }
 
@@ -216,8 +215,8 @@ module "network_security_group" {
   location            = module.resource_group.location
   security_rules      = each.value.security_rules
   subnet_ids = {
-    for subnet_key in each.value.subnets :
-    subnet_key => module.network[local.network_security_group_networks[each.key]].subnet_ids[subnet_key]
+    for subnet in lookup(local.network_security_group_subnets, each.key, []) :
+    subnet.subnet => module.network[subnet.virtual_network].subnet_ids[subnet.subnet]
   }
   tags = local.common_tags
 }
@@ -232,8 +231,8 @@ module "route_table" {
   bgp_route_propagation_enabled = each.value.bgp_route_propagation_enabled
   routes                        = each.value.routes
   subnet_ids = {
-    for subnet_key in each.value.subnets :
-    subnet_key => module.network[local.route_table_networks[each.key]].subnet_ids[subnet_key]
+    for subnet in lookup(local.route_table_subnets, each.key, []) :
+    subnet.subnet => module.network[subnet.virtual_network].subnet_ids[subnet.subnet]
   }
   tags = local.common_tags
 }
@@ -449,7 +448,7 @@ module "application_insights" {
 check "application_insights_egress" {
   assert {
     condition     = length(local.application_insights_without_egress) == 0
-    error_message = "These apps send telemetry to Application Insights but their integration subnet has no outbound internet access, so no telemetry arrives: ${join(", ", local.application_insights_without_egress)}. Add function_integration or web_app_integration to the nat_gateways entry of the app's VNet, give it a route_tables entry with 0.0.0.0/0 to a firewall, or set application_insights = false on the app."
+    error_message = "These apps send telemetry to Application Insights but their integration subnet has no outbound internet access, so no telemetry arrives: ${join(", ", local.application_insights_without_egress)}. Set nat_gateway = true on the function_integration or web_app_integration subnet of the app's VNet, attach a route table with 0.0.0.0/0 to a firewall, or set application_insights = false on the app."
   }
 }
 
@@ -518,7 +517,7 @@ locals {
 check "databricks_egress" {
   assert {
     condition     = length(local.databricks_workspaces_without_egress) == 0
-    error_message = "These databricks_workspaces have a host or container subnet without outbound internet access, so clusters cannot start: ${join(", ", local.databricks_workspaces_without_egress)}. List both databricks/<key>/host and databricks/<key>/container in the nat_gateways entry of the workspace's VNet, or give them a route_tables entry with 0.0.0.0/0 to a firewall."
+    error_message = "These databricks_workspaces have a host or container subnet without outbound internet access, so clusters cannot start: ${join(", ", local.databricks_workspaces_without_egress)}. Set nat_gateway = true on both databricks/<key>/host and databricks/<key>/container, or attach a route table with 0.0.0.0/0 to a firewall."
   }
 }
 
@@ -546,11 +545,11 @@ module "databricks" {
   root_storage_account_name   = local.resource_names.databricks_workspaces[each.key].root_storage_account_name
   virtual_network_id          = module.network[local.databricks_workspace_networks[each.key]].id
   host_subnet = {
-    name = local.resource_names.databricks_workspaces[each.key].host_subnet_name
+    name = local.resource_names.virtual_networks[local.databricks_workspace_networks[each.key]].subnets["databricks/${each.key}/host"]
     id   = module.network[local.databricks_workspace_networks[each.key]].subnet_ids["databricks/${each.key}/host"]
   }
   container_subnet = {
-    name = local.resource_names.databricks_workspaces[each.key].container_subnet_name
+    name = local.resource_names.virtual_networks[local.databricks_workspace_networks[each.key]].subnets["databricks/${each.key}/container"]
     id   = module.network[local.databricks_workspace_networks[each.key]].subnet_ids["databricks/${each.key}/container"]
   }
   network_security_group_name = local.resource_names.databricks_workspaces[each.key].network_security_group_name

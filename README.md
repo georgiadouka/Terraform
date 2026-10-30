@@ -674,7 +674,9 @@ resource; adding or removing other entries does not rename existing ones.
 
 The [`metlenwithnaming`](environments/metlenwithnaming) environment deploys one
 or more VNets from the `virtual_networks` map, which replaces `address_space`,
-`subnet_cidrs` and `nat_gateway` of the `lab` environment. The map key is a
+`subnet_cidrs` and `nat_gateway` of the `lab` environment and holds the whole
+network layout: each VNet lists its subnets, and each subnet sets its range,
+number, NSG, route table and NAT Gateway use. The map key is a
 label that never appears in Azure names. `classification` is the METLEN network
 intent, `PRV` (default) or `PUB`, and names everything that belongs to the
 VNet:
@@ -684,7 +686,7 @@ VNet:
 | VNet | `M-AZU-VNT-<BU>-<DPT>-<APP>-<PUB\|PRV>-<ENV>-<REG>` |
 | Subnet | `<DPT><APP><ENV><PUB\|PRV><NN>`, for example `PPAECMDEVPUB02` |
 | NAT Gateway / its Public IP | `M-AZU-NGW-…-<PUB\|PRV>-<ENV>-<REG>-<NN>` / `M-AZU-PIP-…-<PUB\|PRV>-<ENV>-<REG>-<NN>` |
-| NSG / route table | `M-AZU-NSG-…` / `M-AZU-UDR-…` with the VNet's classification unless `classification` is set |
+| NSG / route table | `M-AZU-NSG-…` / `M-AZU-UDR-…` with the classification of the VNet whose subnets use it |
 | VNet peering | `<local VNet name>-to-<remote VNet name>` |
 | Private DNS zone link | The name of the linked VNet |
 
@@ -696,20 +698,31 @@ same classification.
 virtual_networks = {
   main = {
     address_space = ["10.42.0.0/20"]
-    subnet_cidrs = {
-      private_endpoints = "10.42.0.0/24"
-      virtual_machines  = "10.42.1.0/24"
-      container_apps    = { primary = "10.42.2.0/27" }
+    subnets = {
+      private_endpoints        = { cidr = "10.42.0.0/24", number = 1, network_security_group = "endpoints" }
+      virtual_machines         = { cidr = "10.42.1.0/24", number = 2, network_security_group = "compute", nat_gateway = true }
+      "container_apps/primary" = { cidr = "10.42.2.0/27", number = 9, nat_gateway = true }
     }
   }
   edge = {
     classification = "PUB"
     address_space  = ["10.43.0.0/22"]
-    subnet_cidrs = {
-      virtual_machines = "10.43.1.0/24"
-      load_balancers   = "10.43.2.0/28"
+    nat_gateway    = { sequence = "01" }
+    subnets = {
+      virtual_machines = { cidr = "10.43.1.0/24", number = 2, network_security_group = "frontend", route_table = "egress" }
+      load_balancers   = { cidr = "10.43.2.0/28", number = 8 }
     }
   }
+}
+
+# Rule sets and route sets only; subnets refer to them by key.
+network_security_groups = {
+  compute   = { sequence = "01", security_rules = { /* ... */ } }
+  endpoints = { sequence = "02", security_rules = { /* ... */ } }
+  frontend  = { security_rules = { /* ... */ } } # PUB, from the edge VNet
+}
+route_tables = {
+  egress = { routes = { /* 0.0.0.0/0 to the hub firewall */ } }
 }
 
 virtual_machines = {
@@ -717,35 +730,50 @@ virtual_machines = {
   dmz = { virtual_network = "edge" }
 }
 
-nat_gateways = {
-  main = { subnets = ["virtual_machines", "container_apps/primary"] }
-  edge = { subnets = ["virtual_machines"] }
-}
-
 virtual_network_peerings = {
   main-edge = { virtual_networks = ["main", "edge"] }
 }
 ```
 
+- Every listed subnet is created, used or not, and nothing else is. Subnets
+  are independent of workloads: removing a workload (for example the last
+  PostgreSQL server) leaves its subnet and the subnet's NSG, route table and
+  NAT Gateway associations in place, and adding one needs its subnet listed
+  first. Remove a subnet from the map once nothing uses it.
+- The subnet key is its role: `private_endpoints`, `virtual_machines`,
+  `web_app_integration`, `function_integration`, `postgresql`, `mysql`,
+  `sql_managed_instance`, `load_balancers`, `container_apps/<environment key>`
+  or `databricks/<workspace key>/<host|container>`. The role sets the
+  delegation and the minimum size (/29 for every subnet, /27 for SQL Managed
+  Instance and Container Apps, /28 for Databricks).
+- `number` is required: it is the NN of the subnet name and must be unique
+  within the VNet (every VNet can reuse the same numbers). Keep it stable;
+  changing it renames, and therefore replaces, the subnet. The examples keep
+  private endpoints 01 … load balancers 08, Container Apps 09 and Databricks
+  10 and up.
 - Every VM, scale set, load balancer, Web App, Function App, database, SQL
   Managed Instance and Private Endpoint parent (Storage Account, Key Vault,
   Container Registry, Azure SQL, Cosmos DB, premium files) takes an optional
   `virtual_network`. It defaults to the PRV VNet, or to the only VNet when
   there is one. Terraform rejects a VNet key that does not exist or whose
-  `subnet_cidrs` lacks the range the resource needs.
+  `subnets` lacks the subnet the resource needs.
 - A Container Apps environment or Databricks workspace is placed in the VNet
-  whose `subnet_cidrs.container_apps` or `subnet_cidrs.databricks` lists its
-  key; a key can appear in one VNet only.
-- Subnets are created per VNet, only for the resources placed in it. Subnet
-  numbers are scoped to their VNet: every VNet uses the same fixed numbers per
-  role (private endpoints 01 … load balancers 08), and Container Apps and
-  Databricks numbers need only be unique within their VNet.
+  that lists its `container_apps/<key>` or `databricks/<key>/<host|container>`
+  subnets; a key can appear in one VNet only, and a workspace's two subnets
+  share it.
 - A load balancer and its VMs and scale sets must share a VNet, and the apps on
   one App Service Plan must share a VNet because a plan integrates with one
   VNet.
-- `nat_gateways` is keyed by VNet, because a NAT Gateway serves subnets of one
-  VNet only. NSGs and route tables take `virtual_network` too, and their
-  `subnets` lists the subnet keys of that VNet.
+- `nat_gateway = true` on a subnet sends its outbound traffic through the NAT
+  Gateway of its VNet, which is created (with `nat_gateway` settings on the
+  VNet) only when a subnet uses it; Azure attaches a NAT Gateway to subnets of
+  one VNet only.
+- A subnet uses an NSG or route table with `network_security_group` or
+  `route_table`, so a subnet can never have two. All subnets that use one
+  group or table must be in the same VNet, because its name carries that
+  VNet's classification; an explicit `classification` must match it. The
+  `sql_managed_instance` subnet sets none of the three options, and
+  `databricks/…` subnets set no NSG, because their modules attach their own.
 - `hub_peering.virtual_networks` lists the VNets to peer with the hub (default:
   every VNet). Peering names are not truncated, so Terraform rejects a hub VNet
   whose name would make them longer than 80 characters.
@@ -761,8 +789,8 @@ virtual_network_peerings = {
 
 The [`metlenwithnaming`](environments/metlenwithnaming) environment creates
 Premium Azure Databricks workspaces from the `databricks_workspaces` map. Each
-entry gets two subnets from the `subnet_cidrs.databricks` entry with the same
-key in the VNet that lists it, both delegated to
+entry uses the `databricks/<key>/host` and `databricks/<key>/container`
+subnets of the VNet that lists them, both delegated to
 `Microsoft.Databricks/workspaces` and covered by the workspace's own NSG, in
 which Azure Databricks manages its required rules. Its Private Endpoints sit in
 the same VNet. Clusters never get public IP addresses (secure cluster
@@ -772,17 +800,12 @@ connectivity):
 virtual_networks = {
   main = {
     address_space = ["10.42.0.0/20"]
-    subnet_cidrs = {
+    subnets = {
       # ...
-      databricks = {
-        analytics = { host = "10.42.10.0/26", container = "10.42.10.64/26" }
-      }
+      "databricks/analytics/host"      = { cidr = "10.42.10.0/26", number = 10, nat_gateway = true }
+      "databricks/analytics/container" = { cidr = "10.42.10.64/26", number = 11, nat_gateway = true }
     }
   }
-}
-
-nat_gateways = {
-  main = { subnets = ["databricks/analytics/host", "databricks/analytics/container"] }
 }
 
 databricks_workspaces = {
@@ -805,13 +828,12 @@ databricks_workspaces = {
   turns it off); `terraform destroy` removes the lock first. Without such an
   entry Terraform warns, because sign-in then works only if a hub already
   provides the endpoint.
-- Clusters need outbound internet access even with Private Link. List both
-  subnets in the `nat_gateways` entry of the workspace's VNet or route them to
-  a hub firewall; Terraform warns when a workspace has neither.
+- Clusters need outbound internet access even with Private Link. Set
+  `nat_gateway = true` on both subnets or route them to a hub firewall;
+  Terraform warns when a workspace has neither.
 - Subnets must be /28 or larger (/26 recommended), the VNet /16 to /24, and
-  neither can change after creation. The default subnet numbers are 10 (host)
-  and 11 (container); set `host_subnet_number` and `container_subnet_number`
-  for a second workspace in the same VNet.
+  neither can change after creation. A second workspace in the same VNet needs
+  its own subnet numbers, for example 12 and 13.
 - The Access Connector is created by default; `storage_accounts` grants its
   identity Storage Blob Data Contributor on those `storage_accounts` keys for
   Unity Catalog. Diagnostics send every workspace log category (`allLogs`, the
@@ -838,8 +860,15 @@ its data in the shared Log Analytics workspace (`M-AZU-LAW-…`), which is then
 created too:
 
 ```hcl
-nat_gateways = {
-  main = { subnets = ["web_app_integration", "function_integration"] }
+virtual_networks = {
+  main = {
+    address_space = ["10.42.0.0/20"]
+    subnets = {
+      private_endpoints    = { cidr = "10.42.0.0/24", number = 1 }
+      web_app_integration  = { cidr = "10.42.8.0/26", number = 3, nat_gateway = true }
+      function_integration = { cidr = "10.42.4.0/24", number = 4, nat_gateway = true }
+    }
+  }
 }
 
 log_analytics_workspace = {
@@ -867,9 +896,10 @@ function_apps = {
   gets only the connection settings; the image needs its own Application
   Insights SDK or OpenTelemetry distro.
 - Telemetry goes to the public Azure Monitor ingestion endpoint. Subnets are
-  private and the apps route all outbound traffic through the VNet, so list
-  `web_app_integration` and `function_integration` in the `nat_gateways` entry
-  of the apps' VNet or route them to a hub firewall; Terraform warns when an app has neither.
+  private and the apps route all outbound traffic through the VNet, so set
+  `nat_gateway = true` on the `web_app_integration` and `function_integration`
+  subnets of the apps' VNet or route them to a hub firewall; Terraform warns
+  when an app has neither.
   Azure Monitor Private Link Scope is not implemented yet.
 - Application Insights data counts against the Log Analytics daily cap
   (0.1 GB by default). Once the cap is reached, ingestion stops until the next

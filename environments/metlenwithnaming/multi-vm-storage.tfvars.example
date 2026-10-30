@@ -23,6 +23,19 @@ naming = {
 
 # Every service is opt-in, so only the VMs and storage accounts below are deployed.
 
+# Only the subnets listed here are created: the VMs join virtual_machines and
+# the storage Private Endpoints sit in private_endpoints. Neither has internet
+# egress; set nat_gateway = true on virtual_machines if the VMs need it.
+virtual_networks = {
+  main = {
+    address_space = ["10.42.0.0/20"]
+    subnets = {
+      private_endpoints = { cidr = "10.42.0.0/24", number = 1 }
+      virtual_machines  = { cidr = "10.42.1.0/24", number = 2 }
+    }
+  }
+}
+
 virtual_machines = {
   primary = {
     os_type = "Linux"

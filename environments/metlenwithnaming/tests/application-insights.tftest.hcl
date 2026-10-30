@@ -107,14 +107,14 @@ variables {
   virtual_networks = {
     main = {
       address_space = ["10.42.0.0/20"]
-      subnet_cidrs = {
-        private_endpoints    = "10.42.0.0/24"
-        virtual_machines     = "10.42.1.0/24"
-        web_app_integration  = "10.42.8.0/26"
-        function_integration = "10.42.4.0/24"
-        postgresql           = "10.42.5.0/24"
-        mysql                = "10.42.6.0/24"
-        sql_managed_instance = "10.42.7.0/27"
+      subnets = {
+        private_endpoints    = { cidr = "10.42.0.0/24", number = 1 }
+        virtual_machines     = { cidr = "10.42.1.0/24", number = 2 }
+        web_app_integration  = { cidr = "10.42.8.0/26", number = 3, nat_gateway = true }
+        function_integration = { cidr = "10.42.4.0/24", number = 4, nat_gateway = true }
+        postgresql           = { cidr = "10.42.5.0/24", number = 5 }
+        mysql                = { cidr = "10.42.6.0/24", number = 6 }
+        sql_managed_instance = { cidr = "10.42.7.0/27", number = 7 }
       }
     }
   }
@@ -128,7 +128,6 @@ variables {
   web_apps = {
     primary = { service_plan = "web" }
   }
-  nat_gateways                = { main = { subnets = ["function_integration", "web_app_integration"] } }
   application_insights        = {}
   log_analytics_workspace     = {}
   virtual_machines            = {}
@@ -245,7 +244,13 @@ run "warn_without_egress" {
   command = plan
 
   variables {
-    nat_gateways = { main = { subnets = ["function_integration"] } }
+    virtual_networks = {
+      main = merge(var.virtual_networks.main, {
+        subnets = merge(var.virtual_networks.main.subnets, {
+          web_app_integration = { cidr = "10.42.8.0/26", number = 3 }
+        })
+      })
+    }
   }
 
   expect_failures = [check.application_insights_egress]

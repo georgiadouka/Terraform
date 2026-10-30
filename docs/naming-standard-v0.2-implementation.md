@@ -251,7 +251,7 @@ still need adding to the naming register.
 |---|---|---|---|
 | SQL Elastic Pool (`SEL`) | Scoped to its logical server, up to 128 characters, uppercase allowed | Full family with the server's NN, like the database; each server has at most one pool | `M-AZU-SEL-IT-PPA-ECM-DEV-SWE-00` |
 | SQL Managed Instance (`SMI`) | Global (`<name>.<id>.database.windows.net`), lowercase | Lowercase variant, like the SQL logical server, with its own NN | `m-azu-smi-it-ppa-ecm-dev-swe-00` |
-| NAT Gateway (`NGW`) | Resource group, 1-80 characters | Network family with the classification of its VNet (one gateway per VNet) and NN (`nat_gateways.<VNet key>.sequence`, default `00`) | `M-AZU-NGW-IT-PPA-ECM-PRV-DEV-SWE-00` |
+| NAT Gateway (`NGW`) | Resource group, 1-80 characters | Network family with the classification of its VNet (one gateway per VNet) and NN (`virtual_networks.<VNet key>.nat_gateway.sequence`, default `00`) | `M-AZU-NGW-IT-PPA-ECM-PRV-DEV-SWE-00` |
 | Public IP (`PIP`) | Resource group, 1-80 characters | Mirrors the NAT Gateway's name (same classifier and NN), so the pair is visibly linked; the classifier names the VNet the address serves, not its exposure | `M-AZU-PIP-IT-PPA-ECM-PRV-DEV-SWE-00` |
 | Log Analytics workspace (`LAW`) | Resource group, 4-63 letters, digits and hyphens | Full family with NN (`log_analytics_workspace.sequence`, default `00`); one workspace shared by every Container Apps environment | `M-AZU-LAW-IT-PPA-ECM-DEV-SWE-00` |
 
@@ -291,7 +291,7 @@ reuses an existing family:
 | Managed resource group (created and locked by Azure Databricks) | Resource group family with the workspace NN (working assumption) | `M-AZU-RGP-IT-PPA-GEO-DEV-SWE-00` |
 | Root (DBFS) storage account | Storage compact family with `storage_sequence`; Azure-generated when not set | `mazusoaitppageodevswe08` |
 | NSG on both workspace subnets | Network family with `network_sequence` (default: the workspace NN), like SQL Managed Instance | `M-AZU-NSG-IT-PPA-GEO-PRV-DEV-SWE-00` |
-| Host and container subnets | Subnet pattern with `host_subnet_number` (default 10) and `container_subnet_number` (default 11) | `PPAGEODEVPRV10`, `PPAGEODEVPRV11` |
+| Host and container subnets | Subnet pattern with the `number` of the `databricks/<key>/host` and `databricks/<key>/container` subnets (10 and 11 in the examples) | `PPAGEODEVPRV10`, `PPAGEODEVPRV11` |
 | Private Endpoints | `<workspace>-<subresource>` | `M-AZU-DBR-IT-PPA-GEO-DEV-SWE-00-databricks_ui_api`, `…-browser_authentication` |
 
 The managed resource group NN must not clash with another resource group

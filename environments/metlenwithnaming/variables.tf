@@ -142,38 +142,25 @@ variable "naming" {
 }
 
 variable "virtual_networks" {
-  description = "Virtual networks keyed by a stable logical name (the key never appears in Azure names). classification is the METLEN network intent, PRV (default) or PUB; it names the VNet M-AZU-VNT-<BU>-<DPT>-<APP>-<PUB|PRV>-<ENV>-<REG>, its subnets <DPT><APP><ENV><PUB|PRV><NN>, its NAT Gateway and, by default, the NSGs and route tables attached to it. The standard defines no NN for VNets, so each classification can be used by one VNet only (at most one PRV and one PUB). subnet_cidrs holds the ranges of the subnets that can be created in that VNet: container_apps maps each Container Apps environment key to its own range and databricks each Databricks workspace key to its host and container ranges (/28 or larger, /26 or larger recommended); an environment or workspace is placed in the VNet that lists its key. Every other networked resource selects its VNet with virtual_network and defaults to the PRV VNet (or the only VNet). Ranges are reserved and overlap-checked even when unused; a subnet is created only when something placed in that VNet uses it."
+  description = "Virtual networks keyed by a stable logical name (the key never appears in Azure names). classification is the METLEN network intent, PRV (default) or PUB; it names the VNet M-AZU-VNT-<BU>-<DPT>-<APP>-<PUB|PRV>-<ENV>-<REG>, its subnets <DPT><APP><ENV><PUB|PRV><NN>, its NAT Gateway and, by default, the NSGs and route tables its subnets use. The standard defines no NN for VNets, so each classification can be used by one VNet only (at most one PRV and one PUB). subnets lists every subnet of the VNet, and every listed subnet is created whether or not anything uses it, so adding or removing a workload never adds or removes a subnet. The subnet key is its role: private_endpoints, virtual_machines, web_app_integration, function_integration, postgresql, mysql, sql_managed_instance, load_balancers, container_apps/<container_apps_environments key> or databricks/<databricks_workspaces key>/<host|container>; the role sets the delegation and the minimum size. number is the two-digit NN in the subnet name <DPT><APP><ENV><PUB|PRV><NN> (1-99, unique within the VNet); keep it stable, because changing it renames, and therefore replaces, the subnet. On each subnet, network_security_group and route_table name a network_security_groups or route_tables key and nat_gateway = true sends its outbound traffic through the VNet's NAT Gateway, which is created (with nat_gateway settings) only when a subnet uses it. A Container Apps environment or Databricks workspace is placed in the VNet that lists its subnets; every other networked resource selects its VNet with virtual_network and defaults to the PRV VNet (or the only VNet)."
   type = map(object({
     classification = optional(string, "PRV")
     address_space  = list(string)
-    subnet_cidrs = optional(object({
-      private_endpoints    = optional(string)
-      virtual_machines     = optional(string)
-      web_app_integration  = optional(string)
-      function_integration = optional(string)
-      postgresql           = optional(string)
-      mysql                = optional(string)
-      sql_managed_instance = optional(string)
-      load_balancers       = optional(string)
-      container_apps       = optional(map(string), {})
-      databricks = optional(map(object({
-        host      = string
-        container = string
-      })), {})
+    nat_gateway = optional(object({
+      sequence                = optional(string, "00")
+      idle_timeout_in_minutes = optional(number, 4)
     }), {})
+    subnets = optional(map(object({
+      cidr                   = string
+      number                 = number
+      network_security_group = optional(string)
+      route_table            = optional(string)
+      nat_gateway            = optional(bool, false)
+    })), {})
   }))
   default = {
     main = {
       address_space = ["10.42.0.0/20"]
-      subnet_cidrs = {
-        private_endpoints    = "10.42.0.0/24"
-        virtual_machines     = "10.42.1.0/24"
-        web_app_integration  = "10.42.8.0/26"
-        function_integration = "10.42.4.0/24"
-        postgresql           = "10.42.5.0/24"
-        mysql                = "10.42.6.0/24"
-        sql_managed_instance = "10.42.7.0/27"
-      }
     }
   }
   nullable = false
@@ -208,83 +195,114 @@ variable "virtual_networks" {
   }
 
   validation {
+    condition     = alltrue([for network in values(var.virtual_networks) : can(regex("^[0-9]{2}$", network.nat_gateway.sequence))])
+    error_message = "Every virtual_networks nat_gateway.sequence must be two digits, for example 00."
+  }
+
+  # Container Apps and Databricks keys follow the key rules of their
+  # variables, so the subnet can match the environment or workspace.
+  validation {
     condition = alltrue(flatten([
       for network in values(var.virtual_networks) : [
-        for prefix in concat(
-          [for role in keys(local.subnet_numbers) : network.subnet_cidrs[role] if network.subnet_cidrs[role] != null],
-          values(network.subnet_cidrs.container_apps),
-          flatten([for cidrs in values(network.subnet_cidrs.databricks) : [cidrs.host, cidrs.container]])
-        ) :
-        can(cidrnetmask(prefix)) &&
-        can(cidrhost(prefix, 0)) &&
-        try(cidrhost(prefix, 0) == split("/", prefix)[0], false)
+        for subnet_key in keys(network.subnets) : (
+          can(regex("^(private_endpoints|virtual_machines|web_app_integration|function_integration|postgresql|mysql|sql_managed_instance|load_balancers)$", subnet_key)) ||
+          can(regex("^container_apps/[a-z]([a-z0-9-]{0,10}[a-z0-9])?$", subnet_key)) && !strcontains(subnet_key, "--") ||
+          can(regex("^databricks/[a-z]([a-z0-9-]{0,10}[a-z0-9])?/(host|container)$", subnet_key)) && !strcontains(subnet_key, "--")
+        )
       ]
     ]))
-    error_message = "Every virtual_networks subnet_cidrs value must be a valid IPv4 CIDR written with its network address."
-  }
-
-  validation {
-    condition = alltrue([
-      for network in values(var.virtual_networks) :
-      network.subnet_cidrs.sql_managed_instance == null || try(tonumber(split("/", network.subnet_cidrs.sql_managed_instance)[1]) <= 27, false)
-    ])
-    error_message = "Every virtual_networks subnet_cidrs.sql_managed_instance range must be /27 or larger."
-  }
-
-  # Azure's smallest subnet is /29.
-  validation {
-    condition = alltrue([
-      for network in values(var.virtual_networks) :
-      network.subnet_cidrs.load_balancers == null || try(tonumber(split("/", network.subnet_cidrs.load_balancers)[1]) <= 29, false)
-    ])
-    error_message = "Every virtual_networks subnet_cidrs.load_balancers range must be /29 or larger."
+    error_message = "Every virtual_networks subnets key must be a subnet role (private_endpoints, virtual_machines, web_app_integration, function_integration, postgresql, mysql, sql_managed_instance or load_balancers), container_apps/<environment key> or databricks/<workspace key>/<host|container>, where the environment and workspace keys follow the container_apps_environments and databricks_workspaces key rules. Current keys: ${join("; ", [for key, network in var.virtual_networks : "${key}: ${join(", ", keys(network.subnets))}"])}."
   }
 
   validation {
     condition = alltrue(flatten([
       for network in values(var.virtual_networks) : [
-        for key in concat(keys(network.subnet_cidrs.container_apps), keys(network.subnet_cidrs.databricks)) :
-        can(regex("^[a-z]([a-z0-9-]{0,10}[a-z0-9])?$", key)) && !strcontains(key, "--")
+        for subnet in values(network.subnets) :
+        can(cidrnetmask(subnet.cidr)) &&
+        can(cidrhost(subnet.cidr, 0)) &&
+        try(cidrhost(subnet.cidr, 0) == split("/", subnet.cidr)[0], false)
       ]
     ]))
-    error_message = "subnet_cidrs.container_apps and subnet_cidrs.databricks keys must match Container Apps environment and Databricks workspace keys: 1-12 lowercase alphanumeric or hyphen characters, starting with a letter, ending with a letter or digit, without consecutive hyphens."
+    error_message = "Every virtual_networks subnets cidr must be a valid IPv4 CIDR written with its network address."
   }
 
-  # The key decides which VNet hosts the environment or workspace.
+  # The subnet role is derived inline, as in local.subnet_roles: a validation
+  # cannot read a local built from its own variable (dependency cycle).
+  validation {
+    condition = alltrue(flatten([
+      for network_key, network in var.virtual_networks : [
+        for subnet_key, subnet in network.subnets : try(
+          tonumber(split("/", subnet.cidr)[1]) <= lookup(local.subnet_maximum_prefix_lengths, startswith(subnet_key, "container_apps/") ? "container_apps" : startswith(subnet_key, "databricks/") ? "databricks_${element(split("/", subnet_key), 2)}" : subnet_key, 29),
+          true
+        )
+      ]
+    ]))
+    error_message = "These subnets are too small (Azure needs /29 or larger for every subnet, /27 for sql_managed_instance and container_apps/<key>, /28 for databricks/<key>/<host|container>): ${join(", ", flatten([
+      for network_key, network in var.virtual_networks : [
+        for subnet_key, subnet in network.subnets : "${network_key}/${subnet_key}=${subnet.cidr}"
+        if !try(tonumber(split("/", subnet.cidr)[1]) <= lookup(local.subnet_maximum_prefix_lengths, startswith(subnet_key, "container_apps/") ? "container_apps" : startswith(subnet_key, "databricks/") ? "databricks_${element(split("/", subnet_key), 2)}" : subnet_key, 29), true)
+      ]
+    ]))}."
+  }
+
+  validation {
+    condition = alltrue(flatten([
+      for network in values(var.virtual_networks) : [
+        for subnet in values(network.subnets) :
+        subnet.number >= 1 && subnet.number <= 99 && floor(subnet.number) == subnet.number
+      ]
+    ]))
+    error_message = "Every virtual_networks subnets number must be a whole number from 1 to 99 (the two-digit NN of the METLEN subnet name)."
+  }
+
+  # Subnet names are scoped to their VNet, so numbers only need to be unique
+  # within one VNet.
+  validation {
+    condition = alltrue([
+      for network in values(var.virtual_networks) :
+      length(distinct([for subnet_key, subnet in network.subnets : subnet.number])) == length(network.subnets)
+    ])
+    error_message = "Every subnet number (the NN of its name) must be unique within its virtual network. Numbers per VNet: ${join("; ", [for network_key, network in var.virtual_networks : "${network_key}: ${join(", ", [for subnet_key, subnet in network.subnets : "${subnet_key}=${subnet.number}"])}"])}."
+  }
+
+  # The subnet key places the environment or workspace, so it can appear in
+  # one VNet only, and a workspace's two subnets share that VNet.
   validation {
     condition = (
-      length(flatten([for network in values(var.virtual_networks) : keys(network.subnet_cidrs.container_apps)])) ==
-      length(distinct(flatten([for network in values(var.virtual_networks) : keys(network.subnet_cidrs.container_apps)]))) &&
-      length(flatten([for network in values(var.virtual_networks) : keys(network.subnet_cidrs.databricks)])) ==
-      length(distinct(flatten([for network in values(var.virtual_networks) : keys(network.subnet_cidrs.databricks)])))
-    )
-    error_message = "A subnet_cidrs.container_apps or subnet_cidrs.databricks key can appear in one virtual network only, because it places that environment or workspace in the VNet."
-  }
-
-  # A workload profiles environment needs at least a /27; the /23 minimum
-  # applies only to Consumption-only environments, which this lab doesn't create.
-  validation {
-    condition = alltrue(flatten([
-      for network in values(var.virtual_networks) : [
-        for prefix in values(network.subnet_cidrs.container_apps) :
-        try(tonumber(split("/", prefix)[1]) <= 27, false)
-      ]
-    ]))
-    error_message = "Every subnet_cidrs.container_apps range must be /27 or larger."
-  }
-
-  # Azure Databricks accepts /28 and recommends /26 or larger: every cluster
-  # node takes one address in each subnet.
-  validation {
-    condition = alltrue(flatten([
-      for network in values(var.virtual_networks) : [
-        for cidrs in values(network.subnet_cidrs.databricks) : [
-          for prefix in [cidrs.host, cidrs.container] :
-          try(tonumber(split("/", prefix)[1]) <= 28, false)
+      length(flatten([for network in values(var.virtual_networks) : [for subnet_key in keys(network.subnets) : subnet_key if strcontains(subnet_key, "/")]])) ==
+      length(distinct(flatten([for network in values(var.virtual_networks) : [for subnet_key in keys(network.subnets) : subnet_key if strcontains(subnet_key, "/")]]))) &&
+      alltrue(flatten([
+        for network in values(var.virtual_networks) : [
+          for subnet_key in keys(network.subnets) : try(
+            contains(keys(network.subnets), "databricks/${split("/", subnet_key)[1]}/host") &&
+            contains(keys(network.subnets), "databricks/${split("/", subnet_key)[1]}/container"),
+            false
+          )
+          if startswith(subnet_key, "databricks/")
         ]
-      ]
+      ]))
+    )
+    error_message = "A container_apps/<key> or databricks/<key>/<host|container> subnet can appear in one virtual network only, because it places that environment or workspace in the VNet, and every Databricks workspace needs both its host and container subnet in the same virtual network."
+  }
+
+  # The SQL Managed Instance module attaches its own NSG and route table, and
+  # the Databricks module its own NSG.
+  validation {
+    condition = alltrue(flatten([
+      for network in values(var.virtual_networks) : concat(
+        [
+          for subnet_key, subnet in network.subnets :
+          subnet.network_security_group == null && subnet.route_table == null && !subnet.nat_gateway
+          if subnet_key == "sql_managed_instance"
+        ],
+        [
+          for subnet_key, subnet in network.subnets :
+          subnet.network_security_group == null
+          if startswith(subnet_key, "databricks/")
+        ]
+      )
     ]))
-    error_message = "Every subnet_cidrs.databricks host and container range must be /28 or larger (/26 or larger is recommended)."
+    error_message = "The sql_managed_instance subnet cannot set network_security_group, route_table or nat_gateway, and databricks/<key>/<host|container> subnets cannot set network_security_group: their modules attach their own."
   }
 }
 
@@ -434,9 +452,9 @@ variable "virtual_machines" {
   validation {
     condition = alltrue([
       for vm in values(var.virtual_machines) :
-      try(var.virtual_networks[coalesce(vm.virtual_network, local.default_virtual_network)].subnet_cidrs.virtual_machines != null, false)
+      try(contains(keys(var.virtual_networks[coalesce(vm.virtual_network, local.default_virtual_network)].subnets), "virtual_machines"), false)
     ])
-    error_message = "Every virtual_machines virtual_network must be a virtual_networks key (default: the PRV VNet) whose subnet_cidrs sets virtual_machines. VMs per VNet: ${join(", ", [for key, vm in var.virtual_machines : "${key}=${coalesce(vm.virtual_network, local.default_virtual_network, "none")}"])}."
+    error_message = "Every virtual_machines virtual_network must be a virtual_networks key (default: the PRV VNet) whose subnets list virtual_machines. VMs per VNet: ${join(", ", [for key, vm in var.virtual_machines : "${key}=${coalesce(vm.virtual_network, local.default_virtual_network, "none")}"])}."
   }
 
   # A load balancer reaches only backends in its own VNet.
@@ -519,9 +537,9 @@ variable "virtual_machine_scale_sets" {
   validation {
     condition = alltrue([
       for scale_set in values(var.virtual_machine_scale_sets) :
-      try(var.virtual_networks[coalesce(scale_set.virtual_network, local.default_virtual_network)].subnet_cidrs.virtual_machines != null, false)
+      try(contains(keys(var.virtual_networks[coalesce(scale_set.virtual_network, local.default_virtual_network)].subnets), "virtual_machines"), false)
     ])
-    error_message = "Every virtual_machine_scale_sets virtual_network must be a virtual_networks key (default: the PRV VNet) whose subnet_cidrs sets virtual_machines. Scale sets per VNet: ${join(", ", [for key, scale_set in var.virtual_machine_scale_sets : "${key}=${coalesce(scale_set.virtual_network, local.default_virtual_network, "none")}"])}."
+    error_message = "Every virtual_machine_scale_sets virtual_network must be a virtual_networks key (default: the PRV VNet) whose subnets list virtual_machines. Scale sets per VNet: ${join(", ", [for key, scale_set in var.virtual_machine_scale_sets : "${key}=${coalesce(scale_set.virtual_network, local.default_virtual_network, "none")}"])}."
   }
 
   validation {
@@ -537,7 +555,7 @@ variable "virtual_machine_scale_sets" {
 }
 
 variable "load_balancers" {
-  description = "Internal Standard load balancers keyed by a stable logical name. Every frontend IP sits in the load_balancers subnet (subnet_cidrs.load_balancers) of the load balancer's virtual_network (default: the PRV VNet), shared by every load balancer in that VNet, and each load balancer has one backend pool; VMs and scale sets in the same VNet join by setting load_balancer to the key. Names follow M-AZU-LBL-<BU>-<DPT>-<APP>-<ENV>-<REG>-<sequence>; sequence is the two-digit NN and must be unique per load balancer. Probe and rule names are their keys. Defaults to none."
+  description = "Internal Standard load balancers keyed by a stable logical name. Every frontend IP sits in the load_balancers subnet of the load balancer's virtual_network (default: the PRV VNet), shared by every load balancer in that VNet, and each load balancer has one backend pool; VMs and scale sets in the same VNet join by setting load_balancer to the key. Names follow M-AZU-LBL-<BU>-<DPT>-<APP>-<ENV>-<REG>-<sequence>; sequence is the two-digit NN and must be unique per load balancer. Probe and rule names are their keys. Defaults to none."
   type = map(object({
     sequence           = optional(string, "00")
     virtual_network    = optional(string)
@@ -595,9 +613,9 @@ variable "load_balancers" {
   validation {
     condition = alltrue([
       for load_balancer in values(var.load_balancers) :
-      try(var.virtual_networks[coalesce(load_balancer.virtual_network, local.default_virtual_network)].subnet_cidrs.load_balancers != null, false)
+      try(contains(keys(var.virtual_networks[coalesce(load_balancer.virtual_network, local.default_virtual_network)].subnets), "load_balancers"), false)
     ])
-    error_message = "Every load_balancers virtual_network must be a virtual_networks key (default: the PRV VNet) whose subnet_cidrs sets load_balancers, the range shared by every load balancer frontend in that VNet (/29 or larger)."
+    error_message = "Every load_balancers virtual_network must be a virtual_networks key (default: the PRV VNet) whose subnets list load_balancers, the range shared by every load balancer frontend in that VNet (/29 or larger)."
   }
 
   # Azure reserves the first four addresses and the last address of a subnet.
@@ -609,20 +627,20 @@ variable "load_balancers" {
           for index, octet in split(".", load_balancer.private_ip_address) :
           tonumber(octet) * pow(256, 3 - index)
           ]) >= sum([
-          for index, octet in split(".", cidrhost(var.virtual_networks[coalesce(load_balancer.virtual_network, local.default_virtual_network)].subnet_cidrs.load_balancers, 0)) :
+          for index, octet in split(".", cidrhost(var.virtual_networks[coalesce(load_balancer.virtual_network, local.default_virtual_network)].subnets["load_balancers"].cidr, 0)) :
           tonumber(octet) * pow(256, 3 - index)
         ]) + 4 &&
         sum([
           for index, octet in split(".", load_balancer.private_ip_address) :
           tonumber(octet) * pow(256, 3 - index)
           ]) <= sum([
-          for index, octet in split(".", cidrhost(var.virtual_networks[coalesce(load_balancer.virtual_network, local.default_virtual_network)].subnet_cidrs.load_balancers, 0)) :
+          for index, octet in split(".", cidrhost(var.virtual_networks[coalesce(load_balancer.virtual_network, local.default_virtual_network)].subnets["load_balancers"].cidr, 0)) :
           tonumber(octet) * pow(256, 3 - index)
-        ]) + pow(2, 32 - tonumber(split("/", var.virtual_networks[coalesce(load_balancer.virtual_network, local.default_virtual_network)].subnet_cidrs.load_balancers)[1])) - 2,
+        ]) + pow(2, 32 - tonumber(split("/", var.virtual_networks[coalesce(load_balancer.virtual_network, local.default_virtual_network)].subnets["load_balancers"].cidr)[1])) - 2,
         false
       )
     ])
-    error_message = "Every load_balancers private_ip_address must be a usable address in the subnet_cidrs.load_balancers range of the load balancer's virtual_network: not one of the first four addresses or the last address."
+    error_message = "Every load_balancers private_ip_address must be a usable address in the load_balancers subnet of the load balancer's virtual_network: not one of the first four addresses or the last address."
   }
 
   validation {
@@ -635,42 +653,6 @@ variable "load_balancers" {
       if load_balancer.private_ip_address != null
     ])
     error_message = "Load balancers in the same virtual network share one frontend subnet, so their static private_ip_address values must be unique."
-  }
-}
-
-variable "nat_gateways" {
-  description = "Optional outbound NAT Gateways keyed by virtual_networks key: Azure attaches a NAT Gateway to subnets of one VNet only, so each VNet has its own. A gateway is created only when subnets lists at least one subnet key of that VNet (for example virtual_machines or container_apps/primary); the default is none, which suits hub-and-spoke designs where egress goes through the hub (for example a route_tables entry with 0.0.0.0/0 to the hub firewall). Any deployed subnet of the VNet except sql_managed_instance can be listed, each at most once. The gateway is named M-AZU-NGW-<BU>-<DPT>-<APP>-<PUB|PRV>-<ENV>-<REG>-<sequence> and its Public IP M-AZU-PIP-<BU>-<DPT>-<APP>-<PUB|PRV>-<ENV>-<REG>-<sequence>, with the classification of the VNet; sequence is the two-digit NN."
-  type = map(object({
-    sequence                = optional(string, "00")
-    idle_timeout_in_minutes = optional(number, 4)
-    subnets                 = optional(list(string), [])
-  }))
-  default  = {}
-  nullable = false
-
-  validation {
-    condition     = alltrue([for key in keys(var.nat_gateways) : contains(keys(var.virtual_networks), key)])
-    error_message = "Every nat_gateways key must be a virtual_networks key. Available keys: ${join(", ", keys(var.virtual_networks))}."
-  }
-
-  validation {
-    condition     = alltrue([for nat_gateway in values(var.nat_gateways) : can(regex("^[0-9]{2}$", nat_gateway.sequence))])
-    error_message = "Every nat_gateways sequence must be two digits, for example 00."
-  }
-
-  validation {
-    condition = alltrue(flatten([
-      for network_key, nat_gateway in var.nat_gateways : [
-        for subnet_key in nat_gateway.subnets :
-        subnet_key != "sql_managed_instance" && contains(try(local.deployed_subnet_keys[network_key], []), subnet_key)
-      ]
-    ]))
-    error_message = "Every nat_gateways subnets entry must be a subnet key deployed in that virtual network, other than sql_managed_instance. Deployed subnet keys: ${join("; ", [for network_key, subnet_keys in local.deployed_subnet_keys : "${network_key}: ${join(", ", subnet_keys)}"])}."
-  }
-
-  validation {
-    condition     = alltrue([for nat_gateway in values(var.nat_gateways) : length(nat_gateway.subnets) == length(distinct(nat_gateway.subnets))])
-    error_message = "A subnet can be listed only once in nat_gateways.<key>.subnets."
   }
 }
 
@@ -705,7 +687,7 @@ variable "log_analytics_workspace" {
 }
 
 variable "application_insights" {
-  description = "Settings for the workspace-based Application Insights resource shared by every function_apps and web_apps entry whose application_insights flag is true (the default). enabled = false turns telemetry off for every app, for example when the deployer cannot create role assignments. The resource is created only when at least one app uses it, stores its data in the shared Log Analytics workspace, and accepts only Microsoft Entra-authenticated telemetry: each app's system-assigned identity gets Monitoring Metrics Publisher, so the deployer needs rights to create role assignments. Telemetry leaves the VNet, so the function_integration and web_app_integration subnets of the apps' VNets need a nat_gateways entry or a 0.0.0.0/0 route (Terraform warns otherwise). Named M-AZU-AIN-<BU>-<DPT>-<APP>-<ENV>-<REG>-<sequence>; sequence is the two-digit NN."
+  description = "Settings for the workspace-based Application Insights resource shared by every function_apps and web_apps entry whose application_insights flag is true (the default). enabled = false turns telemetry off for every app, for example when the deployer cannot create role assignments. The resource is created only when at least one app uses it, stores its data in the shared Log Analytics workspace, and accepts only Microsoft Entra-authenticated telemetry: each app's system-assigned identity gets Monitoring Metrics Publisher, so the deployer needs rights to create role assignments. Telemetry leaves the VNet, so the function_integration and web_app_integration subnets of the apps' VNets need nat_gateway = true or a route table with a 0.0.0.0/0 route (Terraform warns otherwise). Named M-AZU-AIN-<BU>-<DPT>-<APP>-<ENV>-<REG>-<sequence>; sequence is the two-digit NN."
   type = object({
     enabled  = optional(bool, true)
     sequence = optional(string, "00")
@@ -720,12 +702,10 @@ variable "application_insights" {
 }
 
 variable "network_security_groups" {
-  description = "Network security groups keyed by a stable logical name. Defaults to none. virtual_network selects the VNet whose subnets the group attaches to (default: the PRV VNet); subnets lists subnet keys of that VNet (for example virtual_machines or container_apps/primary), and a subnet can belong to only one group. The SQL Managed Instance and Databricks subnets are excluded because their modules manage their own group. Rule names are the security_rules keys. Names follow M-AZU-NSG-<BU>-<DPT>-<APP>-<classification>-<ENV>-<REG>[-<sequence>]; classification defaults to the classification of the VNet. Set a unique two-digit sequence when more than one group shares a classification."
+  description = "Network security groups keyed by a stable logical name, holding rules only: a subnet uses a group by setting network_security_group = \"<key>\" in virtual_networks.<VNet key>.subnets, and every subnet that uses a group must be in the same virtual network. The SQL Managed Instance and Databricks subnets cannot use one because their modules manage their own group. Rule names are the security_rules keys. Defaults to none. Names follow M-AZU-NSG-<BU>-<DPT>-<APP>-<classification>-<ENV>-<REG>[-<sequence>]; classification defaults to the classification of the VNet whose subnets use the group (or of the default VNet while no subnet uses it) and, if set, must match it. Set a unique two-digit sequence when more than one group shares a classification."
   type = map(object({
-    virtual_network = optional(string)
-    classification  = optional(string)
-    sequence        = optional(string)
-    subnets         = optional(list(string), [])
+    classification = optional(string)
+    sequence       = optional(string)
     security_rules = optional(map(object({
       priority                     = number
       direction                    = string
@@ -742,7 +722,8 @@ variable "network_security_groups" {
       destination_address_prefixes = optional(list(string))
     })), {})
   }))
-  default = {}
+  default  = {}
+  nullable = false
 
   validation {
     condition = alltrue([
@@ -756,20 +737,34 @@ variable "network_security_groups" {
   validation {
     condition = alltrue([
       for nsg in values(var.network_security_groups) :
-      contains(keys(var.virtual_networks), coalesce(nsg.virtual_network, local.default_virtual_network, "-")) &&
       (nsg.classification == null || contains(local.naming_dictionary.network_classifications, coalesce(nsg.classification, "-"))) &&
-      (nsg.sequence == null || can(regex("^[0-9]{2}$", nsg.sequence)))
+      (nsg.sequence == null || can(regex("^[0-9]{2}$", coalesce(nsg.sequence, "-"))))
     ])
-    error_message = "Every network_security_groups entry needs a virtual_network that is a virtual_networks key (default: the PRV VNet), classification PUB or PRV if set (default: the VNet's), and, if set, a two-digit sequence such as 01."
+    error_message = "Every network_security_groups entry needs classification PUB or PRV if set (default: the classification of its VNet) and, if set, a two-digit sequence such as 01."
+  }
+
+  # The name carries the PUB/PRV classification of one VNet.
+  validation {
+    condition = alltrue([
+      for key, nsg in var.network_security_groups :
+      length(lookup(local.network_security_group_networks, key, [])) <= 1 &&
+      alltrue([
+        for network_key in lookup(local.network_security_group_networks, key, []) :
+        nsg.classification == null || nsg.classification == var.virtual_networks[network_key].classification
+      ])
+    ])
+    error_message = "Every network_security_groups entry can be used by subnets of one virtual network only, and a classification set on it must match that VNet's: its name carries the VNet's PUB/PRV classification. Use one group per VNet. VNets per group: ${join(", ", [for key, network_keys in local.network_security_group_networks : "${key}=${join("+", network_keys)}"])}."
+  }
+
+  validation {
+    condition     = alltrue([for key in keys(local.network_security_group_subnets) : contains(keys(var.network_security_groups), key)])
+    error_message = "Every network_security_group set on a virtual_networks subnet must be a network_security_groups key. Unknown keys and the subnets that use them: ${join(", ", [for key, subnets in local.network_security_group_subnets : "${key} (${join(", ", [for subnet in subnets : "${subnet.virtual_network}/${subnet.subnet}"])})" if !contains(keys(var.network_security_groups), key)])}."
   }
 
   validation {
     condition = (
       length(distinct(concat(
-        [
-          for nsg in values(var.network_security_groups) :
-          "${coalesce(nsg.classification, try(var.virtual_networks[coalesce(nsg.virtual_network, local.default_virtual_network)].classification, "PRV"))}-${coalesce(nsg.sequence, "none")}"
-        ],
+        [for key, nsg in var.network_security_groups : "${coalesce(nsg.classification, try(var.virtual_networks[one(local.network_security_group_networks[key])].classification, null), try(var.virtual_networks[local.default_virtual_network].classification, null), "PRV")}-${coalesce(nsg.sequence, "none")}"],
         [
           for instance in values(var.sql_managed_instances) :
           "${try(var.virtual_networks[coalesce(instance.virtual_network, local.default_virtual_network)].classification, "PRV")}-${coalesce(instance.network_sequence, "none")}"
@@ -783,38 +778,13 @@ variable "network_security_groups" {
     )
     error_message = "Network security group names must be unique: give each group with the same classification its own sequence (including the sql_managed_instances network_sequence and the databricks_workspaces network_sequence, which defaults to the workspace sequence; both use the classification of their VNet)."
   }
-
-  validation {
-    condition = alltrue(flatten([
-      for nsg in values(var.network_security_groups) : [
-        for subnet_key in nsg.subnets :
-        subnet_key != "sql_managed_instance" && !startswith(subnet_key, "databricks/") &&
-        contains(try(local.deployed_subnet_keys[coalesce(nsg.virtual_network, local.default_virtual_network)], []), subnet_key)
-      ]
-    ]))
-    error_message = "Every network_security_groups subnets entry must be a subnet key deployed in the group's virtual_network, other than sql_managed_instance and the databricks/ subnets, whose modules attach their own group. Deployed subnet keys: ${join("; ", [for network_key, subnet_keys in local.deployed_subnet_keys : "${network_key}: ${join(", ", subnet_keys)}"])}."
-  }
-
-  validation {
-    condition = (
-      length(flatten([for nsg in values(var.network_security_groups) : nsg.subnets])) ==
-      length(distinct(flatten([
-        for nsg in values(var.network_security_groups) : [
-          for subnet_key in nsg.subnets : "${coalesce(nsg.virtual_network, local.default_virtual_network, "none")}/${subnet_key}"
-        ]
-      ])))
-    )
-    error_message = "A subnet can be listed only once across all network_security_groups entries."
-  }
 }
 
 variable "route_tables" {
-  description = "Route tables keyed by a stable logical name. Defaults to none. virtual_network selects the VNet whose subnets the table attaches to (default: the PRV VNet); subnets lists subnet keys of that VNet (for example virtual_machines or container_apps/primary), and a subnet can belong to only one table. The SQL Managed Instance subnet is excluded because its module manages its own table. Route names are the routes keys. A 0.0.0.0/0 route overrides NAT Gateway egress for its subnets. Names follow M-AZU-UDR-<BU>-<DPT>-<APP>-<classification>-<ENV>-<REG>[-<sequence>]; classification defaults to the classification of the VNet. Set a unique two-digit sequence when more than one table shares a classification."
+  description = "Route tables keyed by a stable logical name, holding routes only: a subnet uses a table by setting route_table = \"<key>\" in virtual_networks.<VNet key>.subnets, and every subnet that uses a table must be in the same virtual network. The SQL Managed Instance subnet cannot use one because its module manages its own table. Route names are the routes keys. A 0.0.0.0/0 route overrides NAT Gateway egress for its subnets. Defaults to none. Names follow M-AZU-UDR-<BU>-<DPT>-<APP>-<classification>-<ENV>-<REG>[-<sequence>]; classification defaults to the classification of the VNet whose subnets use the table (or of the default VNet while no subnet uses it) and, if set, must match it. Set a unique two-digit sequence when more than one table shares a classification."
   type = map(object({
-    virtual_network               = optional(string)
     classification                = optional(string)
     sequence                      = optional(string)
-    subnets                       = optional(list(string), [])
     bgp_route_propagation_enabled = optional(bool, true)
     routes = optional(map(object({
       address_prefix         = string
@@ -822,7 +792,8 @@ variable "route_tables" {
       next_hop_in_ip_address = optional(string)
     })), {})
   }))
-  default = {}
+  default  = {}
+  nullable = false
 
   validation {
     condition = alltrue([
@@ -836,20 +807,34 @@ variable "route_tables" {
   validation {
     condition = alltrue([
       for route_table in values(var.route_tables) :
-      contains(keys(var.virtual_networks), coalesce(route_table.virtual_network, local.default_virtual_network, "-")) &&
       (route_table.classification == null || contains(local.naming_dictionary.network_classifications, coalesce(route_table.classification, "-"))) &&
-      (route_table.sequence == null || can(regex("^[0-9]{2}$", route_table.sequence)))
+      (route_table.sequence == null || can(regex("^[0-9]{2}$", coalesce(route_table.sequence, "-"))))
     ])
-    error_message = "Every route_tables entry needs a virtual_network that is a virtual_networks key (default: the PRV VNet), classification PUB or PRV if set (default: the VNet's), and, if set, a two-digit sequence such as 01."
+    error_message = "Every route_tables entry needs classification PUB or PRV if set (default: the classification of its VNet) and, if set, a two-digit sequence such as 01."
+  }
+
+  # The name carries the PUB/PRV classification of one VNet.
+  validation {
+    condition = alltrue([
+      for key, route_table in var.route_tables :
+      length(lookup(local.route_table_networks, key, [])) <= 1 &&
+      alltrue([
+        for network_key in lookup(local.route_table_networks, key, []) :
+        route_table.classification == null || route_table.classification == var.virtual_networks[network_key].classification
+      ])
+    ])
+    error_message = "Every route_tables entry can be used by subnets of one virtual network only, and a classification set on it must match that VNet's: its name carries the VNet's PUB/PRV classification. Use one table per VNet. VNets per table: ${join(", ", [for key, network_keys in local.route_table_networks : "${key}=${join("+", network_keys)}"])}."
+  }
+
+  validation {
+    condition     = alltrue([for key in keys(local.route_table_subnets) : contains(keys(var.route_tables), key)])
+    error_message = "Every route_table set on a virtual_networks subnet must be a route_tables key. Unknown keys and the subnets that use them: ${join(", ", [for key, subnets in local.route_table_subnets : "${key} (${join(", ", [for subnet in subnets : "${subnet.virtual_network}/${subnet.subnet}"])})" if !contains(keys(var.route_tables), key)])}."
   }
 
   validation {
     condition = (
       length(distinct(concat(
-        [
-          for route_table in values(var.route_tables) :
-          "${coalesce(route_table.classification, try(var.virtual_networks[coalesce(route_table.virtual_network, local.default_virtual_network)].classification, "PRV"))}-${coalesce(route_table.sequence, "none")}"
-        ],
+        [for key, route_table in var.route_tables : "${coalesce(route_table.classification, try(var.virtual_networks[one(local.route_table_networks[key])].classification, null), try(var.virtual_networks[local.default_virtual_network].classification, null), "PRV")}-${coalesce(route_table.sequence, "none")}"],
         [
           for instance in values(var.sql_managed_instances) :
           "${try(var.virtual_networks[coalesce(instance.virtual_network, local.default_virtual_network)].classification, "PRV")}-${coalesce(instance.network_sequence, "none")}"
@@ -858,29 +843,6 @@ variable "route_tables" {
       length(var.route_tables) + length(var.sql_managed_instances)
     )
     error_message = "Route table names must be unique: give each table with the same classification its own sequence (including the sql_managed_instances network_sequence, which uses the classification of its VNet)."
-  }
-
-  validation {
-    condition = alltrue(flatten([
-      for route_table in values(var.route_tables) : [
-        for subnet_key in route_table.subnets :
-        subnet_key != "sql_managed_instance" &&
-        contains(try(local.deployed_subnet_keys[coalesce(route_table.virtual_network, local.default_virtual_network)], []), subnet_key)
-      ]
-    ]))
-    error_message = "Every route_tables subnets entry must be a subnet key deployed in the table's virtual_network, other than sql_managed_instance. Deployed subnet keys: ${join("; ", [for network_key, subnet_keys in local.deployed_subnet_keys : "${network_key}: ${join(", ", subnet_keys)}"])}."
-  }
-
-  validation {
-    condition = (
-      length(flatten([for route_table in values(var.route_tables) : route_table.subnets])) ==
-      length(distinct(flatten([
-        for route_table in values(var.route_tables) : [
-          for subnet_key in route_table.subnets : "${coalesce(route_table.virtual_network, local.default_virtual_network, "none")}/${subnet_key}"
-        ]
-      ])))
-    )
-    error_message = "A subnet can be listed only once across all route_tables entries."
   }
 }
 
@@ -938,10 +900,10 @@ variable "container_registries" {
   validation {
     condition = alltrue([
       for item in values(var.container_registries) : try(
-        var.virtual_networks[coalesce(item.virtual_network, local.default_virtual_network)].subnet_cidrs.private_endpoints != null,
+        contains(keys(var.virtual_networks[coalesce(item.virtual_network, local.default_virtual_network)].subnets), "private_endpoints"),
       false)
     ])
-    error_message = "Every container_registries virtual_network must be a virtual_networks key (default: the PRV VNet) whose subnet_cidrs sets private_endpoints; its Private Endpoint sits in that subnet. VNets: ${join(", ", [for key, item in var.container_registries : "${key}=${coalesce(item.virtual_network, local.default_virtual_network, "none")}"])}."
+    error_message = "Every container_registries virtual_network must be a virtual_networks key (default: the PRV VNet) whose subnets list private_endpoints; its Private Endpoint sits in that subnet. VNets: ${join(", ", [for key, item in var.container_registries : "${key}=${coalesce(item.virtual_network, local.default_virtual_network, "none")}"])}."
   }
 
   validation {
@@ -977,10 +939,10 @@ variable "key_vaults" {
   validation {
     condition = alltrue([
       for item in values(var.key_vaults) : try(
-        var.virtual_networks[coalesce(item.virtual_network, local.default_virtual_network)].subnet_cidrs.private_endpoints != null,
+        contains(keys(var.virtual_networks[coalesce(item.virtual_network, local.default_virtual_network)].subnets), "private_endpoints"),
       false)
     ])
-    error_message = "Every key_vaults virtual_network must be a virtual_networks key (default: the PRV VNet) whose subnet_cidrs sets private_endpoints; its Private Endpoint sits in that subnet. VNets: ${join(", ", [for key, item in var.key_vaults : "${key}=${coalesce(item.virtual_network, local.default_virtual_network, "none")}"])}."
+    error_message = "Every key_vaults virtual_network must be a virtual_networks key (default: the PRV VNet) whose subnets list private_endpoints; its Private Endpoint sits in that subnet. VNets: ${join(", ", [for key, item in var.key_vaults : "${key}=${coalesce(item.virtual_network, local.default_virtual_network, "none")}"])}."
   }
 
   validation {
@@ -1028,10 +990,10 @@ variable "storage_accounts" {
   validation {
     condition = alltrue([
       for item in values(var.storage_accounts) : try(
-        var.virtual_networks[coalesce(item.virtual_network, local.default_virtual_network)].subnet_cidrs.private_endpoints != null,
+        contains(keys(var.virtual_networks[coalesce(item.virtual_network, local.default_virtual_network)].subnets), "private_endpoints"),
       false)
     ])
-    error_message = "Every storage_accounts virtual_network must be a virtual_networks key (default: the PRV VNet) whose subnet_cidrs sets private_endpoints; its blob and file Private Endpoints sit in that subnet. VNets: ${join(", ", [for key, item in var.storage_accounts : "${key}=${coalesce(item.virtual_network, local.default_virtual_network, "none")}"])}."
+    error_message = "Every storage_accounts virtual_network must be a virtual_networks key (default: the PRV VNet) whose subnets list private_endpoints; its blob and file Private Endpoints sit in that subnet. VNets: ${join(", ", [for key, item in var.storage_accounts : "${key}=${coalesce(item.virtual_network, local.default_virtual_network, "none")}"])}."
   }
 
   validation {
@@ -1094,10 +1056,10 @@ variable "premium_file_accounts" {
   validation {
     condition = alltrue([
       for item in values(var.premium_file_accounts) : try(
-        var.virtual_networks[coalesce(item.virtual_network, local.default_virtual_network)].subnet_cidrs.private_endpoints != null,
+        contains(keys(var.virtual_networks[coalesce(item.virtual_network, local.default_virtual_network)].subnets), "private_endpoints"),
       false)
     ])
-    error_message = "Every premium_file_accounts virtual_network must be a virtual_networks key (default: the PRV VNet) whose subnet_cidrs sets private_endpoints; its file Private Endpoint sits in that subnet. VNets: ${join(", ", [for key, item in var.premium_file_accounts : "${key}=${coalesce(item.virtual_network, local.default_virtual_network, "none")}"])}."
+    error_message = "Every premium_file_accounts virtual_network must be a virtual_networks key (default: the PRV VNet) whose subnets list private_endpoints; its file Private Endpoint sits in that subnet. VNets: ${join(", ", [for key, item in var.premium_file_accounts : "${key}=${coalesce(item.virtual_network, local.default_virtual_network, "none")}"])}."
   }
 
   validation {
@@ -1155,10 +1117,10 @@ variable "azure_sql_servers" {
   validation {
     condition = alltrue([
       for item in values(var.azure_sql_servers) : try(
-        var.virtual_networks[coalesce(item.virtual_network, local.default_virtual_network)].subnet_cidrs.private_endpoints != null,
+        contains(keys(var.virtual_networks[coalesce(item.virtual_network, local.default_virtual_network)].subnets), "private_endpoints"),
       false)
     ])
-    error_message = "Every azure_sql_servers virtual_network must be a virtual_networks key (default: the PRV VNet) whose subnet_cidrs sets private_endpoints; its Private Endpoint sits in that subnet. VNets: ${join(", ", [for key, item in var.azure_sql_servers : "${key}=${coalesce(item.virtual_network, local.default_virtual_network, "none")}"])}."
+    error_message = "Every azure_sql_servers virtual_network must be a virtual_networks key (default: the PRV VNet) whose subnets list private_endpoints; its Private Endpoint sits in that subnet. VNets: ${join(", ", [for key, item in var.azure_sql_servers : "${key}=${coalesce(item.virtual_network, local.default_virtual_network, "none")}"])}."
   }
 
   validation {
@@ -1191,10 +1153,9 @@ variable "azure_sql_servers" {
 }
 
 variable "container_apps_environments" {
-  description = "Internal Container Apps environments keyed by a stable logical name. Each environment is placed in the virtual network whose subnet_cidrs.container_apps lists its key, uses that range as its own delegated subnet, and gets its own private DNS zone (linked to every VNet), optional dedicated workload profiles, and zero or more Container Apps. subnet_number is the two-digit NN in the METLEN subnet name <DPT><APP><ENV><PUB|PRV><NN> (1-99, unique within the VNet, and not used by another subnet deployed in it). Environment names follow M-AZU-CEV-<BU>-<DPT>-<APP>-<ENV>-<REG>-<sequence> and app names m-azu-cap-<bu>-<dpt>-<app>-<env>-<reg>-<sequence>; environment sequences must be unique, and app sequences unique across every environment because Container App names are unique per resource group. Defaults to none."
+  description = "Internal Container Apps environments keyed by a stable logical name. Each environment is placed in the virtual network that lists its container_apps/<key> subnet in virtual_networks.<VNet key>.subnets, uses that subnet as its own delegated subnet, and gets its own private DNS zone (linked to every VNet), optional dedicated workload profiles, and zero or more Container Apps. Environment names follow M-AZU-CEV-<BU>-<DPT>-<APP>-<ENV>-<REG>-<sequence> and app names m-azu-cap-<bu>-<dpt>-<app>-<env>-<reg>-<sequence>; environment sequences must be unique, and app sequences unique across every environment because Container App names are unique per resource group. Defaults to none."
   type = map(object({
-    sequence      = optional(string, "00")
-    subnet_number = optional(number, 9)
+    sequence = optional(string, "00")
     dedicated_workload_profiles = optional(map(object({
       workload_profile_type = optional(string, "D4")
       minimum_count         = optional(number, 0)
@@ -1219,43 +1180,8 @@ variable "container_apps_environments" {
   }
 
   validation {
-    condition = alltrue([
-      for environment in values(var.container_apps_environments) :
-      environment.subnet_number >= 1 && environment.subnet_number <= 99 && floor(environment.subnet_number) == environment.subnet_number
-    ])
-    error_message = "container_apps_environments subnet_number must be a whole number from 1 to 99 (the two-digit NN of the METLEN subnet name)."
-  }
-
-  # Subnet names are scoped to their VNet, so numbers only need to be unique
-  # within one VNet.
-  validation {
-    condition = alltrue([
-      for network_key, network in var.virtual_networks : (
-        length(distinct(concat(
-          [for key, environment in var.container_apps_environments : environment.subnet_number if contains(keys(network.subnet_cidrs.container_apps), key)],
-          [for subnet_key, enabled in local.subnet_enabled[network_key] : local.subnet_numbers[subnet_key] if enabled],
-          flatten([for key, workspace in var.databricks_workspaces : [workspace.host_subnet_number, workspace.container_subnet_number] if contains(keys(network.subnet_cidrs.databricks), key)])
-        ))) ==
-        length([for key in keys(var.container_apps_environments) : key if contains(keys(network.subnet_cidrs.container_apps), key)]) +
-        length([for enabled in values(local.subnet_enabled[network_key]) : enabled if enabled]) +
-        2 * length([for key in keys(var.databricks_workspaces) : key if contains(keys(network.subnet_cidrs.databricks), key)])
-      )
-    ])
-    error_message = "Every container_apps_environments subnet_number must be unique within its virtual network and must not reuse the number of another subnet deployed there (${join("; ", [
-      for network_key, network in var.virtual_networks : "${network_key}: ${join(", ", concat(
-        [for subnet_key, enabled in local.subnet_enabled[network_key] : "${subnet_key}=${local.subnet_numbers[subnet_key]}" if enabled],
-        [for key, environment in var.container_apps_environments : "container_apps/${key}=${environment.subnet_number}" if contains(keys(network.subnet_cidrs.container_apps), key)],
-        flatten([for key, workspace in var.databricks_workspaces : ["databricks/${key}/host=${workspace.host_subnet_number}", "databricks/${key}/container=${workspace.container_subnet_number}"] if contains(keys(network.subnet_cidrs.databricks), key)])
-      ))}"
-    ])})."
-  }
-
-  validation {
-    condition = alltrue([
-      for key in keys(var.container_apps_environments) :
-      anytrue([for network in values(var.virtual_networks) : contains(keys(network.subnet_cidrs.container_apps), key)])
-    ])
-    error_message = "Every container_apps_environments key needs a subnet_cidrs.container_apps entry with the same key in the virtual network that hosts it, for example virtual_networks = { main = { subnet_cidrs = { container_apps = { primary = \"10.42.2.0/27\" } } } }."
+    condition     = alltrue([for key in keys(var.container_apps_environments) : anytrue([for network in values(var.virtual_networks) : contains(keys(network.subnets), "container_apps/${key}")])])
+    error_message = "Every container_apps_environments entry needs a container_apps/<key> subnet in the virtual network that hosts it, for example virtual_networks = { main = { subnets = { \"container_apps/primary\" = { cidr = \"10.42.2.0/27\", number = 9 } } } }. Missing: ${join(", ", [for key in keys(var.container_apps_environments) : key if !anytrue([for network in values(var.virtual_networks) : contains(keys(network.subnets), "container_apps/${key}")])])}."
   }
 
   validation {
@@ -1347,10 +1273,10 @@ variable "cosmos_db_accounts" {
   validation {
     condition = alltrue([
       for item in values(var.cosmos_db_accounts) : try(
-        var.virtual_networks[coalesce(item.virtual_network, local.default_virtual_network)].subnet_cidrs.private_endpoints != null,
+        contains(keys(var.virtual_networks[coalesce(item.virtual_network, local.default_virtual_network)].subnets), "private_endpoints"),
       false)
     ])
-    error_message = "Every cosmos_db_accounts virtual_network must be a virtual_networks key (default: the PRV VNet) whose subnet_cidrs sets private_endpoints; its Private Endpoint sits in that subnet. VNets: ${join(", ", [for key, item in var.cosmos_db_accounts : "${key}=${coalesce(item.virtual_network, local.default_virtual_network, "none")}"])}."
+    error_message = "Every cosmos_db_accounts virtual_network must be a virtual_networks key (default: the PRV VNet) whose subnets list private_endpoints; its Private Endpoint sits in that subnet. VNets: ${join(", ", [for key, item in var.cosmos_db_accounts : "${key}=${coalesce(item.virtual_network, local.default_virtual_network, "none")}"])}."
   }
 
   validation {
@@ -1402,15 +1328,13 @@ variable "cosmos_db_accounts" {
 }
 
 variable "databricks_workspaces" {
-  description = "Premium Azure Databricks workspaces keyed by a stable logical name, injected with secure cluster connectivity (no public IPs on clusters) into the virtual network whose subnet_cidrs.databricks lists its key. Defaults to none. Each workspace uses that entry for its host and container subnets (delegated to Azure Databricks and numbered host_subnet_number and container_subnet_number in the METLEN subnet name <DPT><APP><ENV><PUB|PRV><NN>, unique within the VNet), and gets its own NSG on both subnets. Its Private Endpoints sit in the private_endpoints subnet of the same VNet. network_access is private (default: databricks_ui_api Private Endpoint for users and clusters, public access disabled), backend_private (Private Endpoint for clusters only, users over the internet) or public. One private workspace per region hosts the browser_authentication Private Endpoint that browser sign-in to every private workspace uses; following Microsoft's guidance, it is a dedicated workspace (browser_authentication_workspace = true, network_access private) that runs no workloads, gets no databricks_ui_api endpoint or Access Connector, and is protected by a CanNotDelete lock unless delete_lock = false. Without one, sign-in to private workspaces works only when a hub already provides the endpoint (Terraform warns). Clusters need outbound internet access: list both subnets in nat_gateways.<VNet key>.subnets or route them to a hub firewall. Names: workspace and Access Connector M-AZU-DBR-<BU>-<DPT>-<APP>-<ENV>-<REG>-<sequence>, managed resource group M-AZU-RGP-<BU>-<DPT>-<APP>-<ENV>-<REG>-<sequence>, NSG M-AZU-NSG-<BU>-<DPT>-<APP>-<PUB|PRV of the VNet>-<ENV>-<REG>-<network_sequence, default sequence>, root (DBFS) storage mazusoa...<storage_sequence> (null lets Azure generate it). access_connector creates the Unity Catalog managed identity and grants it Storage Blob Data Contributor on the listed storage_accounts keys; diagnostics sends the workspace resource logs to the shared Log Analytics workspace: every category (allLogs, the only category group Azure Databricks supports) or only the listed categories."
+  description = "Premium Azure Databricks workspaces keyed by a stable logical name, injected with secure cluster connectivity (no public IPs on clusters) into the virtual network that lists its databricks/<key>/host and databricks/<key>/container subnets in virtual_networks.<VNet key>.subnets. Defaults to none. Both subnets are delegated to Azure Databricks, and the workspace gets its own NSG on both. Its Private Endpoints sit in the private_endpoints subnet of the same VNet. network_access is private (default: databricks_ui_api Private Endpoint for users and clusters, public access disabled), backend_private (Private Endpoint for clusters only, users over the internet) or public. One private workspace per region hosts the browser_authentication Private Endpoint that browser sign-in to every private workspace uses; following Microsoft's guidance, it is a dedicated workspace (browser_authentication_workspace = true, network_access private) that runs no workloads, gets no databricks_ui_api endpoint or Access Connector, and is protected by a CanNotDelete lock unless delete_lock = false. Without one, sign-in to private workspaces works only when a hub already provides the endpoint (Terraform warns). Clusters need outbound internet access: set nat_gateway = true on both subnets or attach a route table that sends 0.0.0.0/0 to a hub firewall. Names: workspace and Access Connector M-AZU-DBR-<BU>-<DPT>-<APP>-<ENV>-<REG>-<sequence>, managed resource group M-AZU-RGP-<BU>-<DPT>-<APP>-<ENV>-<REG>-<sequence>, NSG M-AZU-NSG-<BU>-<DPT>-<APP>-<PUB|PRV of the VNet>-<ENV>-<REG>-<network_sequence, default sequence>, root (DBFS) storage mazusoa...<storage_sequence> (null lets Azure generate it). access_connector creates the Unity Catalog managed identity and grants it Storage Blob Data Contributor on the listed storage_accounts keys; diagnostics sends the workspace resource logs to the shared Log Analytics workspace: every category (allLogs, the only category group Azure Databricks supports) or only the listed categories."
   type = map(object({
     sequence                         = optional(string, "00")
     sku                              = optional(string, "premium")
     network_access                   = optional(string, "private")
     browser_authentication_workspace = optional(bool, false)
     delete_lock                      = optional(bool, true)
-    host_subnet_number               = optional(number, 10)
-    container_subnet_number          = optional(number, 11)
     network_sequence                 = optional(string)
     storage_sequence                 = optional(string)
     access_connector = optional(object({
@@ -1475,50 +1399,20 @@ variable "databricks_workspaces" {
   }
 
   validation {
-    condition = alltrue([
-      for key in keys(var.databricks_workspaces) :
-      anytrue([for network in values(var.virtual_networks) : contains(keys(network.subnet_cidrs.databricks), key)])
-    ])
-    error_message = "Every databricks_workspaces key needs a subnet_cidrs.databricks entry with the same key in the virtual network that hosts it, for example virtual_networks = { main = { subnet_cidrs = { databricks = { analytics = { host = \"10.42.8.0/26\", container = \"10.42.8.64/26\" } } } } }."
+    condition     = alltrue([for key in keys(var.databricks_workspaces) : anytrue([for network in values(var.virtual_networks) : contains(keys(network.subnets), "databricks/${key}/host")])])
+    error_message = "Every databricks_workspaces entry needs databricks/<key>/host and databricks/<key>/container subnets in the virtual network that hosts it, for example virtual_networks = { main = { subnets = { \"databricks/analytics/host\" = { cidr = \"10.42.10.0/26\", number = 10 }, \"databricks/analytics/container\" = { cidr = \"10.42.10.64/26\", number = 11 } } } }. Missing: ${join(", ", [for key in keys(var.databricks_workspaces) : key if !anytrue([for network in values(var.virtual_networks) : contains(keys(network.subnets), "databricks/${key}/host")])])}."
   }
 
   validation {
     condition = alltrue([
       for key, workspace in var.databricks_workspaces :
-      workspace.network_access == "public" && !workspace.browser_authentication_workspace || anytrue([
+      workspace.network_access == "public" && !workspace.browser_authentication_workspace ||
+      anytrue([
         for network in values(var.virtual_networks) :
-        contains(keys(network.subnet_cidrs.databricks), key) && network.subnet_cidrs.private_endpoints != null
+        contains(keys(network.subnets), "databricks/${key}/host") && contains(keys(network.subnets), "private_endpoints")
       ])
     ])
-    error_message = "Every databricks_workspaces entry with a Private Endpoint (network_access private or backend_private, or the browser_authentication_workspace) needs subnet_cidrs.private_endpoints in the virtual network that hosts it."
-  }
-
-  validation {
-    condition = alltrue(flatten([
-      for workspace in values(var.databricks_workspaces) : [
-        for number in [workspace.host_subnet_number, workspace.container_subnet_number] :
-        number >= 1 && number <= 99 && floor(number) == number
-      ]
-    ]))
-    error_message = "databricks_workspaces host_subnet_number and container_subnet_number must be whole numbers from 1 to 99 (the two-digit NN of the METLEN subnet name)."
-  }
-
-  # Fixed subnet roles keep their numbers reserved even when unused, so this
-  # check needs no reference to the enabled subnets (that would form a cycle
-  # through the Private Endpoint catalog). Subnet names are scoped to their
-  # VNet, so numbers only need to be unique within one VNet. Clashes with
-  # Container Apps environments are checked in container_apps_environments.
-  validation {
-    condition = alltrue([
-      for network in values(var.virtual_networks) : (
-        length(distinct(concat(
-          flatten([for key, workspace in var.databricks_workspaces : [workspace.host_subnet_number, workspace.container_subnet_number] if contains(keys(network.subnet_cidrs.databricks), key)]),
-          values(local.subnet_numbers)
-        ))) ==
-        2 * length([for key in keys(var.databricks_workspaces) : key if contains(keys(network.subnet_cidrs.databricks), key)]) + length(local.subnet_numbers)
-      )
-    ])
-    error_message = "Every databricks_workspaces host_subnet_number and container_subnet_number must be unique within its virtual network and must not reuse a number reserved for a fixed subnet (${join(", ", [for subnet_key, number in local.subnet_numbers : "${subnet_key}=${number}"])})."
+    error_message = "Every databricks_workspaces entry with a Private Endpoint (network_access private or backend_private, or the browser_authentication_workspace) needs a private_endpoints subnet in the virtual network that hosts it."
   }
 
   validation {
@@ -1551,7 +1445,7 @@ variable "databricks_workspaces" {
       for network in values(var.virtual_networks) : [
         for prefix in network.address_space :
         try(tonumber(split("/", prefix)[1]) >= 16 && tonumber(split("/", prefix)[1]) <= 24, false)
-      ] if anytrue([for key in keys(var.databricks_workspaces) : contains(keys(network.subnet_cidrs.databricks), key)])
+      ] if anytrue([for key in keys(var.databricks_workspaces) : contains(keys(network.subnets), "databricks/${key}/host")])
     ]))
     error_message = "Azure Databricks VNet injection requires every address_space prefix of a virtual network that hosts a workspace to be between /16 and /24."
   }
@@ -1576,10 +1470,10 @@ variable "sql_managed_instances" {
   validation {
     condition = alltrue([
       for item in values(var.sql_managed_instances) : try(
-        var.virtual_networks[coalesce(item.virtual_network, local.default_virtual_network)].subnet_cidrs.sql_managed_instance != null,
+        contains(keys(var.virtual_networks[coalesce(item.virtual_network, local.default_virtual_network)].subnets), "sql_managed_instance"),
       false)
     ])
-    error_message = "Every sql_managed_instances virtual_network must be a virtual_networks key (default: the PRV VNet) whose subnet_cidrs sets sql_managed_instance; the instance is injected into that subnet. VNets: ${join(", ", [for key, item in var.sql_managed_instances : "${key}=${coalesce(item.virtual_network, local.default_virtual_network, "none")}"])}."
+    error_message = "Every sql_managed_instances virtual_network must be a virtual_networks key (default: the PRV VNet) whose subnets list sql_managed_instance; the instance is injected into that subnet. VNets: ${join(", ", [for key, item in var.sql_managed_instances : "${key}=${coalesce(item.virtual_network, local.default_virtual_network, "none")}"])}."
   }
 
   validation {
@@ -1628,10 +1522,10 @@ variable "postgresql_servers" {
   validation {
     condition = alltrue([
       for item in values(var.postgresql_servers) : try(
-        var.virtual_networks[coalesce(item.virtual_network, local.default_virtual_network)].subnet_cidrs.postgresql != null,
+        contains(keys(var.virtual_networks[coalesce(item.virtual_network, local.default_virtual_network)].subnets), "postgresql"),
       false)
     ])
-    error_message = "Every postgresql_servers virtual_network must be a virtual_networks key (default: the PRV VNet) whose subnet_cidrs sets postgresql; the server is injected into that delegated subnet. VNets: ${join(", ", [for key, item in var.postgresql_servers : "${key}=${coalesce(item.virtual_network, local.default_virtual_network, "none")}"])}."
+    error_message = "Every postgresql_servers virtual_network must be a virtual_networks key (default: the PRV VNet) whose subnets list postgresql; the server is injected into that delegated subnet. VNets: ${join(", ", [for key, item in var.postgresql_servers : "${key}=${coalesce(item.virtual_network, local.default_virtual_network, "none")}"])}."
   }
 
   validation {
@@ -1665,9 +1559,9 @@ variable "postgresql_servers" {
   validation {
     condition = alltrue([
       for server in values(var.postgresql_servers) :
-      try(tonumber(split("/", var.virtual_networks[coalesce(server.virtual_network, local.default_virtual_network)].subnet_cidrs.postgresql)[1]) <= 28, false)
+      try(tonumber(split("/", var.virtual_networks[coalesce(server.virtual_network, local.default_virtual_network)].subnets["postgresql"].cidr)[1]) <= 28, false)
     ])
-    error_message = "subnet_cidrs.postgresql must be /28 or larger in every virtual network that hosts postgresql_servers."
+    error_message = "The postgresql subnet must be /28 or larger in every virtual network that hosts postgresql_servers."
   }
 
   # Azure documents four subnet addresses per high-availability server; a
@@ -1679,11 +1573,11 @@ variable "postgresql_servers" {
         sum([
           for server in values(var.postgresql_servers) : server.high_availability.enabled ? 4 : 1
           if coalesce(server.virtual_network, local.default_virtual_network) == network_key
-        ]) <= pow(2, 32 - tonumber(split("/", var.virtual_networks[network_key].subnet_cidrs.postgresql)[1])) - 5,
+        ]) <= pow(2, 32 - tonumber(split("/", var.virtual_networks[network_key].subnets["postgresql"].cidr)[1])) - 5,
         false
       )
     ])
-    error_message = "subnet_cidrs.postgresql is too small for the postgresql_servers in its virtual network: each server needs one address, or four with high availability, and Azure reserves five addresses per subnet."
+    error_message = "The postgresql subnet is too small for the postgresql_servers in its virtual network: each server needs one address, or four with high availability, and Azure reserves five addresses per subnet."
   }
 }
 
@@ -1709,10 +1603,10 @@ variable "mysql_servers" {
   validation {
     condition = alltrue([
       for item in values(var.mysql_servers) : try(
-        var.virtual_networks[coalesce(item.virtual_network, local.default_virtual_network)].subnet_cidrs.mysql != null,
+        contains(keys(var.virtual_networks[coalesce(item.virtual_network, local.default_virtual_network)].subnets), "mysql"),
       false)
     ])
-    error_message = "Every mysql_servers virtual_network must be a virtual_networks key (default: the PRV VNet) whose subnet_cidrs sets mysql; the server is injected into that delegated subnet. VNets: ${join(", ", [for key, item in var.mysql_servers : "${key}=${coalesce(item.virtual_network, local.default_virtual_network, "none")}"])}."
+    error_message = "Every mysql_servers virtual_network must be a virtual_networks key (default: the PRV VNet) whose subnets list mysql; the server is injected into that delegated subnet. VNets: ${join(", ", [for key, item in var.mysql_servers : "${key}=${coalesce(item.virtual_network, local.default_virtual_network, "none")}"])}."
   }
 
   validation {
@@ -1752,11 +1646,11 @@ variable "mysql_servers" {
         sum([
           for server in values(var.mysql_servers) : server.high_availability.enabled ? 2 : 1
           if coalesce(server.virtual_network, local.default_virtual_network) == network_key
-        ]) <= pow(2, 32 - tonumber(split("/", var.virtual_networks[network_key].subnet_cidrs.mysql)[1])) - 5,
+        ]) <= pow(2, 32 - tonumber(split("/", var.virtual_networks[network_key].subnets["mysql"].cidr)[1])) - 5,
         false
       )
     ])
-    error_message = "subnet_cidrs.mysql is too small for the mysql_servers in its virtual network: each server needs one address, or two with high availability, and Azure reserves five addresses per subnet."
+    error_message = "The mysql subnet is too small for the mysql_servers in its virtual network: each server needs one address, or two with high availability, and Azure reserves five addresses per subnet."
   }
 }
 
@@ -1829,11 +1723,11 @@ variable "function_apps" {
   validation {
     condition = alltrue([
       for item in values(var.function_apps) : try(
-        var.virtual_networks[coalesce(item.virtual_network, local.default_virtual_network)].subnet_cidrs.function_integration != null &&
-        var.virtual_networks[coalesce(item.virtual_network, local.default_virtual_network)].subnet_cidrs.private_endpoints != null,
+        contains(keys(var.virtual_networks[coalesce(item.virtual_network, local.default_virtual_network)].subnets), "function_integration") &&
+        contains(keys(var.virtual_networks[coalesce(item.virtual_network, local.default_virtual_network)].subnets), "private_endpoints"),
       false)
     ])
-    error_message = "Every function_apps virtual_network must be a virtual_networks key (default: the PRV VNet) whose subnet_cidrs sets function_integration and private_endpoints; the app integrates with the first and its Private Endpoints sit in the second. VNets: ${join(", ", [for key, item in var.function_apps : "${key}=${coalesce(item.virtual_network, local.default_virtual_network, "none")}"])}."
+    error_message = "Every function_apps virtual_network must be a virtual_networks key (default: the PRV VNet) whose subnets list function_integration and private_endpoints; the app integrates with the first and its Private Endpoints sit in the second. VNets: ${join(", ", [for key, item in var.function_apps : "${key}=${coalesce(item.virtual_network, local.default_virtual_network, "none")}"])}."
   }
 
   validation {
@@ -1879,10 +1773,10 @@ variable "function_apps" {
     condition = alltrue([
       for network_key in distinct([for app in values(var.function_apps) : coalesce(app.virtual_network, local.default_virtual_network, "-")]) : (
         length(distinct([for app in values(var.function_apps) : app.service_plan if coalesce(app.virtual_network, local.default_virtual_network, "-") == network_key])) <= 1 ||
-        try(tonumber(split("/", var.virtual_networks[network_key].subnet_cidrs.function_integration)[1]) <= 26, false)
+        try(tonumber(split("/", var.virtual_networks[network_key].subnets["function_integration"].cidr)[1]) <= 26, false)
       )
     ])
-    error_message = "subnet_cidrs.function_integration must be /26 or larger in a virtual network where Function Apps on more than one App Service Plan share it."
+    error_message = "The function_integration subnet must be /26 or larger in a virtual network where Function Apps on more than one App Service Plan share it."
   }
 
   # An App Service Plan integrates with one VNet, so its apps share it.
@@ -1920,11 +1814,11 @@ variable "web_apps" {
   validation {
     condition = alltrue([
       for item in values(var.web_apps) : try(
-        var.virtual_networks[coalesce(item.virtual_network, local.default_virtual_network)].subnet_cidrs.web_app_integration != null &&
-        var.virtual_networks[coalesce(item.virtual_network, local.default_virtual_network)].subnet_cidrs.private_endpoints != null,
+        contains(keys(var.virtual_networks[coalesce(item.virtual_network, local.default_virtual_network)].subnets), "web_app_integration") &&
+        contains(keys(var.virtual_networks[coalesce(item.virtual_network, local.default_virtual_network)].subnets), "private_endpoints"),
       false)
     ])
-    error_message = "Every web_apps virtual_network must be a virtual_networks key (default: the PRV VNet) whose subnet_cidrs sets web_app_integration and private_endpoints; the app integrates with the first and its Private Endpoint sits in the second. VNets: ${join(", ", [for key, item in var.web_apps : "${key}=${coalesce(item.virtual_network, local.default_virtual_network, "none")}"])}."
+    error_message = "Every web_apps virtual_network must be a virtual_networks key (default: the PRV VNet) whose subnets list web_app_integration and private_endpoints; the app integrates with the first and its Private Endpoint sits in the second. VNets: ${join(", ", [for key, item in var.web_apps : "${key}=${coalesce(item.virtual_network, local.default_virtual_network, "none")}"])}."
   }
 
   validation {
@@ -1972,10 +1866,10 @@ variable "web_apps" {
     condition = alltrue([
       for network_key in distinct([for app in values(var.web_apps) : coalesce(app.virtual_network, local.default_virtual_network, "-")]) : (
         length(distinct([for app in values(var.web_apps) : app.service_plan if coalesce(app.virtual_network, local.default_virtual_network, "-") == network_key])) <= 1 ||
-        try(tonumber(split("/", var.virtual_networks[network_key].subnet_cidrs.web_app_integration)[1]) <= 26, false)
+        try(tonumber(split("/", var.virtual_networks[network_key].subnets["web_app_integration"].cidr)[1]) <= 26, false)
       )
     ])
-    error_message = "subnet_cidrs.web_app_integration must be /26 or larger in a virtual network where Web Apps on more than one App Service Plan share it."
+    error_message = "The web_app_integration subnet must be /26 or larger in a virtual network where Web Apps on more than one App Service Plan share it."
   }
 
   # An App Service Plan integrates with one VNet, so its apps share it.

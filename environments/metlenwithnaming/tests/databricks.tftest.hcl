@@ -77,32 +77,30 @@ variables {
   virtual_networks = {
     main = {
       address_space = ["10.42.0.0/20"]
-      subnet_cidrs = {
-        private_endpoints    = "10.42.0.0/24"
-        virtual_machines     = "10.42.1.0/24"
-        web_app_integration  = "10.42.8.0/26"
-        function_integration = "10.42.4.0/24"
-        postgresql           = "10.42.5.0/24"
-        mysql                = "10.42.6.0/24"
-        sql_managed_instance = "10.42.7.0/27"
-        databricks = {
-          analytics = { host = "10.42.9.0/26", container = "10.42.9.64/26" }
-          sandbox   = { host = "10.42.10.0/26", container = "10.42.10.64/26" }
-          webauth   = { host = "10.42.11.0/28", container = "10.42.11.16/28" }
-        }
+      subnets = {
+        private_endpoints    = { cidr = "10.42.0.0/24", number = 1 }
+        virtual_machines     = { cidr = "10.42.1.0/24", number = 2 }
+        web_app_integration  = { cidr = "10.42.8.0/26", number = 3 }
+        function_integration = { cidr = "10.42.4.0/24", number = 4 }
+        postgresql           = { cidr = "10.42.5.0/24", number = 5 }
+        mysql                = { cidr = "10.42.6.0/24", number = 6 }
+        sql_managed_instance = { cidr = "10.42.7.0/27", number = 7 }
+        # Workload workspaces need egress; the browser authentication
+        # workspace runs no clusters.
+        "databricks/analytics/host"      = { cidr = "10.42.9.0/26", number = 10, nat_gateway = true }
+        "databricks/analytics/container" = { cidr = "10.42.9.64/26", number = 11, nat_gateway = true }
+        "databricks/sandbox/host"        = { cidr = "10.42.10.0/26", number = 14, nat_gateway = true }
+        "databricks/sandbox/container"   = { cidr = "10.42.10.64/26", number = 15, nat_gateway = true }
+        "databricks/webauth/host"        = { cidr = "10.42.11.0/28", number = 12 }
+        "databricks/webauth/container"   = { cidr = "10.42.11.16/28", number = 13 }
       }
     }
-  }
-  nat_gateways = {
-    main = { subnets = ["databricks/analytics/host", "databricks/analytics/container"] }
   }
   databricks_workspaces = {
     analytics = {}
     webauth = {
       sequence                         = "01"
       browser_authentication_workspace = true
-      host_subnet_number               = 12
-      container_subnet_number          = 13
     }
   }
   virtual_machines            = {}
@@ -169,8 +167,8 @@ run "private_workload_and_browser_authentication_workspace" {
 
   assert {
     condition = (
-      local.resource_names.databricks_workspaces["analytics"].host_subnet_name == "PPAGEODEVPRV10" &&
-      local.resource_names.databricks_workspaces["webauth"].container_subnet_name == "PPAGEODEVPRV13" &&
+      local.resource_names.virtual_networks["main"].subnets["databricks/analytics/host"] == "PPAGEODEVPRV10" &&
+      local.resource_names.virtual_networks["main"].subnets["databricks/webauth/container"] == "PPAGEODEVPRV13" &&
       local.resource_names.databricks_workspaces["webauth"].managed_resource_group_name == "M-AZU-RGP-IT-PPA-GEO-DEV-SWE-01" &&
       local.resource_names.databricks_workspaces["webauth"].network_security_group_name == "M-AZU-NSG-IT-PPA-GEO-PRV-DEV-SWE-01"
     )
@@ -191,11 +189,8 @@ run "delete_lock_can_be_turned_off" {
         sequence                         = "01"
         browser_authentication_workspace = true
         delete_lock                      = false
-        host_subnet_number               = 12
-        container_subnet_number          = 13
       }
     }
-    nat_gateways = {}
   }
 
   assert {
@@ -209,15 +204,7 @@ run "backend_private_and_public_workspaces" {
   variables {
     databricks_workspaces = {
       analytics = { network_access = "backend_private" }
-      sandbox   = { sequence = "02", network_access = "public", host_subnet_number = 14, container_subnet_number = 15 }
-    }
-    nat_gateways = {
-      main = {
-        subnets = [
-          "databricks/analytics/host", "databricks/analytics/container",
-          "databricks/sandbox/host", "databricks/sandbox/container"
-        ]
-      }
+      sandbox   = { sequence = "02", network_access = "public" }
     }
   }
 
@@ -242,7 +229,13 @@ run "warn_private_workspace_without_browser_authentication" {
 run "warn_workspace_without_egress" {
   command = plan
   variables {
-    nat_gateways = {}
+    virtual_networks = {
+      main = merge(var.virtual_networks.main, {
+        subnets = merge(var.virtual_networks.main.subnets, {
+          "databricks/analytics/host" = { cidr = "10.42.9.0/26", number = 10 }
+        })
+      })
+    }
   }
   expect_failures = [check.databricks_egress]
 }
@@ -252,7 +245,7 @@ run "reject_two_browser_authentication_workspaces" {
   variables {
     databricks_workspaces = {
       analytics = { browser_authentication_workspace = true }
-      webauth   = { sequence = "01", browser_authentication_workspace = true, host_subnet_number = 12, container_subnet_number = 13 }
+      webauth   = { sequence = "01", browser_authentication_workspace = true }
     }
   }
   expect_failures = [var.databricks_workspaces]
@@ -262,7 +255,7 @@ run "reject_browser_authentication_workspace_not_private" {
   command = plan
   variables {
     databricks_workspaces = {
-      webauth = { browser_authentication_workspace = true, network_access = "backend_private", host_subnet_number = 12, container_subnet_number = 13 }
+      webauth = { browser_authentication_workspace = true, network_access = "backend_private" }
     }
   }
   expect_failures = [var.databricks_workspaces]
@@ -275,8 +268,6 @@ run "reject_storage_on_browser_authentication_workspace" {
     databricks_workspaces = {
       webauth = {
         browser_authentication_workspace = true
-        host_subnet_number               = 12
-        container_subnet_number          = 13
         access_connector                 = { storage_accounts = ["lake"] }
       }
     }

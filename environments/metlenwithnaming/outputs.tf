@@ -86,12 +86,12 @@ output "virtual_machine_scale_sets" {
 }
 
 output "nat_gateways" {
-  description = "NAT Gateways keyed by VNet key, with the static outbound IPv4 address of the subnets listed in nat_gateways.<key>.subnets. Empty when no NAT Gateway is created."
+  description = "NAT Gateways keyed by VNet key, with the static outbound IPv4 address of the subnets that set nat_gateway = true. Empty when no NAT Gateway is created."
   value = {
     for key, nat_gateway in module.nat_gateway : key => {
       id                = nat_gateway.id
       public_ip_address = nat_gateway.public_ip_address
-      subnets           = var.nat_gateways[key].subnets
+      subnets           = local.nat_gateways_required[key].subnets
     }
   }
 }
@@ -115,27 +115,27 @@ output "load_balancers" {
 }
 
 output "network_security_groups" {
-  description = "Network security groups keyed by logical name, with their rule IDs, VNet key and associated subnet keys."
+  description = "Network security groups keyed by logical name, with their rule IDs, the VNet key and the keys of the subnets that use the group (null and empty when no subnet uses it)."
   value = {
     for key, nsg in module.network_security_group : key => {
       id                = nsg.id
       name              = nsg.name
       security_rule_ids = nsg.security_rule_ids
-      virtual_network   = local.network_security_group_networks[key]
-      subnets           = var.network_security_groups[key].subnets
+      virtual_network   = try(one(lookup(local.network_security_group_networks, key, [])), null)
+      subnets           = sort([for subnet in lookup(local.network_security_group_subnets, key, []) : subnet.subnet])
     }
   }
 }
 
 output "route_tables" {
-  description = "Route tables keyed by logical name, with their route IDs, VNet key and associated subnet keys."
+  description = "Route tables keyed by logical name, with their route IDs, the VNet key and the keys of the subnets that use the table (null and empty when no subnet uses it)."
   value = {
     for key, route_table in module.route_table : key => {
       id              = route_table.id
       name            = route_table.name
       route_ids       = route_table.route_ids
-      virtual_network = local.route_table_networks[key]
-      subnets         = var.route_tables[key].subnets
+      virtual_network = try(one(lookup(local.route_table_networks, key, [])), null)
+      subnets         = sort([for subnet in lookup(local.route_table_subnets, key, []) : subnet.subnet])
     }
   }
 }
