@@ -16,6 +16,8 @@ locals {
   }
 
   # Every Private Endpoint the lab can create, keyed by a stable endpoint key.
+  # virtual_network is the VNet whose private_endpoints subnet hosts it: the
+  # VNet of the parent resource.
   # Entries hold only plan-time values (no module or resource-name references)
   # so for_each keys are always known and the subnet validations that depend on
   # this catalog cannot form a cycle with the naming locals.
@@ -29,91 +31,100 @@ locals {
     {
       for app_key in keys(var.web_apps) :
       "web_app/${app_key}" => {
-        enabled     = true
-        deployed_by = "private_endpoints"
-        target      = "web_app/${app_key}"
-        subresource = "sites"
-        dns_zone    = "privatelink.azurewebsites.net"
+        enabled         = true
+        deployed_by     = "private_endpoints"
+        target          = "web_app/${app_key}"
+        virtual_network = local.virtual_network_placement.web_apps[app_key]
+        subresource     = "sites"
+        dns_zone        = "privatelink.azurewebsites.net"
       }
     },
     {
       for app_key in keys(var.function_apps) :
       "function_app/${app_key}" => {
-        enabled     = true
-        deployed_by = "function_app_private_endpoint"
-        target      = "function_app/${app_key}"
-        subresource = "sites"
-        dns_zone    = "privatelink.azurewebsites.net"
+        enabled         = true
+        deployed_by     = "function_app_private_endpoint"
+        target          = "function_app/${app_key}"
+        virtual_network = local.virtual_network_placement.function_apps[app_key]
+        subresource     = "sites"
+        dns_zone        = "privatelink.azurewebsites.net"
       }
     },
     {
       for registry_key in keys(var.container_registries) :
       "container_registry/${registry_key}" => {
-        enabled     = true
-        deployed_by = "private_endpoints"
-        target      = "container_registry/${registry_key}"
-        subresource = "registry"
-        dns_zone    = "privatelink.azurecr.io"
+        enabled         = true
+        deployed_by     = "private_endpoints"
+        target          = "container_registry/${registry_key}"
+        virtual_network = local.virtual_network_placement.container_registries[registry_key]
+        subresource     = "registry"
+        dns_zone        = "privatelink.azurecr.io"
       }
     },
     {
       for server_key in keys(var.azure_sql_servers) :
       "azure_sql/${server_key}" => {
-        enabled     = true
-        deployed_by = "private_endpoints"
-        target      = "azure_sql/${server_key}"
-        subresource = "sqlServer"
-        dns_zone    = "privatelink.database.windows.net"
+        enabled         = true
+        deployed_by     = "private_endpoints"
+        target          = "azure_sql/${server_key}"
+        virtual_network = local.virtual_network_placement.azure_sql_servers[server_key]
+        subresource     = "sqlServer"
+        dns_zone        = "privatelink.database.windows.net"
       }
     },
     {
       for account_key, account in var.cosmos_db_accounts :
       "cosmos_db/${account_key}" => {
-        enabled     = true
-        deployed_by = "private_endpoints"
-        target      = "cosmos_db/${account_key}"
-        subresource = local.cosmos_private_endpoint_subresource_by_api[account.api_type]
-        dns_zone    = local.cosmos_private_dns_zone_by_api[account.api_type]
+        enabled         = true
+        deployed_by     = "private_endpoints"
+        target          = "cosmos_db/${account_key}"
+        virtual_network = local.virtual_network_placement.cosmos_db_accounts[account_key]
+        subresource     = local.cosmos_private_endpoint_subresource_by_api[account.api_type]
+        dns_zone        = local.cosmos_private_dns_zone_by_api[account.api_type]
       }
     },
     {
       for vault_key in keys(var.key_vaults) :
       "key_vault/${vault_key}" => {
-        enabled     = true
-        deployed_by = "private_endpoints"
-        target      = "key_vault/${vault_key}"
-        subresource = "vault"
-        dns_zone    = "privatelink.vaultcore.azure.net"
+        enabled         = true
+        deployed_by     = "private_endpoints"
+        target          = "key_vault/${vault_key}"
+        virtual_network = local.virtual_network_placement.key_vaults[vault_key]
+        subresource     = "vault"
+        dns_zone        = "privatelink.vaultcore.azure.net"
       }
     },
     {
       for pair in setproduct(keys(var.storage_accounts), ["blob", "file"]) :
       "storage/${pair[0]}/${pair[1]}" => {
-        enabled     = true
-        deployed_by = "storage_private_endpoints"
-        target      = "storage/${pair[0]}"
-        subresource = pair[1]
-        dns_zone    = "privatelink.${pair[1]}.core.windows.net"
+        enabled         = true
+        deployed_by     = "storage_private_endpoints"
+        target          = "storage/${pair[0]}"
+        virtual_network = local.virtual_network_placement.storage_accounts[pair[0]]
+        subresource     = pair[1]
+        dns_zone        = "privatelink.${pair[1]}.core.windows.net"
       }
     },
     {
       for account_key in keys(var.premium_file_accounts) :
       "premium_files/${account_key}/file" => {
-        enabled     = true
-        deployed_by = "private_endpoints"
-        target      = "premium_files/${account_key}"
-        subresource = "file"
-        dns_zone    = "privatelink.file.core.windows.net"
+        enabled         = true
+        deployed_by     = "private_endpoints"
+        target          = "premium_files/${account_key}"
+        virtual_network = local.virtual_network_placement.premium_file_accounts[account_key]
+        subresource     = "file"
+        dns_zone        = "privatelink.file.core.windows.net"
       }
     },
     {
       for pair in setproduct(keys(var.function_apps), ["blob", "file", "queue", "table"]) :
       "function_storage/${pair[0]}/${pair[1]}" => {
-        enabled     = true
-        deployed_by = "function_storage_private_endpoints"
-        target      = "function_storage/${pair[0]}"
-        subresource = pair[1]
-        dns_zone    = "privatelink.${pair[1]}.core.windows.net"
+        enabled         = true
+        deployed_by     = "function_storage_private_endpoints"
+        target          = "function_storage/${pair[0]}"
+        virtual_network = local.virtual_network_placement.function_apps[pair[0]]
+        subresource     = pair[1]
+        dns_zone        = "privatelink.${pair[1]}.core.windows.net"
       }
     },
     # One databricks_ui_api endpoint per private or backend_private workload
@@ -123,11 +134,12 @@ locals {
     {
       for workspace_key, workspace in var.databricks_workspaces :
       "databricks/${workspace_key}/databricks_ui_api" => {
-        enabled     = workspace.network_access != "public" && !workspace.browser_authentication_workspace
-        deployed_by = "private_endpoints"
-        target      = "databricks/${workspace_key}"
-        subresource = "databricks_ui_api"
-        dns_zone    = "privatelink.azuredatabricks.net"
+        enabled         = workspace.network_access != "public" && !workspace.browser_authentication_workspace
+        deployed_by     = "private_endpoints"
+        target          = "databricks/${workspace_key}"
+        virtual_network = local.databricks_workspace_networks[workspace_key]
+        subresource     = "databricks_ui_api"
+        dns_zone        = "privatelink.azuredatabricks.net"
       }
     },
     # Browser sign-in to every private workspace in the region goes through the
@@ -137,11 +149,12 @@ locals {
     {
       for workspace_key in local.databricks_browser_authentication_keys :
       "databricks/${workspace_key}/browser_authentication" => {
-        enabled     = true
-        deployed_by = "databricks_browser_authentication_private_endpoint"
-        target      = "databricks/${workspace_key}"
-        subresource = "browser_authentication"
-        dns_zone    = "privatelink.azuredatabricks.net"
+        enabled         = true
+        deployed_by     = "databricks_browser_authentication_private_endpoint"
+        target          = "databricks/${workspace_key}"
+        virtual_network = local.databricks_workspace_networks[workspace_key]
+        subresource     = "browser_authentication"
+        dns_zone        = "privatelink.azuredatabricks.net"
       }
     }
   )
@@ -224,9 +237,4 @@ locals {
     length(var.postgresql_servers) > 0 ? toset(["privatelink.postgres.database.azure.com"]) : toset([]),
     length(var.mysql_servers) > 0 ? toset(["privatelink.mysql.database.azure.com"]) : toset([])
   )
-
-  private_dns_link_names = {
-    for zone_name in local.private_dns_zones :
-    zone_name => "${local.naming_prefixes.private_dns_link}-${substr(md5(zone_name), 0, 8)}-${local.name_stem}"
-  }
 }

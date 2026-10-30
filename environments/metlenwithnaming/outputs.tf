@@ -8,28 +8,45 @@ output "resource_group_id" {
   value       = module.resource_group.id
 }
 
-output "virtual_network_id" {
-  description = "Lab virtual network ID."
-  value       = module.network.id
-}
-
-output "subnet_ids" {
-  description = "Lab subnet IDs."
-  value       = module.network.subnet_ids
+output "virtual_networks" {
+  description = "Virtual networks keyed by logical name, with their name, classification, address space and subnet IDs keyed by subnet key."
+  value = {
+    for key, network in module.network : key => {
+      id             = network.id
+      name           = network.name
+      classification = var.virtual_networks[key].classification
+      address_space  = var.virtual_networks[key].address_space
+      subnet_ids     = network.subnet_ids
+    }
+  }
 }
 
 output "hub_peering" {
-  description = "Hub peering IDs and names, or null when hub_peering is not set. hub_to_spoke is null when the hub side is managed outside this configuration."
+  description = "Hub peering IDs and names per peered VNet key, or null when hub_peering is not set. hub_to_spoke is null when the hub side is managed outside this configuration."
   value = var.hub_peering == null ? null : {
     hub_virtual_network_id = var.hub_peering.hub_virtual_network_id
-    spoke_to_hub = {
-      id   = module.spoke_to_hub_peering[0].id
-      name = module.spoke_to_hub_peering[0].name
+    virtual_networks = {
+      for key, peering in module.spoke_to_hub_peering : key => {
+        spoke_to_hub = {
+          id   = peering.id
+          name = peering.name
+        }
+        hub_to_spoke = local.hub_to_spoke_peering_enabled ? {
+          id   = module.hub_to_spoke_peering[key].id
+          name = module.hub_to_spoke_peering[key].name
+        } : null
+      }
     }
-    hub_to_spoke = local.hub_to_spoke_peering_enabled ? {
-      id   = module.hub_to_spoke_peering[0].id
-      name = module.hub_to_spoke_peering[0].name
-    } : null
+  }
+}
+
+output "virtual_network_peerings" {
+  description = "Peerings between virtual_networks entries, one per side, keyed <local VNet key>-to-<remote VNet key>."
+  value = {
+    for key, peering in module.virtual_network_peering : key => {
+      id   = peering.id
+      name = peering.name
+    }
   }
 }
 
@@ -68,9 +85,15 @@ output "virtual_machine_scale_sets" {
   }
 }
 
-output "nat_gateway_id" {
-  description = "Shared NAT Gateway ID, or null when nat_gateway.subnets is empty."
-  value       = try(module.nat_gateway[0].id, null)
+output "nat_gateways" {
+  description = "NAT Gateways keyed by VNet key, with the static outbound IPv4 address of the subnets listed in nat_gateways.<key>.subnets. Empty when no NAT Gateway is created."
+  value = {
+    for key, nat_gateway in module.nat_gateway : key => {
+      id                = nat_gateway.id
+      public_ip_address = nat_gateway.public_ip_address
+      subnets           = var.nat_gateways[key].subnets
+    }
+  }
 }
 
 output "load_balancers" {
@@ -81,7 +104,8 @@ output "load_balancers" {
       name                        = load_balancer.name
       frontend_private_ip_address = load_balancer.frontend_private_ip_address
       backend_address_pool_id     = load_balancer.backend_address_pool_id
-      subnet_id                   = module.network.subnet_ids["load_balancers"]
+      virtual_network             = local.virtual_network_placement.load_balancers[key]
+      subnet_id                   = module.network[local.virtual_network_placement.load_balancers[key]].subnet_ids["load_balancers"]
       probe_ids                   = load_balancer.probe_ids
       rule_ids                    = load_balancer.rule_ids
       virtual_machines            = sort([for vm_key, vm in var.virtual_machines : vm_key if vm.load_balancer == key])
@@ -90,31 +114,28 @@ output "load_balancers" {
   }
 }
 
-output "nat_gateway_public_ip_address" {
-  description = "Static outbound IPv4 address of the subnets in nat_gateway.subnets, or null when no NAT Gateway is created."
-  value       = try(module.nat_gateway[0].public_ip_address, null)
-}
-
 output "network_security_groups" {
-  description = "Network security groups keyed by logical name, with their rule IDs and associated subnet keys."
+  description = "Network security groups keyed by logical name, with their rule IDs, VNet key and associated subnet keys."
   value = {
     for key, nsg in module.network_security_group : key => {
       id                = nsg.id
       name              = nsg.name
       security_rule_ids = nsg.security_rule_ids
+      virtual_network   = local.network_security_group_networks[key]
       subnets           = var.network_security_groups[key].subnets
     }
   }
 }
 
 output "route_tables" {
-  description = "Route tables keyed by logical name, with their route IDs and associated subnet keys."
+  description = "Route tables keyed by logical name, with their route IDs, VNet key and associated subnet keys."
   value = {
     for key, route_table in module.route_table : key => {
-      id        = route_table.id
-      name      = route_table.name
-      route_ids = route_table.route_ids
-      subnets   = var.route_tables[key].subnets
+      id              = route_table.id
+      name            = route_table.name
+      route_ids       = route_table.route_ids
+      virtual_network = local.route_table_networks[key]
+      subnets         = var.route_tables[key].subnets
     }
   }
 }
@@ -230,7 +251,8 @@ output "container_apps_environments" {
       name                             = environment.environment_name
       default_domain                   = environment.default_domain
       static_ip_address                = environment.static_ip_address
-      subnet_id                        = module.network.subnet_ids["container_apps/${key}"]
+      virtual_network                  = local.container_apps_environment_networks[key]
+      subnet_id                        = module.network[local.container_apps_environment_networks[key]].subnet_ids["container_apps/${key}"]
       dedicated_workload_profile_names = environment.dedicated_workload_profile_names
       apps                             = environment.apps
     }
@@ -249,8 +271,9 @@ output "databricks_workspaces" {
       managed_resource_group_name      = workspace.managed_resource_group_name
       root_storage_account_name        = workspace.root_storage_account_name
       network_security_group_name      = workspace.network_security_group_name
-      host_subnet_id                   = module.network.subnet_ids["databricks/${key}/host"]
-      container_subnet_id              = module.network.subnet_ids["databricks/${key}/container"]
+      virtual_network                  = local.databricks_workspace_networks[key]
+      host_subnet_id                   = module.network[local.databricks_workspace_networks[key]].subnet_ids["databricks/${key}/host"]
+      container_subnet_id              = module.network[local.databricks_workspace_networks[key]].subnet_ids["databricks/${key}/container"]
       access_connector_id              = workspace.access_connector_id
       access_connector_principal_id    = workspace.access_connector_principal_id
       browser_authentication_workspace = var.databricks_workspaces[key].browser_authentication_workspace

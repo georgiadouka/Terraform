@@ -151,18 +151,22 @@ variables {
   }
   storage_use_azuread = true
   location            = "swedencentral"
-  address_space       = ["10.42.0.0/20"]
-  subnet_cidrs = {
-    private_endpoints    = "10.42.0.0/24"
-    virtual_machines     = "10.42.1.0/24"
-    web_app_integration  = "10.42.8.0/26"
-    function_integration = "10.42.4.0/24"
-    postgresql           = "10.42.5.0/24"
-    mysql                = "10.42.6.0/24"
-    sql_managed_instance = "10.42.7.0/27"
+  virtual_networks = {
+    main = {
+      address_space = ["10.42.0.0/20"]
+      subnet_cidrs = {
+        private_endpoints    = "10.42.0.0/24"
+        virtual_machines     = "10.42.1.0/24"
+        web_app_integration  = "10.42.8.0/26"
+        function_integration = "10.42.4.0/24"
+        postgresql           = "10.42.5.0/24"
+        mysql                = "10.42.6.0/24"
+        sql_managed_instance = "10.42.7.0/27"
+      }
+    }
   }
   virtual_machine_scale_sets = {}
-  nat_gateway                = {}
+  nat_gateways               = {}
   log_analytics_workspace    = {}
   sql_managed_instances      = {}
   postgresql_servers         = {}
@@ -278,7 +282,7 @@ run "all_endpoints" {
         "privatelink.file.core.windows.net", "privatelink.queue.core.windows.net", "privatelink.table.core.windows.net",
         "privatelink.database.windows.net", "privatelink.azurewebsites.net", "privatelink.documents.azure.com"
       ]) &&
-      local.subnet_enabled.private_endpoints
+      local.subnet_enabled.main.private_endpoints
     )
     error_message = "Private DNS zones and the endpoint subnet must follow the enabled endpoints."
   }
@@ -340,7 +344,7 @@ run "no_endpoints" {
       length(module.function_storage_private_endpoints) == 0 &&
       length(module.function_app_private_endpoint) == 0 &&
       length(local.private_dns_zones) == 0 &&
-      !local.subnet_enabled.private_endpoints
+      !local.subnet_enabled.main.private_endpoints
     )
     error_message = "With nothing enabled there must be no endpoints, DNS zones, or endpoint subnet."
   }

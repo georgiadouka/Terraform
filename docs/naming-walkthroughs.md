@@ -140,14 +140,26 @@ Two things to notice:
 The network family inserts a PUB/PRV classifier between scope and placement:
 `M-AZU-<TYPE>-<BU>-<DPT>-<APP>-<PUB|PRV>-<ENV>-<REG>[-NN]`.
 
-### 2.1 The VNet: classifier fixed
+### 2.1 VNets: the classifier is the network intent
 
 ```hcl
-virtual_network = "M-AZU-${local.metlen_codes.virtual_network}-${local.metlen_scope}-PRV-${local.metlen_placement}"
+virtual_network_names = {
+  for key, network in var.virtual_networks :
+  key => join("-", ["M-AZU", local.metlen_codes.virtual_network, local.metlen_scope, network.classification, local.metlen_placement])
+}
 ```
 
-`VNT` + `IT-PPA-GEO` + `PRV` + `DEV-SWE` gives `M-AZU-VNT-IT-PPA-GEO-PRV-DEV-SWE`.
-Every lab network is private, so `PRV` is a literal here.
+`VNT` + `IT-PPA-GEO` + `PRV` + `DEV-SWE` gives `M-AZU-VNT-IT-PPA-GEO-PRV-DEV-SWE`;
+a VNet with `classification = "PUB"` gives `M-AZU-VNT-IT-PPA-GEO-PUB-DEV-SWE`.
+The map key (`main`, `edge`) never appears in the name. The standard defines no
+NN for VNets, so the classification is the only part that tells VNets apart:
+`variables.tf` allows at most one PRV and one PUB VNet.
+
+Everything attached to a VNet takes its classification: subnets (section 3),
+the VNet's NAT Gateway and Public IP (`M-AZU-NGW-IT-PPA-GEO-PRV-DEV-SWE-00`),
+and NSGs and route tables that do not set their own. VNet peerings
+(`<local VNet name>-to-<remote VNet name>`) and Private DNS zone links (the
+VNet name) are derived from the VNet names.
 
 ### 2.2 NSGs and route tables: classifier and sequence come from the input
 
@@ -190,21 +202,24 @@ network_security_groups = {
 
 ## 3. Walkthrough: subnet names
 
-Subnets use a compact pattern, `<DPT><APP><ENV>PRV<NN>`, for example
-`PPAGEODEVPRV01`. There are two paths to a subnet name.
+Subnets use a compact pattern, `<DPT><APP><ENV><PUB|PRV><NN>`, for example
+`PPAGEODEVPRV01`; PUB/PRV is the classification of the subnet's VNet. Subnet
+names are scoped to their VNet, so every VNet reuses the same numbers. There
+are two paths to a subnet name.
 
 ### 3.1 Fixed roles
 
 ```hcl
 # locals.naming.tf (condensed)
-metlen_subnet_prefix = "${var.naming_tokens.department}${var.naming_tokens.application}${var.naming_tokens.environment}PRV"   # PPAGEODEVPRV
+metlen_subnet_prefix = "${var.naming_tokens.department}${var.naming_tokens.application}${var.naming_tokens.environment}"   # PPAGEODEV
 subnet_numbers = {
   private_endpoints = 1, virtual_machines = 2, web_app_integration = 3, function_integration = 4,
   postgresql = 5, mysql = 6, sql_managed_instance = 7, load_balancers = 8
 }
+# resource_names.virtual_networks[<key>].subnets
 subnets = {
   for subnet_key, number in local.subnet_numbers :
-  subnet_key => format("%s%02d", local.metlen_subnet_prefix, number)
+  subnet_key => format("%s%s%02d", local.metlen_subnet_prefix, network.classification, number)
 }
 ```
 
@@ -217,10 +232,14 @@ names never shift when another subnet is switched on or off.
 container_apps_environments = { primary = { ... } }   # subnet_number defaults to 9
 ```
 
-`subnet_name = format("%s%02d", local.metlen_subnet_prefix, environment.subnet_number)`
-gives `PPAGEODEVPRV09`. The validation in `variables.tf` rejects a
-`subnet_number` that is outside 1 to 99 or that equals the number of another
-deployed subnet; setting it to `2` while the VM subnet exists fails the plan.
+`subnet_name = format("%s%s%02d", local.metlen_subnet_prefix, <classification of the environment's VNet>, environment.subnet_number)`
+gives `PPAGEODEVPRV09`. The environment lives in the VNet whose
+`subnet_cidrs.container_apps` lists its key. The validation in `variables.tf`
+rejects a `subnet_number` that is outside 1 to 99 or that equals the number of
+another subnet deployed in the same VNet; setting it to `2` while that VNet
+holds the VM subnet fails the plan, but `2` is fine in a VNet without one.
+Databricks workspaces work the same way with `host_subnet_number` and
+`container_subnet_number` (defaults 10 and 11).
 
 ### 3.3 From name to subnet (`locals.network.tf`)
 
@@ -229,17 +248,22 @@ consumes the names:
 
 ```hcl
 subnet_definitions = {
-  virtual_machines = { name = local.resource_names.subnets.virtual_machines, address_prefixes = [var.subnet_cidrs.virtual_machines] }
-  ...
+  for network_key, network in var.virtual_networks : network_key => {
+    virtual_machines = { name = local.resource_names.virtual_networks[network_key].subnets.virtual_machines, address_prefixes = [network.subnet_cidrs.virtual_machines] }
+    ...
+  }
 }
-subnets = merge(
-  { for subnet_key, subnet in local.subnet_definitions : subnet_key => subnet if local.subnet_enabled[subnet_key] },
-  local.container_apps_subnets          # name = resource_names.container_apps_environments[key].subnet_name
-)
+subnets = {
+  for network_key in keys(var.virtual_networks) : network_key => merge(
+    { for subnet_key, subnet in local.subnet_definitions[network_key] : subnet_key => subnet if local.subnet_enabled[network_key][subnet_key] },
+    <the Container Apps and Databricks subnets placed in this VNet>
+  )
+}
 ```
 
-`main.tf` passes `local.subnets` to `module "network"`. A name is **always
-computed**, but a subnet is **created only if enabled**:
+`main.tf` passes `local.subnets[<key>]` to the `module "network"` instance of
+each VNet. A name is **always computed**, but a subnet is **created only if a
+resource placed in that VNet needs it**:
 
 | Role | NN | Name | Created with `lab.tfvars`? | Why |
 |---|---|---|---|---|
@@ -472,7 +496,7 @@ container_apps_environments = {
 | Subnet | Subnet family | prefix + `subnet_number` (`9`) | `PPAGEODEVPRV09` |
 | App `hello` | Lowercase variant | `CAP`, scope, placement, `app.sequence` (`"00"`), then `lower()` | `m-azu-cap-it-ppa-geo-dev-swe-00` |
 | Subnet delegation | Legacy stem | `dlg-container-apps-<key>-<stem>` | `dlg-container-apps-primary-metlen-lab-<suffix>` |
-| Private DNS link | Legacy stem | `pdnslink-container-apps-<key>-<stem>` | `pdnslink-container-apps-primary-metlen-lab-<suffix>` |
+| Private DNS links | Derived | name of each linked VNet (the environment's zone is linked to every VNet) | `M-AZU-VNT-IT-PPA-GEO-PRV-DEV-SWE` |
 | Workload profile `general` | Own rule | see below | `wp-general01` |
 | Workload profile `memory` | Own rule | see below | `wp-memory01` |
 | App container | Legacy stem | `ctr-<stem>` | `ctr-metlen-lab-<suffix>` |
@@ -501,7 +525,8 @@ all environments.
 
 Resources without a METLEN convention yet are named
 `<prefix>-<key>-<project>-<environment>-<suffix>`. These are VMs, scale sets,
-NICs, disks, VNet peerings, private DNS links and subnet delegations.
+NICs, disks and subnet delegations. VMs and scale sets wait for the METLEN
+server naming process (the register marks Virtual Machine as EXCEPTION).
 
 ```hcl
 naming_suffix   = coalesce(var.naming.unique_suffix, random_string.suffix.result)
@@ -533,7 +558,7 @@ Three things to know about the legacy names:
 2. **With `unique_suffix = null` the stem is unknown until apply.** The suffix
    then comes from `random_string.suffix`, so `terraform console` and
    `terraform plan` show `(known after apply)` for every legacy name (and for
-   `subnet_delegation_name` and `private_dns_link_name`).
+   `subnet_delegation_name`).
    METLEN-family names are always known at plan time. The test suite pins
    `unique_suffix` for this reason.
 3. **These locals will go away** as each resource type receives a METLEN code.
@@ -617,7 +642,7 @@ known only after apply.
 |---|---|
 | Subscription display name (reference only) | `M-AZU-SBS-IT-PPA` |
 | Resource Group | `M-AZU-RGP-IT-PPA-GEO-DEV-SWE` |
-| Virtual Network | `M-AZU-VNT-IT-PPA-GEO-PRV-DEV-SWE` |
+| Virtual Network (`main`) | `M-AZU-VNT-IT-PPA-GEO-PRV-DEV-SWE` |
 | Subnets | `PPAGEODEVPRV01` to `PPAGEODEVPRV09` (see walkthrough 3) |
 | Storage Account `primary` | `mazusoaitppageodevswe00` |
 | Blob containers in `primary` | `appdata`, `archive` (as configured) |
@@ -627,7 +652,8 @@ known only after apply.
 | Container Registry `primary` | `mazuacritppageodevswe00` |
 | Azure SQL server / database | `m-azu-sql-it-ppa-geo-dev-swe-00` / `database_name` (default `primary`) |
 | Azure SQL elastic pool | `M-AZU-SEL-IT-PPA-GEO-DEV-SWE-00` (name only: `elastic_pool.enabled = false`) |
-| NAT Gateway / its Public IP | `M-AZU-NGW-IT-PPA-GEO-DEV-SWE-00` / `M-AZU-PIP-IT-PPA-GEO-DEV-SWE-00` |
+| NAT Gateway / its Public IP | `M-AZU-NGW-IT-PPA-GEO-PRV-DEV-SWE-00` / `M-AZU-PIP-IT-PPA-GEO-PRV-DEV-SWE-00` |
+| Private DNS zone links | `M-AZU-VNT-IT-PPA-GEO-PRV-DEV-SWE` (the linked VNet) |
 | Log Analytics workspace | `M-AZU-LAW-IT-PPA-GEO-DEV-SWE-00` |
 | PostgreSQL server / database | `m-azu-pgs-it-ppa-geo-dev-swe-00` / `database_name` (default `primary`) |
 | MySQL server / database | `m-azu-mys-it-ppa-geo-dev-swe-00` / `database_name` (default `primary`) |
@@ -637,4 +663,4 @@ known only after apply.
 | Container Apps environment | `M-AZU-CEV-IT-PPA-GEO-DEV-SWE-00` |
 | Container App `hello` | `m-azu-cap-it-ppa-geo-dev-swe-00` |
 | Workload profiles | `wp-general01`, `wp-memory01` |
-| VM, scale set, NICs, disks, autoscale setting, delegations, DNS links, VNet peerings | Legacy stem, *suffix* |
+| VM, scale set, NICs, disks, autoscale setting, delegations | Legacy stem, *suffix* |

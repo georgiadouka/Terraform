@@ -49,6 +49,18 @@ resource "azurerm_private_dns_zone_virtual_network_link" "environment" {
   tags                  = var.tags
 }
 
+# Lets peered VNets resolve the environment's apps.
+resource "azurerm_private_dns_zone_virtual_network_link" "additional" {
+  for_each = var.additional_virtual_network_links
+
+  name                  = each.value.name
+  resource_group_name   = var.resource_group_name
+  private_dns_zone_name = azurerm_private_dns_zone.environment.name
+  virtual_network_id    = each.value.virtual_network_id
+  registration_enabled  = false
+  tags                  = var.tags
+}
+
 resource "azurerm_private_dns_a_record" "environment_apex" {
   name                = "@"
   zone_name           = azurerm_private_dns_zone.environment.name

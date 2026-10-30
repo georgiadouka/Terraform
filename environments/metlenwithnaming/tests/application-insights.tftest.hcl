@@ -68,7 +68,7 @@ override_module {
 }
 
 override_module {
-  target  = module.nat_gateway[0]
+  target  = module.nat_gateway["main"]
   outputs = { id = "mock-nat", public_ip_address = "203.0.113.10" }
 }
 
@@ -104,15 +104,19 @@ variables {
   project_name            = "metlen"
   environment             = "lab"
   naming_tokens           = { business_unit = "IT", department = "PPA", application = "ECM", environment = "DEV" }
-  address_space           = ["10.42.0.0/20"]
-  subnet_cidrs = {
-    private_endpoints    = "10.42.0.0/24"
-    virtual_machines     = "10.42.1.0/24"
-    web_app_integration  = "10.42.8.0/26"
-    function_integration = "10.42.4.0/24"
-    postgresql           = "10.42.5.0/24"
-    mysql                = "10.42.6.0/24"
-    sql_managed_instance = "10.42.7.0/27"
+  virtual_networks = {
+    main = {
+      address_space = ["10.42.0.0/20"]
+      subnet_cidrs = {
+        private_endpoints    = "10.42.0.0/24"
+        virtual_machines     = "10.42.1.0/24"
+        web_app_integration  = "10.42.8.0/26"
+        function_integration = "10.42.4.0/24"
+        postgresql           = "10.42.5.0/24"
+        mysql                = "10.42.6.0/24"
+        sql_managed_instance = "10.42.7.0/27"
+      }
+    }
   }
   app_service_plans = {
     web       = { sequence = "00" }
@@ -124,7 +128,7 @@ variables {
   web_apps = {
     primary = { service_plan = "web" }
   }
-  nat_gateway                 = { subnets = ["function_integration", "web_app_integration"] }
+  nat_gateways                = { main = { subnets = ["function_integration", "web_app_integration"] } }
   application_insights        = {}
   log_analytics_workspace     = {}
   virtual_machines            = {}
@@ -241,7 +245,7 @@ run "warn_without_egress" {
   command = plan
 
   variables {
-    nat_gateway = { subnets = ["function_integration"] }
+    nat_gateways = { main = { subnets = ["function_integration"] } }
   }
 
   expect_failures = [check.application_insights_egress]

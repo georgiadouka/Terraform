@@ -15,46 +15,47 @@ module "resource_group" {
 }
 
 module "network" {
-  source = "../../modules/network"
+  for_each = var.virtual_networks
+  source   = "../../modules/network"
 
-  name                            = local.resource_names.virtual_network
+  name                            = local.resource_names.virtual_networks[each.key].name
   resource_group_name             = module.resource_group.name
   location                        = module.resource_group.location
-  address_space                   = var.address_space
-  subnets                         = local.subnets
-  planned_subnet_address_prefixes = local.planned_subnet_address_prefixes
+  address_space                   = each.value.address_space
+  subnets                         = local.subnets[each.key]
+  planned_subnet_address_prefixes = local.planned_subnet_address_prefixes[each.key]
   tags                            = local.common_tags
 }
 
 # Hub side first, so allow_gateway_transit exists before the spoke side sets
 # use_remote_gateways.
 module "hub_to_spoke_peering" {
-  count  = local.hub_to_spoke_peering_enabled ? 1 : 0
-  source = "../../modules/virtual-network-peering"
+  for_each = local.hub_to_spoke_peering_enabled ? toset(local.hub_peering_virtual_networks) : toset([])
+  source   = "../../modules/virtual-network-peering"
 
   providers = {
     azurerm = azurerm.hub
   }
 
-  name                      = local.resource_names.virtual_network_peerings.hub_to_spoke
+  name                      = local.resource_names.hub_peerings[each.key].hub_to_spoke
   resource_group_name       = local.hub_virtual_network.resource_group_name
   virtual_network_name      = local.hub_virtual_network.name
-  remote_virtual_network_id = module.network.id
+  remote_virtual_network_id = module.network[each.key].id
   allow_forwarded_traffic   = var.hub_peering.allow_forwarded_traffic
   allow_gateway_transit     = var.hub_peering.use_remote_gateways
   # Re-syncs the hub side when the spoke address space changes.
   triggers = {
-    remote_address_space = join(",", var.address_space)
+    remote_address_space = join(",", var.virtual_networks[each.key].address_space)
   }
 }
 
 module "spoke_to_hub_peering" {
-  count  = var.hub_peering == null ? 0 : 1
-  source = "../../modules/virtual-network-peering"
+  for_each = toset(local.hub_peering_virtual_networks)
+  source   = "../../modules/virtual-network-peering"
 
-  name                      = local.resource_names.virtual_network_peerings.spoke_to_hub
+  name                      = local.resource_names.hub_peerings[each.key].spoke_to_hub
   resource_group_name       = module.resource_group.name
-  virtual_network_name      = module.network.name
+  virtual_network_name      = module.network[each.key].name
   remote_virtual_network_id = var.hub_peering.hub_virtual_network_id
   allow_forwarded_traffic   = var.hub_peering.allow_forwarded_traffic
   use_remote_gateways       = var.hub_peering.use_remote_gateways
@@ -62,14 +63,36 @@ module "spoke_to_hub_peering" {
   depends_on = [module.hub_to_spoke_peering]
 }
 
+# Both sides of every virtual_network_peerings entry.
+module "virtual_network_peering" {
+  for_each = local.virtual_network_peering_sides
+  source   = "../../modules/virtual-network-peering"
+
+  name                      = local.resource_names.virtual_network_peerings[each.key]
+  resource_group_name       = module.resource_group.name
+  virtual_network_name      = module.network[each.value.virtual_network].name
+  remote_virtual_network_id = module.network[each.value.remote_virtual_network].id
+  allow_forwarded_traffic   = each.value.allow_forwarded_traffic
+  # Re-syncs this side when the remote address space changes.
+  triggers = {
+    remote_address_space = join(",", var.virtual_networks[each.value.remote_virtual_network].address_space)
+  }
+}
+
+# One set of zones linked to every VNet, so peered VNets resolve each
+# other's Private Endpoints.
 module "private_dns" {
   source = "../../modules/private-dns"
 
-  resource_group_name        = module.resource_group.name
-  virtual_network_id         = module.network.id
-  zone_names                 = local.private_dns_zones
-  virtual_network_link_names = local.private_dns_link_names
-  tags                       = local.common_tags
+  resource_group_name = module.resource_group.name
+  zone_names          = local.private_dns_zones
+  virtual_network_links = {
+    for key in keys(var.virtual_networks) : key => {
+      virtual_network_id = module.network[key].id
+      name               = local.resource_names.private_dns_links[key]
+    }
+  }
+  tags = local.common_tags
 }
 
 module "virtual_machine" {
@@ -82,7 +105,7 @@ module "virtual_machine" {
   data_disk_names        = local.resource_names.virtual_machines[each.key].data_disk_names
   resource_group_name    = module.resource_group.name
   location               = module.resource_group.location
-  subnet_id              = module.network.subnet_ids["virtual_machines"]
+  subnet_id              = module.network[local.virtual_network_placement.virtual_machines[each.key]].subnet_ids["virtual_machines"]
   size                   = each.value.size
   admin_username         = each.value.admin_username
   os_type                = each.value.os_type
@@ -109,7 +132,7 @@ module "virtual_machine_scale_set" {
   computer_name_prefix          = local.resource_names.virtual_machine_scale_sets[each.key].computer_name_prefix
   resource_group_name           = module.resource_group.name
   location                      = module.resource_group.location
-  subnet_id                     = module.network.subnet_ids["virtual_machines"]
+  subnet_id                     = module.network[local.virtual_network_placement.virtual_machine_scale_sets[each.key]].subnet_ids["virtual_machines"]
   size                          = each.value.size
   admin_username                = each.value.admin_username
   os_type                       = each.value.os_type
@@ -140,7 +163,7 @@ module "load_balancer" {
   backend_address_pool_name      = local.resource_names.load_balancers[each.key].backend_address_pool_name
   resource_group_name            = module.resource_group.name
   location                       = module.resource_group.location
-  subnet_id                      = module.network.subnet_ids["load_balancers"]
+  subnet_id                      = module.network[local.virtual_network_placement.load_balancers[each.key]].subnet_ids["load_balancers"]
   private_ip_address             = each.value.private_ip_address
   zones                          = each.value.zones
   probes = {
@@ -158,19 +181,20 @@ module "load_balancer" {
   tags = local.common_tags
 }
 
+# One per VNet: a NAT Gateway serves subnets of a single VNet.
 module "nat_gateway" {
-  count  = local.nat_gateway_required ? 1 : 0
-  source = "../../modules/nat-gateway"
+  for_each = local.nat_gateways_required
+  source   = "../../modules/nat-gateway"
 
-  name                = local.resource_names.nat_gateway
-  public_ip_name      = local.resource_names.nat_public_ip
+  name                = local.resource_names.nat_gateways[each.key].name
+  public_ip_name      = local.resource_names.nat_gateways[each.key].public_ip_name
   resource_group_name = module.resource_group.name
   location            = module.resource_group.location
   subnet_ids = {
-    for subnet_key in local.nat_gateway_subnet_keys :
-    subnet_key => module.network.subnet_ids[subnet_key]
+    for subnet_key in each.value.subnets :
+    subnet_key => module.network[each.key].subnet_ids[subnet_key]
   }
-  idle_timeout_in_minutes = var.nat_gateway.idle_timeout_in_minutes
+  idle_timeout_in_minutes = each.value.idle_timeout_in_minutes
   tags                    = local.common_tags
 }
 
@@ -179,7 +203,7 @@ module "nat_gateway" {
 check "nat_gateway_bypassed" {
   assert {
     condition     = length(setintersection(toset(local.nat_gateway_subnet_keys), toset(local.default_route_subnet_keys))) == 0
-    error_message = "These nat_gateway.subnets entries also have a route table with a 0.0.0.0/0 route, which takes precedence, so the NAT Gateway is not used for them (but is still billed): ${join(", ", setintersection(toset(local.nat_gateway_subnet_keys), toset(local.default_route_subnet_keys)))}."
+    error_message = "These nat_gateways subnets (<VNet key>/<subnet key>) also have a route table with a 0.0.0.0/0 route, which takes precedence, so the NAT Gateway is not used for them (but is still billed): ${join(", ", setintersection(toset(local.nat_gateway_subnet_keys), toset(local.default_route_subnet_keys)))}."
   }
 }
 
@@ -193,7 +217,7 @@ module "network_security_group" {
   security_rules      = each.value.security_rules
   subnet_ids = {
     for subnet_key in each.value.subnets :
-    subnet_key => module.network.subnet_ids[subnet_key]
+    subnet_key => module.network[local.network_security_group_networks[each.key]].subnet_ids[subnet_key]
   }
   tags = local.common_tags
 }
@@ -209,7 +233,7 @@ module "route_table" {
   routes                        = each.value.routes
   subnet_ids = {
     for subnet_key in each.value.subnets :
-    subnet_key => module.network.subnet_ids[subnet_key]
+    subnet_key => module.network[local.route_table_networks[each.key]].subnet_ids[subnet_key]
   }
   tags = local.common_tags
 }
@@ -297,7 +321,7 @@ module "sql_managed_instance" {
   route_table_name            = local.resource_names.sql_managed_instances[each.key].route_table_name
   resource_group_name         = module.resource_group.name
   location                    = module.resource_group.location
-  subnet_id                   = module.network.subnet_ids["sql_managed_instance"]
+  subnet_id                   = module.network[local.virtual_network_placement.sql_managed_instances[each.key]].subnet_ids["sql_managed_instance"]
   sku_name                    = each.value.sku_name
   vcores                      = each.value.vcores
   storage_size_in_gb          = each.value.storage_size_in_gb
@@ -318,7 +342,7 @@ module "postgresql" {
   name                   = local.resource_names.postgresql_servers[each.key].server_name
   resource_group_name    = module.resource_group.name
   location               = module.resource_group.location
-  delegated_subnet_id    = module.network.subnet_ids["postgresql"]
+  delegated_subnet_id    = module.network[local.virtual_network_placement.postgresql_servers[each.key]].subnet_ids["postgresql"]
   private_dns_zone_id    = module.private_dns.zone_ids["privatelink.postgres.database.azure.com"]
   administrator_password = var.database_admin_password
   database_name          = local.resource_names.postgresql_servers[each.key].database_name
@@ -340,7 +364,7 @@ module "mysql" {
   name                   = local.resource_names.mysql_servers[each.key].server_name
   resource_group_name    = module.resource_group.name
   location               = module.resource_group.location
-  delegated_subnet_id    = module.network.subnet_ids["mysql"]
+  delegated_subnet_id    = module.network[local.virtual_network_placement.mysql_servers[each.key]].subnet_ids["mysql"]
   private_dns_zone_id    = module.private_dns.zone_ids["privatelink.mysql.database.azure.com"]
   administrator_password = var.database_admin_password
   database_name          = local.resource_names.mysql_servers[each.key].database_name
@@ -376,10 +400,10 @@ module "cosmos_db" {
 
 locals {
   # Apps that send telemetry to the shared Application Insights resource,
-  # mapped to the integration subnet their outbound traffic uses.
+  # mapped to the <VNet key>/<subnet key> their outbound traffic uses.
   application_insights_apps = var.application_insights.enabled ? merge(
-    { for key, app in var.function_apps : "function_app/${key}" => "function_integration" if app.application_insights },
-    { for key, app in var.web_apps : "web_app/${key}" => "web_app_integration" if app.application_insights }
+    { for key, app in var.function_apps : "function_app/${key}" => "${local.virtual_network_placement.function_apps[key]}/function_integration" if app.application_insights },
+    { for key, app in var.web_apps : "web_app/${key}" => "${local.virtual_network_placement.web_apps[key]}/web_app_integration" if app.application_insights }
   ) : {}
   application_insights_required = length(local.application_insights_apps) > 0
 
@@ -425,7 +449,7 @@ module "application_insights" {
 check "application_insights_egress" {
   assert {
     condition     = length(local.application_insights_without_egress) == 0
-    error_message = "These apps send telemetry to Application Insights but their integration subnet has no outbound internet access, so no telemetry arrives: ${join(", ", local.application_insights_without_egress)}. Add function_integration or web_app_integration to nat_gateway.subnets, give it a route_tables entry with 0.0.0.0/0 to a firewall, or set application_insights = false on the app."
+    error_message = "These apps send telemetry to Application Insights but their integration subnet has no outbound internet access, so no telemetry arrives: ${join(", ", local.application_insights_without_egress)}. Add function_integration or web_app_integration to the nat_gateways entry of the app's VNet, give it a route_tables entry with 0.0.0.0/0 to a firewall, or set application_insights = false on the app."
   }
 }
 
@@ -435,11 +459,18 @@ module "container_apps" {
 
   environment_name           = local.resource_names.container_apps_environments[each.key].name
   log_analytics_workspace_id = module.log_analytics[0].id
-  private_dns_link_name      = local.resource_names.container_apps_environments[each.key].private_dns_link_name
+  private_dns_link_name      = local.resource_names.private_dns_links[local.container_apps_environment_networks[each.key]]
   resource_group_name        = module.resource_group.name
   location                   = module.resource_group.location
-  infrastructure_subnet_id   = module.network.subnet_ids["container_apps/${each.key}"]
-  virtual_network_id         = module.network.id
+  infrastructure_subnet_id   = module.network[local.container_apps_environment_networks[each.key]].subnet_ids["container_apps/${each.key}"]
+  virtual_network_id         = module.network[local.container_apps_environment_networks[each.key]].id
+  additional_virtual_network_links = {
+    for key in keys(var.virtual_networks) : key => {
+      name               = local.resource_names.private_dns_links[key]
+      virtual_network_id = module.network[key].id
+    }
+    if key != local.container_apps_environment_networks[each.key]
+  }
   dedicated_workload_profiles = {
     for profile_key, profile in each.value.dedicated_workload_profiles : profile_key => merge(
       profile,
@@ -472,7 +503,7 @@ locals {
     for key, workspace in var.databricks_workspaces : key
     if !workspace.browser_authentication_workspace && anytrue([
       for role in ["host", "container"] :
-      !contains(concat(local.nat_gateway_subnet_keys, local.default_route_subnet_keys), "databricks/${key}/${role}")
+      !contains(concat(local.nat_gateway_subnet_keys, local.default_route_subnet_keys), "${local.databricks_workspace_networks[key]}/databricks/${key}/${role}")
     ])
   ])
 
@@ -487,7 +518,7 @@ locals {
 check "databricks_egress" {
   assert {
     condition     = length(local.databricks_workspaces_without_egress) == 0
-    error_message = "These databricks_workspaces have a host or container subnet without outbound internet access, so clusters cannot start: ${join(", ", local.databricks_workspaces_without_egress)}. List both databricks/<key>/host and databricks/<key>/container in nat_gateway.subnets, or give them a route_tables entry with 0.0.0.0/0 to a firewall."
+    error_message = "These databricks_workspaces have a host or container subnet without outbound internet access, so clusters cannot start: ${join(", ", local.databricks_workspaces_without_egress)}. List both databricks/<key>/host and databricks/<key>/container in the nat_gateways entry of the workspace's VNet, or give them a route_tables entry with 0.0.0.0/0 to a firewall."
   }
 }
 
@@ -513,14 +544,14 @@ module "databricks" {
   sku                         = each.value.sku
   managed_resource_group_name = local.resource_names.databricks_workspaces[each.key].managed_resource_group_name
   root_storage_account_name   = local.resource_names.databricks_workspaces[each.key].root_storage_account_name
-  virtual_network_id          = module.network.id
+  virtual_network_id          = module.network[local.databricks_workspace_networks[each.key]].id
   host_subnet = {
     name = local.resource_names.databricks_workspaces[each.key].host_subnet_name
-    id   = module.network.subnet_ids["databricks/${each.key}/host"]
+    id   = module.network[local.databricks_workspace_networks[each.key]].subnet_ids["databricks/${each.key}/host"]
   }
   container_subnet = {
     name = local.resource_names.databricks_workspaces[each.key].container_subnet_name
-    id   = module.network.subnet_ids["databricks/${each.key}/container"]
+    id   = module.network[local.databricks_workspace_networks[each.key]].subnet_ids["databricks/${each.key}/container"]
   }
   network_security_group_name = local.resource_names.databricks_workspaces[each.key].network_security_group_name
   network_access              = each.value.network_access
@@ -578,7 +609,7 @@ module "web_app" {
   service_plan_id           = module.app_service_plan[each.value.service_plan].id
   resource_group_name       = module.resource_group.name
   location                  = module.resource_group.location
-  virtual_network_subnet_id = module.network.subnet_ids["web_app_integration"]
+  virtual_network_subnet_id = module.network[local.virtual_network_placement.web_apps[each.key]].subnet_ids["web_app_integration"]
   mode                      = each.value.mode
   runtime                   = each.value.runtime
   container                 = each.value.container
@@ -612,7 +643,7 @@ module "function_storage_private_endpoints" {
 
   resource_group_name = module.resource_group.name
   location            = module.resource_group.location
-  subnet_id           = module.network.subnet_ids["private_endpoints"]
+  subnet_id           = module.network[local.virtual_network_placement.function_apps[each.key]].subnet_ids["private_endpoints"]
   storage_account_id  = module.function_storage[each.key].id
   endpoints = {
     for key, endpoint in each.value : endpoint.subresource => {
@@ -639,7 +670,7 @@ module "function_app" {
   storage_account_name       = module.function_storage[each.key].name
   storage_account_access_key = module.function_storage[each.key].primary_access_key
   content_share_name         = local.resource_names.function_apps[each.key].content_share_name
-  virtual_network_subnet_id  = module.network.subnet_ids["function_integration"]
+  virtual_network_subnet_id  = module.network[local.virtual_network_placement.function_apps[each.key]].subnet_ids["function_integration"]
   os_type                    = var.app_service_plans[each.value.service_plan].os_type
   runtime                    = each.value.runtime
   application_insights       = contains(keys(local.application_insights_apps), "function_app/${each.key}") ? { connection_string = module.application_insights[0].connection_string } : null
@@ -657,7 +688,7 @@ module "function_app_private_endpoint" {
   private_dns_zone_group_name     = local.private_endpoint_names["function_app/${each.key}"].private_dns_zone_group_name
   resource_group_name             = module.resource_group.name
   location                        = module.resource_group.location
-  subnet_id                       = module.network.subnet_ids["private_endpoints"]
+  subnet_id                       = module.network[local.virtual_network_placement.function_apps[each.key]].subnet_ids["private_endpoints"]
   private_connection_resource_id  = module.function_app[each.key].id
   subresource_names               = [local.private_endpoint_catalog["function_app/${each.key}"].subresource]
   private_dns_zone_ids            = [module.private_dns.zone_ids[local.private_endpoint_catalog["function_app/${each.key}"].dns_zone]]
@@ -670,7 +701,7 @@ module "storage_private_endpoints" {
 
   resource_group_name = module.resource_group.name
   location            = module.resource_group.location
-  subnet_id           = module.network.subnet_ids["private_endpoints"]
+  subnet_id           = module.network[local.virtual_network_placement.storage_accounts[each.key]].subnet_ids["private_endpoints"]
   storage_account_id  = module.storage[each.key].id
   endpoints = {
     for key, endpoint in each.value : endpoint.subresource => {
@@ -692,7 +723,7 @@ module "private_endpoints" {
   private_dns_zone_group_name     = local.private_endpoint_names[each.key].private_dns_zone_group_name
   resource_group_name             = module.resource_group.name
   location                        = module.resource_group.location
-  subnet_id                       = module.network.subnet_ids["private_endpoints"]
+  subnet_id                       = module.network[each.value.virtual_network].subnet_ids["private_endpoints"]
   private_connection_resource_id  = local.private_endpoint_target_ids[each.value.target]
   subresource_names               = [each.value.subresource]
   private_dns_zone_ids            = [module.private_dns.zone_ids[each.value.dns_zone]]
@@ -708,7 +739,7 @@ module "databricks_browser_authentication_private_endpoint" {
   private_dns_zone_group_name     = local.private_endpoint_names[each.key].private_dns_zone_group_name
   resource_group_name             = module.resource_group.name
   location                        = module.resource_group.location
-  subnet_id                       = module.network.subnet_ids["private_endpoints"]
+  subnet_id                       = module.network[each.value.virtual_network].subnet_ids["private_endpoints"]
   private_connection_resource_id  = local.private_endpoint_target_ids[each.value.target]
   subresource_names               = [each.value.subresource]
   private_dns_zone_ids            = [module.private_dns.zone_ids[each.value.dns_zone]]

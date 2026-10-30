@@ -10,11 +10,12 @@ locals {
   metlen_placement = "${var.naming_tokens.environment}-${local.region_code}"
 
   # Subnets use the compact <DPT><APP><ENV><PUB|PRV><NN> pattern; the naming
-  # register example is PPAECMDEVPRV01. Every lab subnet is private. The number
-  # is fixed per subnet role so names never change when other subnets are
-  # enabled or disabled; Container Apps environments set their own
-  # subnet_number.
-  metlen_subnet_prefix = "${var.naming_tokens.department}${var.naming_tokens.application}${var.naming_tokens.environment}PRV"
+  # register example is PPAECMDEVPRV01. PUB/PRV is the classification of the
+  # subnet's VNet. The number is fixed per subnet role so names never change
+  # when other subnets are enabled or disabled; Container Apps environments
+  # and Databricks workspaces set their own numbers. Subnet names are scoped
+  # to their VNet, so every VNet reuses the same numbers.
+  metlen_subnet_prefix = "${var.naming_tokens.department}${var.naming_tokens.application}${var.naming_tokens.environment}"
   subnet_numbers = {
     private_endpoints    = 1
     virtual_machines     = 2
@@ -24,6 +25,15 @@ locals {
     mysql                = 6
     sql_managed_instance = 7
     load_balancers       = 8
+  }
+
+  # Network family: M-AZU-VNT-<BU>-<DPT>-<APP>-<PUB|PRV>-<ENV>-<REG>, no NN, so
+  # the classification (the network intent) is what tells VNets apart. Kept
+  # outside resource_names so the hub_peering validation can check peering
+  # name lengths without a dependency cycle.
+  virtual_network_names = {
+    for key, network in var.virtual_networks :
+    key => join("-", ["M-AZU", local.metlen_codes.virtual_network, local.metlen_scope, network.classification, local.metlen_placement])
   }
 
   # Compact families for resources that cannot use the full grammar (§6):
@@ -42,12 +52,16 @@ locals {
     subscription_display_name = "M-AZU-${local.metlen_codes.subscription}-${var.naming_tokens.business_unit}-${var.naming_tokens.department}"
 
     resource_group = "M-AZU-${local.metlen_codes.resource_group}-${local.metlen_scope}-${local.metlen_placement}"
-    # Network family: M-AZU-<TYPE>-<BU>-<DPT>-<APP>-<PUB|PRV>-<ENV>-<REG>[-NN].
-    virtual_network = "M-AZU-${local.metlen_codes.virtual_network}-${local.metlen_scope}-PRV-${local.metlen_placement}"
-
-    subnets = {
-      for subnet_key, number in local.subnet_numbers :
-      subnet_key => format("%s%02d", local.metlen_subnet_prefix, number)
+    # One entry per VNet: its name and the names of the subnets it can hold.
+    virtual_networks = {
+      for key, network in var.virtual_networks : key => {
+        name           = local.virtual_network_names[key]
+        classification = network.classification
+        subnets = {
+          for subnet_key, number in local.subnet_numbers :
+          subnet_key => format("%s%s%02d", local.metlen_subnet_prefix, network.classification, number)
+        }
+      }
     }
 
     subnet_delegations = {
@@ -58,28 +72,44 @@ locals {
       sql_managed_instance = "${local.naming_prefixes.subnet_delegation}-sql-managed-instance-${local.name_stem}"
     }
 
-    # M-AZU-NGW-<BU>-<DPT>-<APP>-<ENV>-<REG>-<NN>. The gateway's Public IP
-    # shares its NN so the pair is visibly linked; a Public IP is public by
-    # definition, so neither name carries the PUB/PRV classifier.
-    nat_gateway   = join("-", ["M-AZU", local.metlen_codes.nat_gateway, local.metlen_scope, local.metlen_placement, var.nat_gateway.sequence])
-    nat_public_ip = join("-", ["M-AZU", local.metlen_codes.public_ip, local.metlen_scope, local.metlen_placement, var.nat_gateway.sequence])
-
-    # The hub-side name carries the stem so peerings from several spokes stay
-    # unique on the shared hub VNet.
-    virtual_network_peerings = {
-      spoke_to_hub = "${local.naming_prefixes.virtual_network_peering}-${local.name_stem}-to-hub"
-      hub_to_spoke = "${local.naming_prefixes.virtual_network_peering}-hub-to-${local.name_stem}"
+    # M-AZU-NGW-<BU>-<DPT>-<APP>-<PUB|PRV>-<ENV>-<REG>-<NN>, one per VNet, with
+    # the classification of that VNet. The gateway's Public IP mirrors the
+    # name (same classifier and NN) so the pair is visibly linked; there the
+    # classifier names the VNet the address serves, not its exposure.
+    nat_gateways = {
+      for key, nat_gateway in var.nat_gateways : key => {
+        name           = join("-", ["M-AZU", local.metlen_codes.nat_gateway, local.metlen_scope, try(var.virtual_networks[key].classification, "PRV"), local.metlen_placement, nat_gateway.sequence])
+        public_ip_name = join("-", ["M-AZU", local.metlen_codes.public_ip, local.metlen_scope, try(var.virtual_networks[key].classification, "PRV"), local.metlen_placement, nat_gateway.sequence])
+      }
     }
 
+    # <local VNet name>-to-<remote VNet name>. Peering names are scoped to the
+    # local VNet, and the VNet names are unique, so the hub side stays unique
+    # when several spokes peer with the same hub.
+    hub_peerings = {
+      for key in local.hub_peering_virtual_networks : key => {
+        spoke_to_hub = "${local.virtual_network_names[key]}-to-${local.hub_virtual_network.name}"
+        hub_to_spoke = "${local.hub_virtual_network.name}-to-${local.virtual_network_names[key]}"
+      }
+    }
+    virtual_network_peerings = {
+      for key, side in local.virtual_network_peering_sides :
+      key => "${local.virtual_network_names[side.virtual_network]}-to-${local.virtual_network_names[side.remote_virtual_network]}"
+    }
+
+    # Link names are scoped to their Private DNS zone, so every link takes the
+    # name of the VNet it links.
+    private_dns_links = local.virtual_network_names
+
     # Rule and route names are scoped to their group or table, so they use
-    # only their own key.
+    # only their own key. The classification defaults to that of the VNet.
     network_security_groups = {
       for key, nsg in var.network_security_groups :
-      key => join("-", compact(["M-AZU", local.metlen_codes.network_security_group, local.metlen_scope, nsg.classification, local.metlen_placement, nsg.sequence]))
+      key => join("-", compact(["M-AZU", local.metlen_codes.network_security_group, local.metlen_scope, coalesce(nsg.classification, try(var.virtual_networks[local.network_security_group_networks[key]].classification, "PRV")), local.metlen_placement, nsg.sequence]))
     }
     route_tables = {
       for key, route_table in var.route_tables :
-      key => join("-", compact(["M-AZU", local.metlen_codes.route_table, local.metlen_scope, route_table.classification, local.metlen_placement, route_table.sequence]))
+      key => join("-", compact(["M-AZU", local.metlen_codes.route_table, local.metlen_scope, coalesce(route_table.classification, try(var.virtual_networks[local.route_table_networks[key]].classification, "PRV")), local.metlen_placement, route_table.sequence]))
     }
 
     # M-AZU-LBL-<BU>-<DPT>-<APP>-<ENV>-<REG>-<NN>. Frontend, pool, probe and
@@ -176,12 +206,12 @@ locals {
     # m-azu-smi-<bu>-<dpt>-<app>-<env>-<reg>-<NN>: the instance name is global
     # DNS (<name>.<id>.database.windows.net) and must be lowercase, like the SQL
     # logical server. The NSG and route table use the network family with the
-    # instance's network NN.
+    # instance's network NN and the classification of the instance's VNet.
     sql_managed_instances = {
       for key, instance in var.sql_managed_instances : key => {
         name                        = lower(join("-", ["M-AZU", local.metlen_codes.sql_managed_instance, local.metlen_scope, local.metlen_placement, instance.sequence]))
-        network_security_group_name = join("-", compact(["M-AZU", local.metlen_codes.network_security_group, local.metlen_scope, "PRV", local.metlen_placement, instance.network_sequence]))
-        route_table_name            = join("-", compact(["M-AZU", local.metlen_codes.route_table, local.metlen_scope, "PRV", local.metlen_placement, instance.network_sequence]))
+        network_security_group_name = join("-", compact(["M-AZU", local.metlen_codes.network_security_group, local.metlen_scope, try(var.virtual_networks[local.virtual_network_placement.sql_managed_instances[key]].classification, "PRV"), local.metlen_placement, instance.network_sequence]))
+        route_table_name            = join("-", compact(["M-AZU", local.metlen_codes.route_table, local.metlen_scope, try(var.virtual_networks[local.virtual_network_placement.sql_managed_instances[key]].classification, "PRV"), local.metlen_placement, instance.network_sequence]))
       }
     }
 
@@ -223,13 +253,13 @@ locals {
     # subnet, private DNS zone link, and workload profile names (profile names
     # are scoped to their environment). Apps use the lowercase variant
     # m-azu-cap-...-<NN> because Container App names are 2-32 lowercase
-    # characters, unique per resource group.
+    # characters, unique per resource group. The subnet name uses the
+    # classification of the environment's VNet.
     container_apps_environments = {
       for environment_key, environment in var.container_apps_environments : environment_key => {
         name                   = join("-", ["M-AZU", local.metlen_codes.container_apps_env, local.metlen_scope, local.metlen_placement, environment.sequence])
-        subnet_name            = format("%s%02d", local.metlen_subnet_prefix, environment.subnet_number)
+        subnet_name            = format("%s%s%02d", local.metlen_subnet_prefix, try(var.virtual_networks[local.container_apps_environment_networks[environment_key]].classification, "PRV"), environment.subnet_number)
         subnet_delegation_name = "${local.naming_prefixes.subnet_delegation}-container-apps-${environment_key}-${local.name_stem}"
-        private_dns_link_name  = "${local.naming_prefixes.private_dns_link}-container-apps-${environment_key}-${local.name_stem}"
         workload_profiles = {
           for profile_key in keys(environment.dedicated_workload_profiles) : profile_key => (
             length("${local.naming_prefixes.container_apps_profile}-${profile_key}01") <= 15
@@ -253,17 +283,18 @@ locals {
     # creates uses the resource group family with the workspace NN; the
     # optional root (DBFS) storage account the mazusoa... family with
     # storage_sequence. The NSG uses the network family with network_sequence
-    # (default: the workspace NN), like SQL Managed Instance. The host and
-    # container subnets use the compact subnet pattern with their own numbers.
+    # (default: the workspace NN), like SQL Managed Instance. The NSG and the
+    # host and container subnets (compact pattern, own numbers) use the
+    # classification of the workspace's VNet.
     databricks_workspaces = {
       for key, workspace in var.databricks_workspaces : key => {
         name                             = join("-", ["M-AZU", local.metlen_codes.databricks_workspace, local.metlen_scope, local.metlen_placement, workspace.sequence])
         access_connector_name            = join("-", ["M-AZU", local.metlen_codes.databricks_workspace, local.metlen_scope, local.metlen_placement, workspace.sequence])
         managed_resource_group_name      = join("-", ["M-AZU", local.metlen_codes.resource_group, local.metlen_scope, local.metlen_placement, workspace.sequence])
         root_storage_account_name        = workspace.storage_sequence == null ? null : "mazu${lower(local.metlen_codes.storage_account)}${local.metlen_compact_tokens}${workspace.storage_sequence}"
-        network_security_group_name      = join("-", ["M-AZU", local.metlen_codes.network_security_group, local.metlen_scope, "PRV", local.metlen_placement, coalesce(workspace.network_sequence, workspace.sequence)])
-        host_subnet_name                 = format("%s%02d", local.metlen_subnet_prefix, workspace.host_subnet_number)
-        container_subnet_name            = format("%s%02d", local.metlen_subnet_prefix, workspace.container_subnet_number)
+        network_security_group_name      = join("-", ["M-AZU", local.metlen_codes.network_security_group, local.metlen_scope, try(var.virtual_networks[local.databricks_workspace_networks[key]].classification, "PRV"), local.metlen_placement, coalesce(workspace.network_sequence, workspace.sequence)])
+        host_subnet_name                 = format("%s%s%02d", local.metlen_subnet_prefix, try(var.virtual_networks[local.databricks_workspace_networks[key]].classification, "PRV"), workspace.host_subnet_number)
+        container_subnet_name            = format("%s%s%02d", local.metlen_subnet_prefix, try(var.virtual_networks[local.databricks_workspace_networks[key]].classification, "PRV"), workspace.container_subnet_number)
         host_subnet_delegation_name      = "${local.naming_prefixes.subnet_delegation}-databricks-${key}-host-${local.name_stem}"
         container_subnet_delegation_name = "${local.naming_prefixes.subnet_delegation}-databricks-${key}-container-${local.name_stem}"
       }

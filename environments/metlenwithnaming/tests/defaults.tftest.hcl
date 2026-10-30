@@ -30,18 +30,22 @@ variables {
   project_name            = "metlen"
   environment             = "lab"
   naming_tokens           = { business_unit = "IT", department = "PPA", application = "ECM", environment = "DEV" }
-  address_space           = ["10.42.0.0/20"]
-  subnet_cidrs = {
-    private_endpoints    = "10.42.0.0/24"
-    virtual_machines     = "10.42.1.0/24"
-    web_app_integration  = "10.42.8.0/26"
-    function_integration = "10.42.4.0/24"
-    postgresql           = "10.42.5.0/24"
-    mysql                = "10.42.6.0/24"
-    sql_managed_instance = "10.42.7.0/27"
+  virtual_networks = {
+    main = {
+      address_space = ["10.42.0.0/20"]
+      subnet_cidrs = {
+        private_endpoints    = "10.42.0.0/24"
+        virtual_machines     = "10.42.1.0/24"
+        web_app_integration  = "10.42.8.0/26"
+        function_integration = "10.42.4.0/24"
+        postgresql           = "10.42.5.0/24"
+        mysql                = "10.42.6.0/24"
+        sql_managed_instance = "10.42.7.0/27"
+      }
+    }
   }
   virtual_machine_scale_sets  = {}
-  nat_gateway                 = {}
+  nat_gateways                = {}
   log_analytics_workspace     = {}
   key_vaults                  = {}
   container_registries        = {}
@@ -84,7 +88,7 @@ run "services_are_opt_in" {
       length(module.function_storage) == 0 &&
       length(module.spoke_to_hub_peering) == 0 &&
       length(module.hub_to_spoke_peering) == 0 &&
-      length(local.subnets) == 0 &&
+      length(local.subnets.main) == 0 &&
       length(local.private_dns_zones) == 0
     )
     error_message = "Every service must be opt-in: with no services enabled the lab deploys only the resource group and virtual network."

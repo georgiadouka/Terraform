@@ -60,10 +60,11 @@ test AT-02).
 | `naming_tokens.environment` | ENV | `DEV` (only DEV, UAT, PRD) |
 | `location` | REG, through the dictionary | `swedencentral` → `SWE` |
 | `<resource>.sequence` | NN of each resource | `"00"`, `"01"`… |
-| `network_security_groups.<key>.classification`, `route_tables.<key>.classification` | PUB/PRV | `"PRV"` (default) |
-| `container_apps_environments.<key>.subnet_number` | Subnet number of that environment | `9` |
+| `virtual_networks.<key>.classification` | PUB/PRV of the VNet, its subnets, NAT Gateway and Public IP, and by default of its NSGs and route tables | `"PRV"` (default), `"PUB"` |
+| `network_security_groups.<key>.classification`, `route_tables.<key>.classification` | PUB/PRV, overriding the classification of their VNet | `null` (default: the VNet's) |
+| `container_apps_environments.<key>.subnet_number` | Subnet number of that environment, unique within its VNet | `9` |
 | `app_service_plans.<key>.sequence`, `function_apps.<key>.storage_sequence`, `function_apps.<key>.sequence`, `sql_managed_instances.<key>.network_sequence` | NN of App Service Plans and of resources created for a service | `"00"`, `"01"` |
-| `nat_gateway.sequence`, `log_analytics_workspace.sequence`, `application_insights.sequence` | NN of the shared NAT Gateway (and its Public IP), of the shared Log Analytics workspace and of the shared Application Insights resource | `"00"` (default) |
+| `nat_gateways.<VNet key>.sequence`, `log_analytics_workspace.sequence`, `application_insights.sequence` | NN of the VNet's NAT Gateway (and its Public IP), of the shared Log Analytics workspace and of the shared Application Insights resource | `"00"` (default) |
 | `storage_accounts.<key>.containers`, the `file_shares` keys, `<server>.database_name`, `cosmos_db_accounts.<key>.container_name` | Names chosen by the application, used as-is (no convention) | `"invoices"`, `"appdb"` |
 
 Logical keys in maps (for example `storage_accounts.primary`) never appear in
@@ -161,27 +162,45 @@ name = join("-", compact(["M-AZU", local.metlen_codes.function_app, local.metlen
 ```
 
 Used for: Resource Group, Web App, App Service Plans, Function App, Container
-Apps Environment, Load Balancer, SQL elastic pool, NAT Gateway, Public IP,
-Log Analytics workspace, Application Insights.
+Apps Environment, Load Balancer, SQL elastic pool, Log Analytics workspace,
+Application Insights.
 
 ### 6.2 Network family
 
 Full family with the PUB/PRV classifier between scope and placement:
 
 ```hcl
-virtual_network = "M-AZU-${local.metlen_codes.virtual_network}-${local.metlen_scope}-PRV-${local.metlen_placement}"
-# M-AZU-VNT-IT-PPA-ECM-PRV-DEV-SWE
+virtual_network_names = {
+  for key, network in var.virtual_networks :
+  key => join("-", ["M-AZU", local.metlen_codes.virtual_network, local.metlen_scope, network.classification, local.metlen_placement])
+}
+# main = {}                         → M-AZU-VNT-IT-PPA-ECM-PRV-DEV-SWE
+# edge = { classification = "PUB" } → M-AZU-VNT-IT-PPA-ECM-PUB-DEV-SWE
 
 network_security_groups = {
   for key, nsg in var.network_security_groups :
-  key => join("-", compact(["M-AZU", local.metlen_codes.network_security_group, local.metlen_scope, nsg.classification, local.metlen_placement, nsg.sequence]))
+  key => join("-", compact(["M-AZU", local.metlen_codes.network_security_group, local.metlen_scope, coalesce(nsg.classification, <classification of the NSG's VNet>), local.metlen_placement, nsg.sequence]))
 }
-# compute = { sequence = "01" } → M-AZU-NSG-IT-PPA-ECM-PRV-DEV-SWE-01
-# edge    = { classification = "PUB" } → M-AZU-NSG-IT-PPA-ECM-PUB-DEV-SWE
+# compute = { sequence = "01" }        → M-AZU-NSG-IT-PPA-ECM-PRV-DEV-SWE-01
+# dmz     = { virtual_network = "edge" } → M-AZU-NSG-IT-PPA-ECM-PUB-DEV-SWE
 ```
 
-Used for: VNet, NSGs (including the SQL Managed Instance NSG), route tables
-(including the SQL Managed Instance route table).
+Used for: VNets, NSGs (including the SQL Managed Instance and Databricks
+NSGs), route tables (including the SQL Managed Instance route table), NAT
+Gateways and their Public IPs (`M-AZU-NGW-…-<PUB|PRV>-<ENV>-<REG>-<NN>`, one
+per VNet). The VNet has no NN in the standard, so its classification (the
+network intent) is what tells VNets apart: there is at most one PRV and one
+PUB VNet. Everything attached to a VNet takes its classification unless an
+NSG or route table sets its own. The Public IP mirrors its NAT Gateway's name
+so the pair is visibly linked; there the classifier names the VNet the address
+serves, not its exposure.
+
+VNet peerings and Private DNS zone links have no code in the standard and are
+derived from VNet names instead: a peering is
+`<local VNet name>-to-<remote VNet name>` (for example
+`M-AZU-VNT-IT-PPA-ECM-PRV-DEV-SWE-to-M-AZU-VNT-IT-PPA-ECM-PUB-DEV-SWE`, at
+most 80 characters, never truncated), and a link takes the name of the VNet it
+links (link names are scoped to their zone).
 
 ### 6.3 Lowercase variant
 
@@ -220,13 +239,17 @@ example `PPAECMDEVPRV01`:
 ```hcl
 subnets = {
   for subnet_key, number in local.subnet_numbers :
-  subnet_key => format("%s%02d", local.metlen_subnet_prefix, number)
+  subnet_key => format("%s%s%02d", local.metlen_subnet_prefix, network.classification, number)
 }
-# private_endpoints = 1 → PPAECMDEVPRV01
+# private_endpoints = 1 in a PRV VNet → PPAECMDEVPRV01
+# virtual_machines  = 2 in a PUB VNet → PPAECMDEVPUB02
 ```
 
-`format("%02d", …)` pads the number to two digits. Container Apps
-environments use their own `subnet_number` with the same format.
+`format("%02d", …)` pads the number to two digits. PUB/PRV is the
+classification of the subnet's VNet. Subnet names are scoped to their VNet, so
+every VNet uses the same fixed number per role. Container Apps environments
+and Databricks workspaces use their own numbers with the same format; they
+need only be unique within their VNet.
 
 ### 6.6 Derived names
 
@@ -260,8 +283,10 @@ When a parent's name changes, its endpoints follow automatically.
 |---|---|---|---|
 | Subscription display name (output only) | `subscription_display_name` | Full, `<BU>-<DPT>` only | `M-AZU-SBS-IT-PPA` |
 | Resource Group | `resource_group` | Full | `M-AZU-RGP-IT-PPA-ECM-DEV-SWE` |
-| Virtual Network | `virtual_network` | Network | `M-AZU-VNT-IT-PPA-ECM-PRV-DEV-SWE` |
-| Subnets | `subnets[<role>]` | Subnet | `PPAECMDEVPRV01` |
+| Virtual Networks | `virtual_networks[<key>].name` | Network | `M-AZU-VNT-IT-PPA-ECM-PRV-DEV-SWE` |
+| Subnets | `virtual_networks[<key>].subnets[<role>]` | Subnet | `PPAECMDEVPRV01`, `PPAECMDEVPUB02` |
+| VNet peerings | `hub_peerings[<key>].spoke_to_hub` / `.hub_to_spoke`, `virtual_network_peerings[<local>-to-<remote>]` | Derived from VNet names | `M-AZU-VNT-…-PRV-DEV-SWE-to-vnet-hub` |
+| Private DNS zone links | `private_dns_links[<key>]` | Derived: the VNet name | `M-AZU-VNT-IT-PPA-ECM-PRV-DEV-SWE` |
 | NSGs | `network_security_groups[<key>]`, `sql_managed_instances[<key>].network_security_group_name` | Network | `M-AZU-NSG-IT-PPA-ECM-PRV-DEV-SWE-01` |
 | Route tables | `route_tables[<key>]`, `sql_managed_instances[<key>].route_table_name` | Network | `M-AZU-UDR-IT-PPA-ECM-PRV-DEV-SWE` |
 | Storage Accounts | `storage_accounts[<key>]`, `premium_file_accounts[<key>]`, `function_apps[<key>].storage_account_name` | Compact | `mazusoaitppaecmdevswe00` |
@@ -279,7 +304,7 @@ When a parent's name changes, its endpoints follow automatically.
 | Web App | `web_apps[<key>].name` (plan selected by `web_apps.<key>.service_plan`) | Full | `M-AZU-APP-…-00` |
 | Function App | `function_apps[<key>].name` (plan selected by `function_apps.<key>.service_plan`) | Full | `M-AZU-FUN-IT-PPA-ECM-DEV-SWE` |
 | Container Apps environment | `container_apps_environments[<key>].name` | Full | `M-AZU-CEV-IT-PPA-ECM-DEV-SWE-00` |
-| Container Apps environment subnet | `container_apps_environments[<key>].subnet_name` | Subnet | `PPAECMDEVPRV09` |
+| Container Apps environment subnet | `container_apps_environments[<key>].subnet_name` (classification of its VNet) | Subnet | `PPAECMDEVPRV09` |
 | Container Apps | `container_apps_environments[<key>].apps[<app>]` | Lowercase | `m-azu-cap-it-ppa-ecm-dev-swe-00` |
 | Databricks workspace / Access Connector | `databricks_workspaces[<key>].name` / `.access_connector_name` | Full | `M-AZU-DBR-IT-PPA-ECM-DEV-SWE-00` (both) |
 | Databricks managed resource group | `databricks_workspaces[<key>].managed_resource_group_name` | Full (RGP with the workspace NN) | `M-AZU-RGP-IT-PPA-ECM-DEV-SWE-00` |
@@ -287,7 +312,7 @@ When a parent's name changes, its endpoints follow automatically.
 | Databricks NSG / subnets | `databricks_workspaces[<key>].network_security_group_name`, `.host_subnet_name`, `.container_subnet_name` | Network / Subnet | `M-AZU-NSG-IT-PPA-ECM-PRV-DEV-SWE-00`, `PPAECMDEVPRV10`, `PPAECMDEVPRV11` |
 | Load Balancer | `load_balancers[<key>].name` | Full | `M-AZU-LBL-IT-PPA-ECM-DEV-SWE-00` |
 | Load Balancer parts | `load_balancers[<key>].frontend_ip_configuration_name`, … | Fixed / key | `frontend`, `backend`, `http` |
-| NAT Gateway / its Public IP | `nat_gateway` / `nat_public_ip` (NN from `nat_gateway.sequence`) | Full | `M-AZU-NGW-IT-PPA-ECM-DEV-SWE-00` / `M-AZU-PIP-IT-PPA-ECM-DEV-SWE-00` |
+| NAT Gateway / its Public IP | `nat_gateways[<VNet key>].name` / `.public_ip_name` (NN from `nat_gateways.<key>.sequence`) | Network | `M-AZU-NGW-IT-PPA-ECM-PRV-DEV-SWE-00` / `M-AZU-PIP-IT-PPA-ECM-PRV-DEV-SWE-00` |
 | Log Analytics workspace | `log_analytics_workspace` (NN from `log_analytics_workspace.sequence`) | Full | `M-AZU-LAW-IT-PPA-ECM-DEV-SWE-00` |
 | Application Insights | `application_insights` (NN from `application_insights.sequence`) | Full | `M-AZU-AIN-IT-PPA-ECM-DEV-SWE-00` |
 | Function App content share | `function_apps[<key>].content_share_name` | Fixed | `function-content` |
@@ -367,8 +392,9 @@ name_stem       = "${var.project_name}-${var.environment}-${local.naming_suffix}
 naming_prefixes = var.naming.prefixes
 ```
 
-This covers VMs and scale sets with their NICs and disks, VNet peerings,
-private DNS links, and names inside resources (subnet delegations, Container
+This covers VMs and scale sets with their NICs and disks (the register marks
+Virtual Machine as EXCEPTION: they follow the METLEN server naming process once
+it is available), and names inside resources (subnet delegations, Container
 Apps containers and workload profiles). Blob containers, file shares and
 databases are not part of it: they are chosen by the application and used as
 configured. The Function App content share is always `function-content`.

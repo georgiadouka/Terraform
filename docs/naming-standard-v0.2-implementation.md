@@ -71,8 +71,8 @@ All token values must exist in the controlled dictionary
 | 26 | Cosmos DB database and container | Not in register | — | Chosen by the application (default: entry key) | `catalog-db` / `products` ⁴ | No convention by design (see 4.13) |
 | 27 | SQL Elastic Pool | Not in register | — | `M-AZU-SEL-IT-PPA-ECM-DEV-SWE-00` | `M-AZU-SEL-IT-PPA-GEO-DEV-SWE-05` ⁴ | Code `SEL` agreed 2026-10-28; full family with the server's NN (see 4.12) |
 | 28 | SQL Managed Instance | Not in register | — | `m-azu-smi-it-ppa-ecm-dev-swe-00` | — | Code `SMI` agreed 2026-10-28; lowercase variant (see 4.12) |
-| 29 | NAT Gateway | Not in register | — | `M-AZU-NGW-IT-PPA-ECM-DEV-SWE-00` | `M-AZU-NGW-IT-PPA-GEO-DEV-SWE-05` ⁴ | Code `NGW` agreed 2026-10-28; full family with NN (see 4.12) |
-| 30 | Public IP (NAT Gateway) | Not in register | — | `M-AZU-PIP-IT-PPA-ECM-DEV-SWE-00` | `M-AZU-PIP-IT-PPA-GEO-DEV-SWE-05` ⁴ | Code `PIP` agreed 2026-10-28; shares the NAT Gateway's NN (see 4.12) |
+| 29 | NAT Gateway | Not in register | — | `M-AZU-NGW-IT-PPA-ECM-PRV-DEV-SWE-00` | `M-AZU-NGW-IT-PPA-GEO-DEV-SWE-05` ⁴ | Code `NGW` agreed 2026-10-28; network family with NN and the VNet's PUB/PRV since 2026-10-29 (see 4.12) |
+| 30 | Public IP (NAT Gateway) | Not in register | — | `M-AZU-PIP-IT-PPA-ECM-PRV-DEV-SWE-00` | `M-AZU-PIP-IT-PPA-GEO-DEV-SWE-05` ⁴ | Code `PIP` agreed 2026-10-28; mirrors the NAT Gateway's name (see 4.12) |
 | 31 | Log Analytics workspace | Not in register | — | `M-AZU-LAW-IT-PPA-ECM-DEV-SWE-00` | `M-AZU-LAW-IT-PPA-GEO-DEV-SWE-05` ⁴ | Code `LAW` agreed 2026-10-28; full family with NN (see 4.12) |
 | 32 | Application Insights | Not in register | — | `M-AZU-AIN-IT-PPA-ECM-DEV-SWE-00` | — | Code `AIN` agreed 2026-10-29; full family with NN (see 4.15) |
 
@@ -140,15 +140,25 @@ not change when other subnets are enabled or disabled:
 | 02 | Virtual machines | 07 | SQL Managed Instance |
 | 03 | Web App integration | 08 | Load balancers |
 | 04 | Function App integration | 09 | Container Apps (default; configurable 01-99) |
-| 05 | PostgreSQL | | |
+| 05 | PostgreSQL | 10, 11 | Databricks host, container (default; configurable 01-99) |
 
-All lab subnets are private (`PRV`).
+PUB/PRV is the classification of the subnet's VNet. Subnet names are scoped to
+their VNet, so every VNet uses the same numbers, and Container Apps and
+Databricks numbers need only be unique within their VNet.
 
 ### 4.5 PUB/PRV classifier
 
 The standard gives an example only for the NSG. The implementation applies the
-classifier to the VNet, NSGs, route tables and subnets. NSGs and route tables
-default to `PRV` and accept `PUB`.
+classifier to the VNet, NSGs, route tables and subnets, and since 2026-10-29 to
+NAT Gateways and their Public IPs. Each VNet in `virtual_networks` sets its
+classification (the network intent, `PRV` by default or `PUB`). Its subnets,
+NAT Gateway and Public IP take it, and so do its NSGs and route tables unless
+they set their own (including the SQL Managed Instance and Databricks NSGs).
+
+The VNet grammar has no NN, so the classification is what tells VNets apart:
+at most one PRV and one PUB VNet per BU/DPT/APP/ENV/REG. A second VNet with
+the same intent needs a decision from METLEN (for example an optional NN for
+VNets).
 
 ### 4.6 Sequence (NN) allocation
 
@@ -162,6 +172,8 @@ Every resource with NN has an explicit two-digit `sequence` input (default
 | All App Service Plans | Web App plan and Function App plan |
 | All Container Apps in the resource group | Across every Container Apps environment |
 | Per classification | NSGs and route tables with the same PUB/PRV value |
+| One per classification, no NN | VNets (at most one PRV and one PUB) |
+| One per VNet | NAT Gateways and their Public IPs (the VNet's classification keeps them apart) |
 
 Changing a sequence renames the resource, which replaces it in Azure.
 
@@ -239,8 +251,8 @@ still need adding to the naming register.
 |---|---|---|---|
 | SQL Elastic Pool (`SEL`) | Scoped to its logical server, up to 128 characters, uppercase allowed | Full family with the server's NN, like the database; each server has at most one pool | `M-AZU-SEL-IT-PPA-ECM-DEV-SWE-00` |
 | SQL Managed Instance (`SMI`) | Global (`<name>.<id>.database.windows.net`), lowercase | Lowercase variant, like the SQL logical server, with its own NN | `m-azu-smi-it-ppa-ecm-dev-swe-00` |
-| NAT Gateway (`NGW`) | Resource group, 1-80 characters | Full family with NN (`nat_gateway.sequence`, default `00`), like the Load Balancer; no PUB/PRV classifier | `M-AZU-NGW-IT-PPA-ECM-DEV-SWE-00` |
-| Public IP (`PIP`) | Resource group, 1-80 characters | Full family with the NAT Gateway's NN, so the pair is visibly linked; PUB/PRV would be redundant for a public address | `M-AZU-PIP-IT-PPA-ECM-DEV-SWE-00` |
+| NAT Gateway (`NGW`) | Resource group, 1-80 characters | Network family with the classification of its VNet (one gateway per VNet) and NN (`nat_gateways.<VNet key>.sequence`, default `00`) | `M-AZU-NGW-IT-PPA-ECM-PRV-DEV-SWE-00` |
+| Public IP (`PIP`) | Resource group, 1-80 characters | Mirrors the NAT Gateway's name (same classifier and NN), so the pair is visibly linked; the classifier names the VNet the address serves, not its exposure | `M-AZU-PIP-IT-PPA-ECM-PRV-DEV-SWE-00` |
 | Log Analytics workspace (`LAW`) | Resource group, 4-63 letters, digits and hyphens | Full family with NN (`log_analytics_workspace.sequence`, default `00`); one workspace shared by every Container Apps environment | `M-AZU-LAW-IT-PPA-ECM-DEV-SWE-00` |
 
 ### 4.13 Names chosen by the application (no convention)
@@ -300,6 +312,17 @@ Function App that sends telemetry.
 | Application Insights | Full family with NN | `M-AZU-AIN-IT-PPA-ECM-DEV-SWE-00` |
 | Monitoring Metrics Publisher role assignments | Generated by Azure (GUID) | — |
 
+### 4.16 Names derived from VNet names (VNet peerings, Private DNS zone links)
+
+The standard has no code for VNet peerings or Private DNS zone links. Both are
+derived from the METLEN VNet names, so they stay readable and unique:
+
+| Item | Rule | Example |
+|---|---|---|
+| VNet peering | `<local VNet name>-to-<remote VNet name>`, scoped to the local VNet; Terraform rejects names over the 80-character limit instead of truncating them | `M-AZU-VNT-IT-PPA-ECM-PRV-DEV-SWE-to-M-AZU-VNT-IT-PPA-ECM-PUB-DEV-SWE` |
+| Hub peering, spoke / hub side | Same rule with the hub VNet name read from `hub_peering.hub_virtual_network_id` | `M-AZU-VNT-IT-PPA-ECM-PRV-DEV-SWE-to-vnet-hub` / `vnet-hub-to-M-AZU-VNT-IT-PPA-ECM-PRV-DEV-SWE` |
+| Private DNS zone link | The name of the linked VNet; link names are scoped to their zone | `M-AZU-VNT-IT-PPA-ECM-PRV-DEV-SWE` |
+
 ## 5. Names already taken in Azure
 
 Several names generated from the standard's own examples were unavailable in
@@ -348,8 +371,6 @@ application; again a second `terraform plan` reported no changes:
 |---|---|
 | Virtual Machines, NICs, OS and data disks, computer names | Standard refers to a separate server naming standard |
 | VM Scale Sets, NICs, autoscale settings | Same as VMs |
-| VNet peerings | No code in the standard |
-| Private DNS zone links | No code in the standard |
 | Container name inside Container Apps, workload profiles | Inside resources; not covered |
 | Subnet delegations | Inside subnets; not covered |
 

@@ -33,6 +33,16 @@ variable "private_dns_link_name" {
   type        = string
 }
 
+variable "additional_virtual_network_links" {
+  description = "Other VNets linked to the environment private DNS zone, keyed by a stable label. name is the link name, unique within the zone."
+  type = map(object({
+    name               = string
+    virtual_network_id = string
+  }))
+  default  = {}
+  nullable = false
+}
+
 variable "dedicated_workload_profiles" {
   description = "Dedicated workload profiles keyed by stable logical labels. Names are Azure profile names; node counts are not app replica counts."
   type = map(object({

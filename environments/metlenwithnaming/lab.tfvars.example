@@ -48,49 +48,83 @@ naming = {
     os_disk                   = "osdisk"
     data_disk                 = "disk"
     autoscale_setting         = "autoscale"
-    virtual_network_peering   = "peer"
-    private_dns_link          = "pdnslink"
     subnet_delegation         = "dlg"
     container_app_container   = "ctr"
     container_apps_profile    = "wp"
   }
 }
 
-# Complete network address plan. Terraform validates every CIDR but creates only
-# the subnets required by the enabled services. Keeping future allocations here
-# gives later deployments stable, non-overlapping ranges; an undeployed CIDR is
-# not reserved in Azure until its subnet is created.
-address_space = ["10.42.0.0/20"]
+# Virtual networks and their complete address plans, keyed by a stable label
+# that never appears in Azure names. classification is the METLEN network
+# intent, PRV (default) or PUB: it names the VNet
+# M-AZU-VNT-<BU>-<DPT>-<APP>-<PUB|PRV>-<ENV>-<REG> and its subnets
+# <DPT><APP><ENV><PUB|PRV><NN>. The standard has no NN for VNets, so there is
+# at most one PRV and one PUB VNet. Resources pick a VNet with
+# virtual_network = "<key>" and default to the PRV VNet (or the only VNet).
+# Terraform validates every CIDR but creates only the subnets the resources
+# placed in each VNet need. Keeping future allocations here gives later
+# deployments stable, non-overlapping ranges; an undeployed CIDR is not
+# reserved in Azure until its subnet is created.
+virtual_networks = {
+  main = {
+    classification = "PRV"
+    address_space  = ["10.42.0.0/20"]
 
-subnet_cidrs = {
-  private_endpoints    = "10.42.0.0/24"
-  virtual_machines     = "10.42.1.0/24"
-  web_app_integration  = "10.42.8.0/26"
-  function_integration = "10.42.4.0/24"
-  postgresql           = "10.42.5.0/24"
-  mysql                = "10.42.6.0/24"
-  sql_managed_instance = "10.42.7.0/27"
+    subnet_cidrs = {
+      private_endpoints    = "10.42.0.0/24"
+      virtual_machines     = "10.42.1.0/24"
+      web_app_integration  = "10.42.8.0/26"
+      function_integration = "10.42.4.0/24"
+      postgresql           = "10.42.5.0/24"
+      mysql                = "10.42.6.0/24"
+      sql_managed_instance = "10.42.7.0/27"
 
-  # One range per Container Apps environment, keyed by the environment key in
-  # container_apps_environments below; /27 or larger, and it can't be resized
-  # after the environment is created. Unused keys stay reserved for later.
-  container_apps = {
-    primary = "10.42.2.0/27"
-    # jobs  = "10.42.2.32/27"
+      # One range per Container Apps environment, keyed by the environment key
+      # in container_apps_environments below; the environment is placed in the
+      # VNet that lists its key. /27 or larger, and it can't be resized after
+      # the environment is created. Unused keys stay reserved for later.
+      container_apps = {
+        primary = "10.42.2.0/27"
+        # jobs  = "10.42.2.32/27"
+      }
+
+      # One range shared by every load balancer frontend IP in this VNet; /29
+      # or larger.
+      load_balancers = "10.42.9.0/26"
+
+      # Host and container ranges per Databricks workspace, keyed by the
+      # workspace key in databricks_workspaces below; the workspace is placed
+      # in the VNet that lists its key. /28 or larger (/26 or larger
+      # recommended: each cluster node takes one address in each). They can't
+      # be resized after the workspace is created.
+      # databricks = {
+      #   analytics = { host = "10.42.10.0/26", container = "10.42.10.64/26" }
+      #   webauth   = { host = "10.42.10.128/28", container = "10.42.10.144/28" }
+      # }
+    }
   }
 
-  # One range shared by every load balancer frontend IP; /29 or larger.
-  load_balancers = "10.42.9.0/26"
-
-  # Host and container ranges per Databricks workspace, keyed by the workspace
-  # key in databricks_workspaces below; /28 or larger (/26 or larger
-  # recommended: each cluster node takes one address in each). They can't be
-  # resized after the workspace is created.
-  # databricks = {
-  #   analytics = { host = "10.42.10.0/26", container = "10.42.10.64/26" }
-  #   webauth   = { host = "10.42.10.128/28", container = "10.42.10.144/28" }
+  # A second, public-intent VNet. Only the subnets set here can be used in it.
+  # edge = {
+  #   classification = "PUB"
+  #   address_space  = ["10.43.0.0/22"]
+  #
+  #   subnet_cidrs = {
+  #     private_endpoints = "10.43.0.0/26"
+  #     virtual_machines  = "10.43.1.0/24"
+  #     load_balancers    = "10.43.2.0/28"
+  #   }
   # }
 }
+
+# Peerings between the VNets above; each entry creates both sides, named
+# <local VNet name>-to-<remote VNet name>. Peered address spaces must not
+# overlap.
+virtual_network_peerings = {}
+
+# virtual_network_peerings = {
+#   main-edge = { virtual_networks = ["main", "edge"] }
+# }
 
 # Initial passwords (lab approach). Every VM and scale set signs in with its
 # admin_username and vm_admin_password (Linux too: no SSH keys), and every
@@ -146,6 +180,11 @@ virtual_machines = {
 
     # Optional: join the backend pool of a load_balancers entry by key.
     # load_balancer = "web"
+
+    # Optional: virtual_networks key whose virtual_machines subnet the VM joins;
+    # a load balancer it joins must be in the same VNet.
+    # Default: the PRV VNet (or the only VNet).
+    # virtual_network = "main"
   }
 
   # Add more independently configured VMs with stable logical keys:
@@ -218,12 +257,17 @@ virtual_machine_scale_sets = {}
 #
 #       # Optional: join the backend pool of a load_balancers entry by key.
 #       # load_balancer = "web"
+#
+#       # Optional: VNet (virtual_networks key) whose virtual_machines subnet
+#       # the instances join; default: the PRV VNet.
+#       # virtual_network = "main"
 #   }
 # }
 
 # One entry per internal Standard load balancer; an empty map creates none.
-# Every frontend IP sits in subnet_cidrs.load_balancers. VMs and scale sets join
-# by setting load_balancer = "<key>". Names follow
+# Every frontend IP sits in the subnet_cidrs.load_balancers range of the load
+# balancer's virtual_network (default: the PRV VNet). VMs and scale sets in the
+# same VNet join by setting load_balancer = "<key>". Names follow
 # M-AZU-LBL-<BU>-<DPT>-<APP>-<ENV>-<REG>-<sequence>; give each load balancer a
 # unique two-digit sequence. Frontend and backend pool are named "frontend" and
 # "backend", and probes and rules use their keys.
@@ -234,7 +278,8 @@ load_balancers = {}
 # load_balancers = {
 #   web = {
 #     sequence           = "00"
-#     private_ip_address = null # Or a usable address in subnet_cidrs.load_balancers, such as "10.42.9.4".
+#     virtual_network    = "main" # Optional; default: the PRV VNet.
+#     private_ip_address = null   # Or a usable address in that VNet's subnet_cidrs.load_balancers, such as "10.42.9.4".
 #     zones              = ["1", "2", "3"]
 #
 #     probes = {
@@ -260,39 +305,44 @@ load_balancers = {}
 #   }
 # }
 
-# Optional outbound NAT Gateway, associated per subnet. It (and its Public IP)
-# is created only when subnets lists at least one subnet key: virtual_machines,
+# Optional outbound NAT Gateways, one per VNet (keyed by the virtual_networks
+# key) and associated per subnet. A gateway (and its Public IP) is created only
+# when subnets lists at least one subnet key of that VNet: virtual_machines,
 # web_app_integration, function_integration, private_endpoints, postgresql,
 # mysql, load_balancers or container_apps/<environment key>. Leave subnets
-# empty (or remove this block) in hub-and-spoke designs where egress goes
+# empty (or remove the entry) in hub-and-spoke designs where egress goes
 # through the hub, for example with a route_tables entry that sends 0.0.0.0/0
 # to the hub firewall.
 # Subnets are private: a subnet with neither a NAT Gateway nor a 0.0.0.0/0
 # route has no internet egress (Container Apps also need it to pull images, and
 # Web Apps and Function Apps to send telemetry to Application Insights).
-# The gateway is M-AZU-NGW-<BU>-<DPT>-<APP>-<ENV>-<REG>-<sequence> and its
-# Public IP M-AZU-PIP-<BU>-<DPT>-<APP>-<ENV>-<REG>-<sequence>.
-nat_gateway = {
-  sequence                = "00"
-  idle_timeout_in_minutes = 4
-  subnets                 = ["virtual_machines", "container_apps/primary", "web_app_integration", "function_integration"]
+# The gateway is M-AZU-NGW-<BU>-<DPT>-<APP>-<PUB|PRV>-<ENV>-<REG>-<sequence>
+# and its Public IP M-AZU-PIP-<BU>-<DPT>-<APP>-<PUB|PRV>-<ENV>-<REG>-<sequence>,
+# with the classification of the VNet.
+nat_gateways = {
+  main = {
+    sequence                = "00"
+    idle_timeout_in_minutes = 4
+    subnets                 = ["virtual_machines", "container_apps/primary", "web_app_integration", "function_integration"]
+  }
 }
 
 # NSGs are off. Each entry creates
 # M-AZU-NSG-<BU>-<DPT>-<APP>-<classification>-<ENV>-<REG>[-<sequence>] and
 # associates it with the listed subnet keys (virtual_machines,
 # private_endpoints, web_app_integration, function_integration, postgresql,
-# mysql, load_balancers, or container_apps/<environment key>).
-# sql_managed_instance is managed by its own module. A subnet may appear in only
-# one NSG. classification is PRV (default) or PUB; when two NSGs share a
+# mysql, load_balancers, or container_apps/<environment key>) of its
+# virtual_network (default: the PRV VNet). sql_managed_instance is managed by
+# its own module. A subnet may appear in only one NSG. classification is PRV
+# or PUB and defaults to the classification of the VNet; when two NSGs share a
 # classification, give each a unique two-digit sequence (NN).
 network_security_groups = {}
 
 # network_security_groups = {
 #   compute = {
-#     classification = "PRV"
-#     sequence       = "01"
-#     subnets        = ["virtual_machines"]
+#     virtual_network = "main"
+#     sequence        = "01"
+#     subnets         = ["virtual_machines"]
 #
 #     security_rules = {
 #       allow-ssh-from-vnet = {
@@ -310,7 +360,8 @@ network_security_groups = {}
 
 # Route tables are off. Each entry creates
 # M-AZU-UDR-<BU>-<DPT>-<APP>-<classification>-<ENV>-<REG>[-<sequence>] and
-# associates it with the listed subnet keys (same keys as NSGs). A 0.0.0.0/0
+# associates it with the listed subnet keys of its virtual_network (same keys
+# and defaults as NSGs). A 0.0.0.0/0
 # route overrides NAT Gateway egress for its subnets (Terraform warns when a
 # subnet has both). In hub-and-spoke, an egress table like the example below
 # replaces the NAT Gateway. A subnet may appear in only one table.
@@ -319,8 +370,9 @@ route_tables = {}
 
 # route_tables = {
 #   egress = {
-#     sequence = "01"
-#     subnets  = ["virtual_machines"]
+#     virtual_network = "main" # Optional; default: the PRV VNet.
+#     sequence        = "01"
+#     subnets         = ["virtual_machines"] # Subnet keys of that VNet.
 #
 #     routes = {
 #       default-to-firewall = {
@@ -332,8 +384,10 @@ route_tables = {}
 #   }
 # }
 
-# Hub-spoke peering is off. Set hub_peering to peer this VNet to an existing hub.
-# Both sides are created by default; the hub side uses the hub's subscription
+# Hub-spoke peering is off. Set hub_peering to peer the VNets to an existing
+# hub: every VNet by default, or only the virtual_networks keys listed. Each
+# side is named <local VNet name>-to-<remote VNet name> (at most 80
+# characters). Both sides are created by default; the hub side uses the hub's subscription
 # (read from the ID), so Terraform's identity needs Network Contributor (or
 # virtualNetworks/peer/action plus peering write) on the hub VNet. Set
 # create_hub_to_spoke_peering = false when the hub team creates its side.
@@ -342,6 +396,7 @@ hub_peering = null
 
 # hub_peering = {
 #   hub_virtual_network_id      = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-hub/providers/Microsoft.Network/virtualNetworks/vnet-hub"
+#   virtual_networks            = ["main"]
 #   create_hub_to_spoke_peering = true
 #   allow_forwarded_traffic     = true
 #   use_remote_gateways         = false
@@ -354,7 +409,14 @@ hub_peering = null
 # code yet. Give each registry a unique two-digit sequence; changing it renames,
 # and therefore replaces, that registry.
 container_registries = {
-  primary = { sequence = "00" }
+  primary = {
+    sequence = "00"
+
+    # Optional: virtual_networks key whose private_endpoints subnet hosts the
+    # registry's Private Endpoint.
+    # Default: the PRV VNet (or the only VNet).
+    # virtual_network = "main"
+  }
 }
 
 # One entry per Key Vault. Keys are stable logical names. Names follow the
@@ -371,6 +433,11 @@ key_vaults = {
 
     # Keep false for an environment that must be destroyed automatically.
     purge_protection_enabled = false
+
+    # Optional: virtual_networks key whose private_endpoints subnet hosts the
+    # vault's Private Endpoint.
+    # Default: the PRV VNet (or the only VNet).
+    # virtual_network = "main"
   }
 }
 
@@ -407,6 +474,11 @@ storage_accounts = {
       #   principal_type       = "ServicePrincipal"
       # }
     }
+
+    # Optional: virtual_networks key whose private_endpoints subnet hosts the
+    # account's blob and file Private Endpoints.
+    # Default: the PRV VNet (or the only VNet).
+    # virtual_network = "main"
   }
 
   # Add more independently configured StorageV2 accounts with stable keys:
@@ -431,6 +503,11 @@ premium_file_accounts = {
         quota_gb = 100
       }
     }
+
+    # Optional: virtual_networks key whose private_endpoints subnet hosts the
+    # account's file Private Endpoint.
+    # Default: the PRV VNet (or the only VNet).
+    # virtual_network = "main"
   }
 
   # Add more independently configured FileStorage accounts with stable keys:
@@ -455,19 +532,25 @@ azure_sql_servers = {
     sequence          = "00"
     database_name     = "appdb"
     database_sku_name = "Basic"
-      max_size_gb       = 2
+    max_size_gb       = 2
 
-      # Set enabled to true to use the module defaults for a small Basic pool.
-      elastic_pool = {
-        enabled = false
-      }
+    # Set enabled to true to use the module defaults for a small Basic pool.
+    elastic_pool = {
+      enabled = false
+    }
+
+    # Optional: virtual_networks key whose private_endpoints subnet hosts the
+    # server's Private Endpoint.
+    # Default: the PRV VNet (or the only VNet).
+    # virtual_network = "main"
   }
 }
 
 # SQL Managed Instances keyed by a stable logical name; an empty map creates
 # none, like every other resource. At most one entry is allowed. An entry
-# creates the instance with its delegated subnet_cidrs.sql_managed_instance
-# subnet and its own NSG and route table; an empty entry such as primary = {}
+# creates the instance with the delegated subnet_cidrs.sql_managed_instance
+# subnet of its virtual_network (default: the PRV VNet) and its own NSG and
+# route table; an empty entry such as primary = {}
 # uses every default. Deployment takes several hours and the instance is
 # billed per vCore.
 sql_managed_instances = {}
@@ -482,15 +565,20 @@ sql_managed_instances = {}
 #     storage_size_in_gb = 32
 #     license_type       = "LicenseIncluded"
 #     # Two-digit NN for the instance's own NSG and route table. Set it when
-#     # another NSG or route table already uses the PRV name without a sequence.
+#     # another NSG or route table already uses the same name without a
+#     # sequence (they take the classification of the instance's VNet).
 #     network_sequence = null
+#     # Optional: VNet whose sql_managed_instance subnet hosts the instance;
+#     # default: the PRV VNet.
+#     virtual_network = "main"
 #   }
 # }
 
 # One entry per PostgreSQL Flexible Server; an empty map creates none. Each
-# server gets one database and uses database_admin_password, and all servers
-# share the delegated subnet_cidrs.postgresql subnet (/28 or larger; one address
-# per server, four with HA) and one private DNS zone. Keys are stable logical
+# server gets one database and uses database_admin_password; the servers in a
+# VNet (virtual_network, default: the PRV VNet) share its delegated
+# subnet_cidrs.postgresql subnet (/28 or larger; one address per server, four
+# with HA), and all servers share one private DNS zone. Keys are stable logical
 # names; changing a key replaces that server. The smoke test uses the "primary"
 # server by default.
 # Server names follow m-azu-pgs-<bu>-<dpt>-<app>-<env>-<reg>-<sequence> (global,
@@ -508,6 +596,11 @@ postgresql_servers = {
     storage_mb          = 32768
     zone                = null
 
+    # Optional: virtual_networks key whose delegated postgresql subnet hosts the
+    # server.
+    # Default: the PRV VNet (or the only VNet).
+    # virtual_network = "main"
+
     # HA needs General Purpose or Memory Optimized compute and regional capacity.
     high_availability = {
       enabled                   = false
@@ -523,9 +616,10 @@ postgresql_servers = {
 }
 
 # One entry per MySQL Flexible Server; an empty map creates none. Each server
-# gets one database and uses database_admin_password, and all servers share the
-# delegated subnet_cidrs.mysql subnet (one address per server, two with HA) and
-# one private DNS zone. Keys are stable logical names; changing a key replaces
+# gets one database and uses database_admin_password; the servers in a VNet
+# (virtual_network, default: the PRV VNet) share its delegated
+# subnet_cidrs.mysql subnet (one address per server, two with HA), and all
+# servers share one private DNS zone. Keys are stable logical names; changing a key replaces
 # that server. The smoke test uses the "primary" server by default.
 # Server names follow m-azu-mys-<bu>-<dpt>-<app>-<env>-<reg>-<sequence> (global,
 # lowercase). database_name is yours to choose and defaults to the entry key;
@@ -541,6 +635,10 @@ mysql_servers = {
     sku_name            = "B_Standard_B1ms"
     version_number      = "8.0.21"
     zone                = null
+
+    # Optional: virtual_networks key whose delegated mysql subnet hosts the server.
+    # Default: the PRV VNet (or the only VNet).
+    # virtual_network = "main"
 
     # Before enabling HA, change sku_name from B_ to GP_ or MO_.
     # Plan zone-redundant HA at server creation; review existing-server limitations.
@@ -579,7 +677,7 @@ log_analytics_workspace = {
 # Microsoft Entra-authenticated telemetry: each app's managed identity gets
 # Monitoring Metrics Publisher, so the deployer needs rights to create role
 # assignments. Telemetry leaves the VNet: list web_app_integration and
-# function_integration in nat_gateway.subnets (or route 0.0.0.0/0 to a
+# function_integration in the nat_gateways entry of the apps' VNet (or route 0.0.0.0/0 to a
 # firewall), otherwise Terraform warns. enabled = false turns it off for every
 # app.
 application_insights = {
@@ -589,15 +687,17 @@ application_insights = {
 
 # One entry per internal Container Apps environment; an empty map creates none.
 # Each environment uses the subnet_cidrs.container_apps range with the same key
-# (add one there before adding an environment here). Environment and app keys
+# and is placed in the VNet that lists it (add one there before adding an
+# environment here). Environment and app keys
 # are 1-12 characters; changing a key replaces that environment or app.
 # The smoke test uses environment "primary" and app "hello" by default.
 # Environment names follow M-AZU-CEV-<BU>-<DPT>-<APP>-<ENV>-<REG>-<sequence> and
 # app names the lowercase m-azu-cap-<bu>-<dpt>-<app>-<env>-<reg>-<sequence>.
 # Environment sequences must be unique, and app sequences unique across all
 # environments (Container App names are unique per resource group).
-# subnet_number is NN in the subnet name <DPT><APP><ENV>PRV<NN> (1-99, for example PPAECMDEVPRV09). Numbers 1-8
-# are reserved for the other lab subnets (private_endpoints=1,
+# subnet_number is NN in the subnet name <DPT><APP><ENV><PUB|PRV><NN> (1-99,
+# unique within the VNet, for example PPAECMDEVPRV09). Numbers 1-8 are
+# reserved for the other subnets of the VNet (private_endpoints=1,
 # virtual_machines=2, web_app_integration=3, function_integration=4,
 # postgresql=5, mysql=6, sql_managed_instance=7, load_balancers=8); a second
 # environment may use any other free number, for example 10.
@@ -667,12 +767,16 @@ cosmos_db_accounts = {}
 #       }
 #
 #       nosql_partition_key_paths = ["/partitionKey"]
+#
+#       # Optional: VNet whose private_endpoints subnet hosts the Private
+#       # Endpoint; default: the PRV VNet.
+#       virtual_network = "main"
 #   }
 # }
 
 # One entry per Premium Azure Databricks workspace; an empty map creates none.
-# Each workspace is injected into the lab VNet (subnet_cidrs.databricks entry
-# with the same key, both subnets delegated to Azure Databricks and covered by
+# Each workspace is injected into the VNet whose subnet_cidrs.databricks lists
+# its key (both subnets delegated to Azure Databricks and covered by
 # the workspace's own NSG) and its clusters get no public IP addresses.
 # network_access:
 #   private         (default) public access off; users and clusters use the
@@ -686,11 +790,13 @@ cosmos_db_accounts = {}
 # (delete_lock = false turns it off). Terraform warns when private workspaces
 # have none, for example because a hub already provides it.
 # Clusters need outbound internet access: add both subnets to
-# nat_gateway.subnets (databricks/<key>/host, databricks/<key>/container) or
+# the nat_gateways entry of the workspace's VNet (databricks/<key>/host,
+# databricks/<key>/container) or
 # route them to a hub firewall; Terraform warns otherwise.
 # Names: workspace and Access Connector M-AZU-DBR-...-<sequence>, managed
-# resource group M-AZU-RGP-...-<sequence>, NSG M-AZU-NSG-...-PRV-...-<sequence>,
-# subnets <DPT><APP><ENV>PRV<host/container_subnet_number>. DBR was chosen on
+# resource group M-AZU-RGP-...-<sequence>, NSG M-AZU-NSG-...-<PUB|PRV>-...-<sequence>,
+# subnets <DPT><APP><ENV><PUB|PRV><host/container_subnet_number>, with the
+# classification of the workspace's VNet. DBR was chosen on
 # 2026-10-29 and is not in the register yet. Changing sequence, the subnet
 # numbers or ranges replaces the workspace and everything in it.
 databricks_workspaces = {}
@@ -753,8 +859,9 @@ app_service_plans = {
 }
 
 # One entry per Web App, keyed by a stable logical name. Each entry creates its
-# own Private Endpoint; every app joins the shared web_app_integration subnet
-# (/26 or larger when apps on more than one plan share it).
+# own Private Endpoint; every app joins the web_app_integration subnet of its
+# virtual_network (default: the PRV VNet; apps on one plan share a VNet), /26
+# or larger when apps on more than one plan share it.
 web_apps = {
   primary = {
     # Key of a Basic, Standard or Premium app_service_plans entry.
@@ -787,6 +894,12 @@ web_apps = {
     # linux and windows modes also turn on the App Service agent; container
     # images need their own Application Insights SDK or OpenTelemetry distro.
     application_insights = true
+
+    # Optional: virtual_networks key whose web_app_integration subnet the app
+    # joins and whose private_endpoints subnet hosts its Private Endpoint.
+    # Apps on the same plan must use the same VNet.
+    # Default: the PRV VNet (or the only VNet).
+    # virtual_network = "main"
   }
 
   # api = {
@@ -802,9 +915,10 @@ web_apps = {
 
 # One entry per Function App, keyed by a stable logical name. Each entry creates
 # its own host Storage Account with its content share and Private Endpoints
-# (blob, file, queue, table and sites); every app joins the shared
-# function_integration subnet (/26 or larger when apps on more than one plan
-# share it).
+# (blob, file, queue, table and sites); every app joins the
+# function_integration subnet of its virtual_network (default: the PRV VNet;
+# apps on one plan share a VNet), /26 or larger when apps on more than one
+# plan share it.
 function_apps = {
   primary = {
     # Key of an Elastic Premium app_service_plans entry; the plan's os_type
@@ -833,6 +947,12 @@ function_apps = {
 
     # Send telemetry to the shared Application Insights resource (default).
     application_insights = true
+
+    # Optional: virtual_networks key whose function_integration subnet the app
+    # joins and whose private_endpoints subnet hosts its Private Endpoints.
+    # Apps on the same plan must use the same VNet.
+    # Default: the PRV VNet (or the only VNet).
+    # virtual_network = "main"
   }
 
   # jobs = {

@@ -37,18 +37,22 @@ variables {
     application   = "ECM"
     environment   = "DEV"
   }
-  address_space = ["10.42.0.0/20"]
-  subnet_cidrs = {
-    private_endpoints    = "10.42.0.0/24"
-    virtual_machines     = "10.42.1.0/24"
-    web_app_integration  = "10.42.8.0/26"
-    function_integration = "10.42.4.0/24"
-    postgresql           = "10.42.5.0/24"
-    mysql                = "10.42.6.0/24"
-    sql_managed_instance = "10.42.7.0/27"
+  virtual_networks = {
+    main = {
+      address_space = ["10.42.0.0/20"]
+      subnet_cidrs = {
+        private_endpoints    = "10.42.0.0/24"
+        virtual_machines     = "10.42.1.0/24"
+        web_app_integration  = "10.42.8.0/26"
+        function_integration = "10.42.4.0/24"
+        postgresql           = "10.42.5.0/24"
+        mysql                = "10.42.6.0/24"
+        sql_managed_instance = "10.42.7.0/27"
+      }
+    }
   }
   virtual_machine_scale_sets = {}
-  nat_gateway                = {}
+  nat_gateways               = {}
   log_analytics_workspace    = {}
   # Telemetry is covered by application-insights.tftest.hcl; these apps have
   # no NAT Gateway, which would trip the egress check.
@@ -202,7 +206,7 @@ run "reject_location_without_region_code" {
 run "virtual_network_uses_network_family" {
   command = plan
   assert {
-    condition     = output.generated_resource_names.virtual_network == "M-AZU-VNT-IT-PPA-ECM-PRV-DEV-SWE"
+    condition     = output.generated_resource_names.virtual_networks["main"].name == "M-AZU-VNT-IT-PPA-ECM-PRV-DEV-SWE"
     error_message = "The VNet name must follow M-AZU-VNT-<BU>-<DPT>-<APP>-PRV-<ENV>-<REG>."
   }
 }
@@ -259,8 +263,8 @@ run "sql_managed_instance_network_names_use_sequence" {
   assert {
     condition = (
       keys(module.sql_managed_instance) == ["primary"] &&
-      local.subnet_enabled.sql_managed_instance &&
-      contains(keys(local.subnets), "sql_managed_instance") &&
+      local.subnet_enabled.main.sql_managed_instance &&
+      contains(keys(local.subnets.main), "sql_managed_instance") &&
       local.resource_names.sql_managed_instances["primary"].name == "m-azu-smi-it-ppa-ecm-dev-swe-00" &&
       local.resource_names.sql_managed_instances["primary"].network_security_group_name == "M-AZU-NSG-IT-PPA-ECM-PRV-DEV-SWE-03" &&
       local.resource_names.sql_managed_instances["primary"].route_table_name == "M-AZU-UDR-IT-PPA-ECM-PRV-DEV-SWE-03"
@@ -274,7 +278,7 @@ run "sql_managed_instances_default_to_none" {
   assert {
     condition = (
       length(module.sql_managed_instance) == 0 &&
-      !local.subnet_enabled.sql_managed_instance &&
+      !local.subnet_enabled.main.sql_managed_instance &&
       length(local.resource_names.sql_managed_instances) == 0 &&
       length(output.sql_managed_instances) == 0
     )
@@ -397,7 +401,7 @@ run "reject_container_apps_subnet_number_in_use" {
   command = plan
   variables {
     virtual_machines            = { primary = {} }
-    subnet_cidrs                = merge(var.subnet_cidrs, { container_apps = { primary = "10.42.2.0/27" } })
+    virtual_networks            = { main = merge(var.virtual_networks.main, { subnet_cidrs = merge(var.virtual_networks.main.subnet_cidrs, { container_apps = { primary = "10.42.2.0/27" } }) }) }
     container_apps_environments = { primary = { subnet_number = 2 } }
   }
   expect_failures = [var.container_apps_environments]
@@ -407,13 +411,13 @@ run "reject_container_apps_subnet_number_in_use" {
 run "subnet_names_match_register_example" {
   command = plan
   variables {
-    subnet_cidrs                = merge(var.subnet_cidrs, { container_apps = { primary = "10.42.2.0/27" } })
+    virtual_networks            = { main = merge(var.virtual_networks.main, { subnet_cidrs = merge(var.virtual_networks.main.subnet_cidrs, { container_apps = { primary = "10.42.2.0/27" } }) }) }
     container_apps_environments = { primary = { subnet_number = 42 } }
   }
   assert {
     condition = (
-      output.generated_resource_names.subnets["private_endpoints"] == "PPAECMDEVPRV01" &&
-      output.generated_resource_names.subnets["load_balancers"] == "PPAECMDEVPRV08" &&
+      output.generated_resource_names.virtual_networks["main"].subnets["private_endpoints"] == "PPAECMDEVPRV01" &&
+      output.generated_resource_names.virtual_networks["main"].subnets["load_balancers"] == "PPAECMDEVPRV08" &&
       output.generated_resource_names.container_apps_environments["primary"].subnet_name == "PPAECMDEVPRV42"
     )
     error_message = "Subnet names must follow <DPT><APP><ENV>PRV<NN> with a two-digit number, as in the register example PPAECMDEVPRV01."
@@ -423,7 +427,7 @@ run "subnet_names_match_register_example" {
 run "reject_subnet_number_above_99" {
   command = plan
   variables {
-    subnet_cidrs                = merge(var.subnet_cidrs, { container_apps = { primary = "10.42.2.0/27" } })
+    virtual_networks            = { main = merge(var.virtual_networks.main, { subnet_cidrs = merge(var.virtual_networks.main.subnet_cidrs, { container_apps = { primary = "10.42.2.0/27" } }) }) }
     container_apps_environments = { primary = { subnet_number = 100 } }
   }
   expect_failures = [var.container_apps_environments]
@@ -698,7 +702,7 @@ run "reject_shared_app_service_plan_name" {
 run "container_apps_family_names" {
   command = plan
   variables {
-    subnet_cidrs = merge(var.subnet_cidrs, { container_apps = { primary = "10.42.2.0/27" } })
+    virtual_networks = { main = merge(var.virtual_networks.main, { subnet_cidrs = merge(var.virtual_networks.main.subnet_cidrs, { container_apps = { primary = "10.42.2.0/27" } }) }) }
     container_apps_environments = {
       primary = { apps = { hello = {}, api = { sequence = "01" } } }
     }
@@ -718,7 +722,7 @@ run "container_apps_family_names" {
 run "load_balancer_family_names" {
   command = plan
   variables {
-    subnet_cidrs = merge(var.subnet_cidrs, { load_balancers = "10.42.9.0/26" })
+    virtual_networks = { main = merge(var.virtual_networks.main, { subnet_cidrs = merge(var.virtual_networks.main.subnet_cidrs, { load_balancers = "10.42.9.0/26" }) }) }
     load_balancers = {
       web  = {}
       data = { sequence = "01" }
@@ -736,7 +740,7 @@ run "load_balancer_family_names" {
 run "reject_duplicate_load_balancer_sequence" {
   command = plan
   variables {
-    subnet_cidrs = merge(var.subnet_cidrs, { load_balancers = "10.42.9.0/26" })
+    virtual_networks = { main = merge(var.virtual_networks.main, { subnet_cidrs = merge(var.virtual_networks.main.subnet_cidrs, { load_balancers = "10.42.9.0/26" }) }) }
     load_balancers = {
       web  = {}
       data = {}
@@ -749,13 +753,13 @@ run "nat_gateway_and_public_ip_share_the_nn" {
   command = plan
   variables {
     virtual_machine_scale_sets = { app = {} }
-    nat_gateway                = { subnets = ["virtual_machines"] }
+    nat_gateways               = { main = { subnets = ["virtual_machines"] } }
   }
   assert {
     condition = (
       length(module.nat_gateway) == 1 &&
-      local.resource_names.nat_gateway == "M-AZU-NGW-IT-PPA-ECM-DEV-SWE-00" &&
-      local.resource_names.nat_public_ip == "M-AZU-PIP-IT-PPA-ECM-DEV-SWE-00"
+      local.resource_names.nat_gateways["main"].name == "M-AZU-NGW-IT-PPA-ECM-PRV-DEV-SWE-00" &&
+      local.resource_names.nat_gateways["main"].public_ip_name == "M-AZU-PIP-IT-PPA-ECM-PRV-DEV-SWE-00"
     )
     error_message = "The NAT Gateway must follow M-AZU-NGW-<BU>-<DPT>-<APP>-<ENV>-<REG>-<NN> and its Public IP M-AZU-PIP-...-<NN> with the same NN, 00 by default."
   }
@@ -764,29 +768,29 @@ run "nat_gateway_and_public_ip_share_the_nn" {
 run "nat_gateway_sequence_sets_both_names" {
   command = plan
   variables {
-    nat_gateway = { sequence = "01" }
+    nat_gateways = { main = { sequence = "01" } }
   }
   assert {
     condition = (
-      local.resource_names.nat_gateway == "M-AZU-NGW-IT-PPA-ECM-DEV-SWE-01" &&
-      local.resource_names.nat_public_ip == "M-AZU-PIP-IT-PPA-ECM-DEV-SWE-01"
+      local.resource_names.nat_gateways["main"].name == "M-AZU-NGW-IT-PPA-ECM-PRV-DEV-SWE-01" &&
+      local.resource_names.nat_gateways["main"].public_ip_name == "M-AZU-PIP-IT-PPA-ECM-PRV-DEV-SWE-01"
     )
-    error_message = "nat_gateway.sequence must set the NN of both the NAT Gateway and its Public IP."
+    error_message = "nat_gateways.main.sequence must set the NN of both the NAT Gateway and its Public IP."
   }
 }
 
 run "reject_invalid_nat_gateway_sequence" {
   command = plan
   variables {
-    nat_gateway = { sequence = "1" }
+    nat_gateways = { main = { sequence = "1" } }
   }
-  expect_failures = [var.nat_gateway]
+  expect_failures = [var.nat_gateways]
 }
 
 run "log_analytics_workspace_uses_law_family" {
   command = plan
   variables {
-    subnet_cidrs = merge(var.subnet_cidrs, { container_apps = { primary = "10.42.2.0/27" } })
+    virtual_networks = { main = merge(var.virtual_networks.main, { subnet_cidrs = merge(var.virtual_networks.main.subnet_cidrs, { container_apps = { primary = "10.42.2.0/27" } }) }) }
     container_apps_environments = {
       primary = {}
     }
