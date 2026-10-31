@@ -1,3 +1,13 @@
+# Azure can return the subnet ID with different casing than configured, for
+# example a lowercase resource group name for endpoints created after a policy
+# or SQL Managed Instance updated the subnet. Resource IDs are
+# case-insensitive, so the endpoint compares the lowercase ID: it ignores
+# subnet_id itself and is replaced only when the lowercase ID changes, which
+# still moves it to a genuinely different subnet.
+resource "terraform_data" "subnet_id" {
+  input = lower(var.subnet_id)
+}
+
 resource "azurerm_private_endpoint" "this" {
   name                = var.name
   resource_group_name = var.resource_group_name
@@ -19,5 +29,10 @@ resource "azurerm_private_endpoint" "this" {
       name                 = var.private_dns_zone_group_name
       private_dns_zone_ids = var.private_dns_zone_ids
     }
+  }
+
+  lifecycle {
+    ignore_changes       = [subnet_id]
+    replace_triggered_by = [terraform_data.subnet_id]
   }
 }
