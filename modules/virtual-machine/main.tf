@@ -88,8 +88,11 @@ resource "azurerm_linux_virtual_machine" "this" {
 
   # A changed admin_password would replace the VM. Users change the password
   # inside the OS after first sign-in, so Terraform keeps the initial value.
+  # Azure Update Manager (usually through Azure Policy) turns on the bypass
+  # setting so its maintenance schedules can patch the VM; patching is left to
+  # it.
   lifecycle {
-    ignore_changes = [admin_password]
+    ignore_changes = [admin_password, bypass_platform_safety_checks_on_user_schedule_enabled]
   }
 }
 
@@ -122,10 +125,10 @@ resource "azurerm_windows_virtual_machine" "this" {
     version   = local.source_image_reference.version
   }
 
-  # A changed admin_password would replace the VM. Users change the password
-  # inside the OS after first sign-in, so Terraform keeps the initial value.
+  # See azurerm_linux_virtual_machine: the initial password and the Update
+  # Manager bypass setting are not enforced.
   lifecycle {
-    ignore_changes = [admin_password]
+    ignore_changes = [admin_password, bypass_platform_safety_checks_on_user_schedule_enabled]
   }
 }
 
