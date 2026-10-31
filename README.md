@@ -77,6 +77,7 @@ when a module is checked on its own.
 | `virtual-network-peering` | One side of a VNet peering; the lab uses it for spoke-to-hub and hub-to-spoke | Private connectivity to an existing hub VNet |
 | `load-balancer` | Internal Standard load balancer with one backend pool, health probes, and load-balancing rules | Private frontend IP on a dedicated subnet; no public IP |
 | `virtual-machine` | Linux or Windows VM, NIC, OS disk, and configurable data disks | No VM public IP; outbound through NAT Gateway |
+| `vm-backup` | Recovery Services vault (zone-redundant by default), Enhanced (V2) VM backup policies and protected VMs. Used by `environments/metlenwithnaming`, where every VM is backed up by default | Public network access disabled by default; VM backup needs no VM egress or Private Endpoint |
 | `virtual-machine-scale-set` | Linux or Windows VMSS with configurable images/disks and fixed or CPU-autoscaled capacity | No instance public IP; outbound through NAT Gateway |
 | `key-vault` | RBAC-enabled Key Vault | Public network disabled; Private Endpoint |
 | `container-registry` | Premium Azure Container Registry | Public network disabled; Private Endpoint |
@@ -912,6 +913,65 @@ function_apps = {
   disables it on create and deletes it on destroy; without it the leftover
   rule blocked `terraform destroy` of the resource group in the live test.
 
+### VM backup (metlenwithnaming)
+
+The [`metlenwithnaming`](environments/metlenwithnaming) environment backs up
+every `virtual_machines` entry with Azure Backup to one Recovery Services
+vault, `M-AZU-RSV-<BU>-<DPT>-<APP>-<ENV>-<REG>-<NN>`, built by the
+[`vm-backup`](modules/vm-backup) module. The vault is created whenever at
+least one VM is backed up:
+
+```hcl
+vm_backup = {
+  sequence          = "00"
+  storage_mode_type = "ZoneRedundant" # or GeoRedundant / LocallyRedundant
+  policies = {
+    # Daily at 23:00 UTC, 7 days of instant-restore snapshots, 30 daily points.
+    default = {}
+    critical = {
+      frequency                      = "Hourly"
+      hour_interval                  = 4
+      hour_duration                  = 24
+      instant_restore_retention_days = 14
+      retention_daily                = 90
+      retention_monthly              = { count = 12, days = [1] }
+    }
+  }
+}
+
+virtual_machines = {
+  app  = {}                            # backup_policy = "default"
+  db   = { backup_policy = "critical" }
+  temp = { backup = false }            # not backed up
+}
+```
+
+- Policies are Enhanced (V2) policies, the only type that protects Trusted
+  Launch VMs; the `virtual-machine` module always enables secure boot and
+  vTPM. Policy names are scoped to the vault, so each policy is named after
+  its key. `vm_backup.enabled = false` turns backup off for every VM.
+- Azure VM backup runs over the Azure backbone, so the VM subnets need no NAT
+  Gateway, Private Endpoint or DNS zone for it. The vault's public network
+  access is disabled by default: backup and full-VM or disk restore still
+  work, but file-level restore needs `public_network_access_enabled = true`
+  (a vault Private Endpoint is not implemented).
+- Choose `storage_mode_type` before the first VM is protected: Azure rejects
+  a change afterwards. `cross_region_restore_enabled` needs `GeoRedundant`.
+- Azure keeps instant-restore snapshots in a resource group it creates and
+  names itself (`AzureBackupRG_<region>_1`), outside Terraform and the
+  environment's resource group.
+- Soft delete is always on for Recovery Services vaults (Azure secure by
+  default; the provider rejects turning it off), so deleted backup data stays
+  recoverable for 14 days. For lab teardown, `providers.tf` deletes a VM's
+  backup data when its protection is destroyed and purges any remaining items
+  when the vault is destroyed; flip both settings (see the comments there) for
+  production. Re-enabling backup of a VM within the soft delete period
+  resumes the soft-deleted item.
+- Not yet live-tested: vault deletion relies on Azure's vault soft delete
+  (preview) once its items are soft-deleted, and the leftover
+  `AzureBackupRG_<region>_1` group must be deleted by hand after a lab
+  teardown.
+
 ### App Service Web App modes
 
 `web_app.mode` creates exactly one App Service Web App:
@@ -1060,6 +1120,7 @@ terraform -chdir=modules\container-registry test
 terraform -chdir=modules\web-app test
 terraform -chdir=modules\function-app test
 terraform -chdir=modules\application-insights test
+terraform -chdir=modules\vm-backup test
 terraform -chdir=modules\postgresql-flexible test
 terraform -chdir=modules\mysql-flexible test
 terraform -chdir=modules\container-apps test

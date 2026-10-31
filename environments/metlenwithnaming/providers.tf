@@ -22,6 +22,23 @@ provider "azurerm" {
     application_insights {
       disable_generated_rule = true
     }
+
+    # Soft delete cannot be turned off on Recovery Services vaults, so deleted
+    # VM backups stay in the vault for 14 days. Destroying a protected VM
+    # deletes its backup data (instead of stopping protection and retaining
+    # it), and destroying the vault first deletes the backup items still in
+    # it, so lab environments can be torn down. Production should keep its
+    # backups.
+    recovery_service {
+      vm_backup_stop_protection_and_retain_data_on_destroy = false #for production turn into true
+      purge_protected_items_from_vault_on_destroy          = true  #for production turn into false
+    }
+
+    # Re-enabling backup of a VM whose backup was deleted within the soft
+    # delete period resumes the soft-deleted item instead of failing.
+    recovery_services_vaults {
+      recover_soft_deleted_backup_protected_vm = true
+    }
   }
 }
 

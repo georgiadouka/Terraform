@@ -294,6 +294,11 @@ locals {
     # M-AZU-AIN-<BU>-<DPT>-<APP>-<ENV>-<REG>-<NN>: one Application Insights
     # resource shared by every Function App and Web App; 1-255 characters.
     application_insights = join("-", ["M-AZU", local.metlen_codes.application_insights, local.metlen_scope, local.metlen_placement, var.application_insights.sequence])
+    # M-AZU-RSV-<BU>-<DPT>-<APP>-<ENV>-<REG>-<NN>: one Recovery Services vault
+    # shared by every backed-up VM; 2-50 letters, digits and hyphens. Policy
+    # names are scoped to the vault, so each policy uses its own key.
+    recovery_services_vault = join("-", ["M-AZU", local.metlen_codes.recovery_services_vault, local.metlen_scope, local.metlen_placement, var.vm_backup.sequence])
+    vm_backup_policies      = { for key in keys(var.vm_backup.policies) : key => key }
 
     # App Service family. Web App and Function App names are global
     # (<name>.azurewebsites.net). App Service Plans are declared once in

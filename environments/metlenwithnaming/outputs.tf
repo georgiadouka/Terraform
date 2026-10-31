@@ -65,8 +65,19 @@ output "virtual_machines" {
       os_type            = var.virtual_machines[key].os_type
       admin_username     = var.virtual_machines[key].admin_username
       data_disk_ids      = vm.data_disk_ids
+      backup_policy      = lookup(local.vm_backup_virtual_machines, key, null)
     }
   }
+}
+
+output "vm_backup" {
+  description = "Recovery Services vault (id, name), its VM backup policy IDs keyed by policy key and the keys of the backed-up VMs, or null when no VM is backed up."
+  value = length(local.vm_backup_virtual_machines) > 0 ? {
+    id               = module.vm_backup[0].id
+    name             = module.vm_backup[0].name
+    policy_ids       = module.vm_backup[0].policy_ids
+    virtual_machines = sort(keys(local.vm_backup_virtual_machines))
+  } : null
 }
 
 output "virtual_machine_scale_sets" {

@@ -135,7 +135,7 @@ Limits are taken from Microsoft Learn.
 | Virtual network gateway | VGW | Resource group | 1–80 | Full (platform) |
 | Application Gateway | AGW | Resource group | 1–80 | Full |
 | VNet peering | PER | Parent VNet | 1–80 | Full |
-| Recovery Services vault | RSV | Resource group | 2–50, letters, digits, hyphens | Full |
+| Recovery Services vault | RSV (agreed 2026-10-31) | Resource group | 2–50, letters, digits, hyphens | Full |
 | User-assigned managed identity | UMI | Resource group | 3–128 | Full |
 | Container Apps Environment | CEV (existing) | Resource group | Validate | Full |
 | AVD scaling plan | to define | Resource group | Validate | Full |

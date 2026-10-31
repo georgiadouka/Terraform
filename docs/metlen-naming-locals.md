@@ -313,6 +313,7 @@ When a parent's name changes, its endpoints follow automatically.
 | NAT Gateway / its Public IP | `nat_gateways[<VNet key>].name` / `.public_ip_name` (NN from `virtual_networks.<key>.nat_gateway.sequence`; only VNets with a `nat_gateway = true` subnet) | Network | `M-AZU-NGW-IT-PPA-ECM-PRV-DEV-SWE-00` / `M-AZU-PIP-IT-PPA-ECM-PRV-DEV-SWE-00` |
 | Log Analytics workspace | `log_analytics_workspace` (NN from `log_analytics_workspace.sequence`) | Full | `M-AZU-LAW-IT-PPA-ECM-DEV-SWE-00` |
 | Application Insights | `application_insights` (NN from `application_insights.sequence`) | Full | `M-AZU-AIN-IT-PPA-ECM-DEV-SWE-00` |
+| Recovery Services vault / VM backup policies | `recovery_services_vault` (NN from `vm_backup.sequence`) / `vm_backup_policies[<key>]` | Full / key | `M-AZU-RSV-IT-PPA-ECM-DEV-SWE-00` / `default` |
 | Function App content share | `function_apps[<key>].content_share_name` | Fixed | `function-content` |
 | Private Endpoints | `local.private_endpoint_names[<endpoint>]` | Derived | `mazusoaitppaecmdevswe00-blob` |
 

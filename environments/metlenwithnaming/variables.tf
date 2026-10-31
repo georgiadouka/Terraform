@@ -398,7 +398,7 @@ variable "database_admin_password" {
 }
 
 variable "virtual_machines" {
-  description = "Linux or Windows virtual machines keyed by a stable logical name. Defaults to none; add one entry per VM. Every VM signs in with admin_username and the shared vm_admin_password (Linux VMs use password sign-in, no SSH keys). virtual_network selects the VNet whose virtual_machines subnet the VM joins (default: the PRV VNet)."
+  description = "Linux or Windows virtual machines keyed by a stable logical name. Defaults to none; add one entry per VM. Every VM signs in with admin_username and the shared vm_admin_password (Linux VMs use password sign-in, no SSH keys). virtual_network selects the VNet whose virtual_machines subnet the VM joins (default: the PRV VNet). Every VM is backed up to the shared Recovery Services vault with backup_policy (a vm_backup.policies key, default \"default\"); set backup = false to opt a VM out."
   type = map(object({
     size           = optional(string, "Standard_B2s_v2")
     admin_username = optional(string, "azureadmin")
@@ -429,6 +429,8 @@ variable "virtual_machines" {
     })
     load_balancer   = optional(string)
     virtual_network = optional(string)
+    backup          = optional(bool, true)
+    backup_policy   = optional(string, "default")
   }))
   default = {}
 
@@ -439,6 +441,14 @@ variable "virtual_machines" {
       !strcontains(key, "--")
     ])
     error_message = "virtual_machines keys must be 1-12 lowercase alphanumeric or hyphen characters, start with a letter, and not contain consecutive hyphens."
+  }
+
+  validation {
+    condition = alltrue([
+      for vm in values(var.virtual_machines) :
+      !var.vm_backup.enabled || !vm.backup || contains(keys(var.vm_backup.policies), vm.backup_policy)
+    ])
+    error_message = "Every backed-up virtual_machines entry needs a backup_policy (default \"default\") that is a vm_backup.policies key, or backup = false. Policies: ${join(", ", keys(var.vm_backup.policies))}. VMs: ${join(", ", [for key, vm in var.virtual_machines : "${key}=${vm.backup ? vm.backup_policy : "no backup"}"])}."
   }
 
   validation {
@@ -467,6 +477,62 @@ variable "virtual_machines" {
       )
     ])
     error_message = "Every virtual_machines entry with a load_balancer must be in the same virtual_network as that load balancer."
+  }
+}
+
+variable "vm_backup" {
+  description = "Azure Backup for virtual_machines entries. One Recovery Services vault, M-AZU-RSV-<BU>-<DPT>-<APP>-<ENV>-<REG>-<sequence> (sequence is the two-digit NN), is created when at least one VM is backed up; every VM is, unless it sets backup = false. enabled = false turns backup off for every VM. policies are Enhanced (V2) VM backup policies keyed by a stable name that is also the policy name in the vault (the only policy type that protects the Trusted Launch VMs this environment creates); VMs select one with backup_policy, default \"default\". The default policy backs up daily at 23:00 UTC, keeps instant-restore snapshots 7 days and daily recovery points 30 days. storage_mode_type is ZoneRedundant (default), GeoRedundant or LocallyRedundant, and Azure rejects a change once a VM is protected; cross_region_restore_enabled needs GeoRedundant. public_network_access_enabled defaults to false: VM backup and full-VM restore still work, file-level restore needs public access. immutability is Disabled, Unlocked or Locked (Locked cannot be undone). Soft delete is always on, so deleted backup data stays recoverable for 14 days."
+  type = object({
+    enabled                       = optional(bool, true)
+    sequence                      = optional(string, "00")
+    storage_mode_type             = optional(string, "ZoneRedundant")
+    cross_region_restore_enabled  = optional(bool, false)
+    public_network_access_enabled = optional(bool, false)
+    immutability                  = optional(string)
+    policies = optional(map(object({
+      timezone                       = optional(string, "UTC")
+      frequency                      = optional(string, "Daily")
+      time                           = optional(string, "23:00")
+      hour_interval                  = optional(number)
+      hour_duration                  = optional(number)
+      weekdays                       = optional(list(string), [])
+      instant_restore_retention_days = optional(number)
+      retention_daily                = optional(number)
+      retention_weekly = optional(object({
+        count    = number
+        weekdays = list(string)
+      }))
+      retention_monthly = optional(object({
+        count             = number
+        weekdays          = optional(list(string), [])
+        weeks             = optional(list(string), [])
+        days              = optional(list(number), [])
+        include_last_days = optional(bool, false)
+      }))
+      retention_yearly = optional(object({
+        count             = number
+        months            = list(string)
+        weekdays          = optional(list(string), [])
+        weeks             = optional(list(string), [])
+        days              = optional(list(number), [])
+        include_last_days = optional(bool, false)
+      }))
+    })), { default = {} })
+  })
+  default  = {}
+  nullable = false
+
+  validation {
+    condition     = can(regex("^[0-9]{2}$", var.vm_backup.sequence))
+    error_message = "vm_backup.sequence must be two digits, for example 00."
+  }
+
+  validation {
+    condition = length(var.vm_backup.policies) > 0 && alltrue([
+      for key in keys(var.vm_backup.policies) :
+      can(regex("^[a-z][a-z0-9-]{1,48}[a-z0-9]$", key)) && !strcontains(key, "--")
+    ])
+    error_message = "vm_backup.policies needs at least one policy, and every key (the policy name) must be 3-50 lowercase alphanumeric or hyphen characters, start with a letter, end with a letter or digit, and not contain consecutive hyphens."
   }
 }
 

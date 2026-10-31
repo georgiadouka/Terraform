@@ -121,6 +121,42 @@ module "virtual_machine" {
   depends_on = [module.nat_gateway]
 }
 
+locals {
+  # Backed-up VMs mapped to the vm_backup.policies key they use.
+  vm_backup_virtual_machines = var.vm_backup.enabled ? {
+    for key, vm in var.virtual_machines : key => vm.backup_policy if vm.backup
+  } : {}
+}
+
+# One vault shared by every backed-up VM. Azure VM backup uses the Azure
+# backbone, so the private VM subnets need no egress, Private Endpoint or DNS
+# for it.
+module "vm_backup" {
+  count  = length(local.vm_backup_virtual_machines) > 0 ? 1 : 0
+  source = "../../modules/vm-backup"
+
+  name                          = local.resource_names.recovery_services_vault
+  resource_group_name           = module.resource_group.name
+  location                      = module.resource_group.location
+  storage_mode_type             = var.vm_backup.storage_mode_type
+  cross_region_restore_enabled  = var.vm_backup.cross_region_restore_enabled
+  public_network_access_enabled = var.vm_backup.public_network_access_enabled
+  immutability                  = var.vm_backup.immutability
+  policies = {
+    for key, policy in var.vm_backup.policies : key => merge(
+      policy,
+      { name = local.resource_names.vm_backup_policies[key] }
+    )
+  }
+  protected_virtual_machines = {
+    for key, policy in local.vm_backup_virtual_machines : key => {
+      id     = module.virtual_machine[key].id
+      policy = policy
+    }
+  }
+  tags = local.common_tags
+}
+
 module "virtual_machine_scale_set" {
   for_each = var.virtual_machine_scale_sets
   source   = "../../modules/virtual-machine-scale-set"

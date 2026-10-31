@@ -58,6 +58,7 @@ run "services_are_opt_in" {
   assert {
     condition = (
       length(module.virtual_machine) == 0 &&
+      length(module.vm_backup) == 0 &&
       length(module.storage) == 0 &&
       length(module.premium_files) == 0 &&
       length(module.virtual_machine_scale_set) == 0 &&

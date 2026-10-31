@@ -75,6 +75,7 @@ All token values must exist in the controlled dictionary
 | 30 | Public IP (NAT Gateway) | Not in register | — | `M-AZU-PIP-IT-PPA-ECM-PRV-DEV-SWE-00` | `M-AZU-PIP-IT-PPA-GEO-DEV-SWE-05` ⁴ | Code `PIP` agreed 2026-10-28; mirrors the NAT Gateway's name (see 4.12) |
 | 31 | Log Analytics workspace | Not in register | — | `M-AZU-LAW-IT-PPA-ECM-DEV-SWE-00` | `M-AZU-LAW-IT-PPA-GEO-DEV-SWE-05` ⁴ | Code `LAW` agreed 2026-10-28; full family with NN (see 4.12) |
 | 32 | Application Insights | Not in register | — | `M-AZU-AIN-IT-PPA-ECM-DEV-SWE-00` | — | Code `AIN` agreed 2026-10-29; full family with NN (see 4.15) |
+| 33 | Recovery Services vault | Not in register | — | `M-AZU-RSV-IT-PPA-ECM-DEV-SWE-00` | — | Code `RSV` agreed 2026-10-31; full family with NN (see 4.17) |
 
 ¹ The `00` name already exists in Azure outside the test subscription (see 5),
 so the test deployment used NN `01`.
@@ -322,6 +323,20 @@ derived from the METLEN VNet names, so they stay readable and unique:
 | VNet peering | `<local VNet name>-to-<remote VNet name>`, scoped to the local VNet; Terraform rejects names over the 80-character limit instead of truncating them | `M-AZU-VNT-IT-PPA-ECM-PRV-DEV-SWE-to-M-AZU-VNT-IT-PPA-ECM-PUB-DEV-SWE` |
 | Hub peering, spoke / hub side | Same rule with the hub VNet name read from `hub_peering.hub_virtual_network_id` | `M-AZU-VNT-IT-PPA-ECM-PRV-DEV-SWE-to-vnet-hub` / `vnet-hub-to-M-AZU-VNT-IT-PPA-ECM-PRV-DEV-SWE` |
 | Private DNS zone link | The name of the linked VNet; link names are scoped to their zone | `M-AZU-VNT-IT-PPA-ECM-PRV-DEV-SWE` |
+
+### 4.17 Recovery Services vault (`RSV`, agreed 2026-10-31)
+
+The register has no code for Recovery Services vaults; `RSV`, suggested in
+the v0.2 review, was agreed on 2026-10-31 and still needs adding to the
+register. The name is scoped to the resource group and allows 2-50 letters,
+digits and hyphens, so it uses the full family with NN
+(`vm_backup.sequence`, default `00`). One vault backs up every VM.
+
+| Item | Family | Example |
+|---|---|---|
+| Recovery Services vault | Full family with NN | `M-AZU-RSV-IT-PPA-ECM-DEV-SWE-00` |
+| VM backup policies | Scoped to the vault: the `vm_backup.policies` key | `default` |
+| Instant-restore snapshot resource group | Created and named by Azure Backup, outside Terraform | `AzureBackupRG_swedencentral_1` |
 
 ## 5. Names already taken in Azure
 
