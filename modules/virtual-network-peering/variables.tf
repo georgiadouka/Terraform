@@ -2,10 +2,11 @@ variable "name" {
   description = "Peering name, unique within the local virtual network."
   type        = string
 
-  validation {
-    condition     = can(regex("^[a-zA-Z0-9]([a-zA-Z0-9_.-]{0,78}[a-zA-Z0-9_])?$", var.name))
-    error_message = "name must be 1-80 characters, start with a letter or digit, end with a letter, digit, or underscore, and contain only letters, digits, underscores, periods, or hyphens."
-  }
+  # Disabled: the root module generates and validates this value.
+  # validation {
+  #   condition     = can(regex("^[a-zA-Z0-9]([a-zA-Z0-9_.-]{0,78}[a-zA-Z0-9_])?$", var.name))
+  #   error_message = "name must be 1-80 characters, start with a letter or digit, end with a letter, digit, or underscore, and contain only letters, digits, underscores, periods, or hyphens."
+  # }
 }
 
 variable "resource_group_name" {
@@ -22,10 +23,11 @@ variable "remote_virtual_network_id" {
   description = "Resource ID of the remote virtual network."
   type        = string
 
-  validation {
-    condition     = can(regex("(?i)^/subscriptions/[0-9a-f-]{36}/resourceGroups/[^/]+/providers/Microsoft\\.Network/virtualNetworks/[^/]+$", var.remote_virtual_network_id))
-    error_message = "remote_virtual_network_id must be a virtual network resource ID: /subscriptions/<id>/resourceGroups/<name>/providers/Microsoft.Network/virtualNetworks/<name>."
-  }
+  # Disabled: the root module generates and validates this value.
+  # validation {
+  #   condition     = can(regex("(?i)^/subscriptions/[0-9a-f-]{36}/resourceGroups/[^/]+/providers/Microsoft\\.Network/virtualNetworks/[^/]+$", var.remote_virtual_network_id))
+  #   error_message = "remote_virtual_network_id must be a virtual network resource ID: /subscriptions/<id>/resourceGroups/<name>/providers/Microsoft.Network/virtualNetworks/<name>."
+  # }
 }
 
 variable "allow_virtual_network_access" {

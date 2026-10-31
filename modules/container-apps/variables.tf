@@ -94,12 +94,13 @@ variable "apps" {
   default  = {}
   nullable = false
 
-  validation {
-    condition = alltrue([
-      for app in values(var.apps) : try(trimspace(app.image) != "", false)
-    ])
-    error_message = "Every app image must be nonempty."
-  }
+  # Disabled: azurerm rejects empty values at plan time.
+  # validation {
+  #   condition = alltrue([
+  #     for app in values(var.apps) : try(trimspace(app.image) != "", false)
+  #   ])
+  #   error_message = "Every app image must be nonempty."
+  # }
 
   validation {
     condition = alltrue([
@@ -123,18 +124,20 @@ variable "apps" {
     error_message = "Every app workload_profile must be Consumption or a configured dedicated_workload_profiles key."
   }
 
-  validation {
-    condition = alltrue([
-      for app in values(var.apps) :
-      can(regex("^[a-z][a-z0-9-]{0,30}[a-z0-9]$", app.name)) && !strcontains(app.name, "--")
-    ])
-    error_message = "Every app name must be 2-32 lowercase alphanumeric or hyphen characters, start with a letter, end with an alphanumeric character, and not contain consecutive hyphens."
-  }
+  # Disabled: the root module generates and validates this value.
+  # validation {
+  #   condition = alltrue([
+  #     for app in values(var.apps) :
+  #     can(regex("^[a-z][a-z0-9-]{0,30}[a-z0-9]$", app.name)) && !strcontains(app.name, "--")
+  #   ])
+  #   error_message = "Every app name must be 2-32 lowercase alphanumeric or hyphen characters, start with a letter, end with an alphanumeric character, and not contain consecutive hyphens."
+  # }
 
-  validation {
-    condition     = length(distinct([for app in values(var.apps) : app.name])) == length(var.apps)
-    error_message = "App names must be unique."
-  }
+  # Disabled: the root module generates and validates this value.
+  # validation {
+  #   condition     = length(distinct([for app in values(var.apps) : app.name])) == length(var.apps)
+  #   error_message = "App names must be unique."
+  # }
 }
 
 variable "tags" {

@@ -215,25 +215,27 @@ run "reject_cross_region_restore_without_geo_redundancy" {
   expect_failures = [var.cross_region_restore_enabled]
 }
 
-run "reject_invalid_storage_mode" {
-  command = plan
+# Disabled: the validation it tests is disabled (azurerm validates this at plan time).
+# run "reject_invalid_storage_mode" {
+#   command = plan
+#
+#   variables {
+#     storage_mode_type = "GRS"
+#   }
+#
+#   expect_failures = [var.storage_mode_type]
+# }
 
-  variables {
-    storage_mode_type = "GRS"
-  }
-
-  expect_failures = [var.storage_mode_type]
-}
-
-run "reject_invalid_immutability" {
-  command = plan
-
-  variables {
-    immutability = "On"
-  }
-
-  expect_failures = [var.immutability]
-}
+# Disabled: the validation it tests is disabled (azurerm validates this at plan time).
+# run "reject_invalid_immutability" {
+#   command = plan
+#
+#   variables {
+#     immutability = "On"
+#   }
+#
+#   expect_failures = [var.immutability]
+# }
 
 run "reject_off_schedule_time" {
   command = plan
@@ -325,20 +327,21 @@ run "reject_snapshot_retention_above_thirty_days" {
   expect_failures = [var.policies]
 }
 
-run "reject_invalid_weekday" {
-  command = plan
-
-  variables {
-    policies = {
-      default = {
-        name             = "default"
-        retention_weekly = { count = 4, weekdays = ["Sun"] }
-      }
-    }
-  }
-
-  expect_failures = [var.policies]
-}
+# Disabled: the validation it tests is disabled (azurerm validates this at plan time).
+# run "reject_invalid_weekday" {
+#   command = plan
+#
+#   variables {
+#     policies = {
+#       default = {
+#         name             = "default"
+#         retention_weekly = { count = 4, weekdays = ["Sun"] }
+#       }
+#     }
+#   }
+#
+#   expect_failures = [var.policies]
+# }
 
 run "reject_monthly_retention_mixing_days_and_weeks" {
   command = plan

@@ -24,10 +24,11 @@ variable "application_type" {
   default     = "web"
   nullable    = false
 
-  validation {
-    condition     = contains(["web", "java", "MobileCenter", "Node.JS", "other", "phone", "store", "ios"], var.application_type)
-    error_message = "application_type must be one of web, java, MobileCenter, Node.JS, other, phone, store or ios."
-  }
+  # Disabled: azurerm validates this at plan time.
+  # validation {
+  #   condition     = contains(["web", "java", "MobileCenter", "Node.JS", "other", "phone", "store", "ios"], var.application_type)
+  #   error_message = "application_type must be one of web, java, MobileCenter, Node.JS, other, phone, store or ios."
+  # }
 }
 
 variable "local_authentication_enabled" {

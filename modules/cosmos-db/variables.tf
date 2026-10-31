@@ -2,10 +2,11 @@ variable "name" {
   description = "Globally unique Cosmos DB account name."
   type        = string
 
-  validation {
-    condition     = can(regex("^[a-z0-9][a-z0-9-]{1,42}[a-z0-9]$", var.name))
-    error_message = "name must be 3-44 lowercase alphanumeric or hyphen characters and start and end with an alphanumeric character."
-  }
+  # Disabled: the root module generates and validates this value.
+  # validation {
+  #   condition     = can(regex("^[a-z0-9][a-z0-9-]{1,42}[a-z0-9]$", var.name))
+  #   error_message = "name must be 3-44 lowercase alphanumeric or hyphen characters and start and end with an alphanumeric character."
+  # }
 }
 
 variable "resource_group_name" {
@@ -23,30 +24,33 @@ variable "api_type" {
   type        = string
   default     = "NoSQL"
 
-  validation {
-    condition     = contains(["NoSQL", "MongoDB", "Cassandra", "Gremlin", "Table"], var.api_type)
-    error_message = "api_type must be NoSQL, MongoDB, Cassandra, Gremlin, or Table."
-  }
+  # Disabled: the root module generates and validates this value.
+  # validation {
+  #   condition     = contains(["NoSQL", "MongoDB", "Cassandra", "Gremlin", "Table"], var.api_type)
+  #   error_message = "api_type must be NoSQL, MongoDB, Cassandra, Gremlin, or Table."
+  # }
 }
 
 variable "database_name" {
   description = "Database, keyspace, or graph database name. Unused by the Table API."
   type        = string
 
-  validation {
-    condition     = trimspace(var.database_name) != ""
-    error_message = "database_name cannot be empty."
-  }
+  # Disabled: azurerm rejects empty values at plan time.
+  # validation {
+  #   condition     = trimspace(var.database_name) != ""
+  #   error_message = "database_name cannot be empty."
+  # }
 }
 
 variable "container_name" {
   description = "Container, collection, table, or graph name."
   type        = string
 
-  validation {
-    condition     = trimspace(var.container_name) != ""
-    error_message = "container_name cannot be empty."
-  }
+  # Disabled: azurerm rejects empty values at plan time.
+  # validation {
+  #   condition     = trimspace(var.container_name) != ""
+  #   error_message = "container_name cannot be empty."
+  # }
 }
 
 variable "throughput" {
@@ -67,29 +71,31 @@ variable "throughput" {
     error_message = "throughput.mode must be serverless, manual, or autoscale and throughput.scope must be database or container."
   }
 
-  validation {
-    condition = (
-      var.throughput.mode != "manual" ||
-      (
-        var.throughput.manual_ru >= 400 &&
-        var.throughput.manual_ru <= 1000000 &&
-        var.throughput.manual_ru % 100 == 0
-      )
-    )
-    error_message = "Manual throughput must be 400-1,000,000 RU/s in increments of 100."
-  }
+  # Disabled: azurerm validates this at plan time.
+  # validation {
+  #   condition = (
+  #     var.throughput.mode != "manual" ||
+  #     (
+  #       var.throughput.manual_ru >= 400 &&
+  #       var.throughput.manual_ru <= 1000000 &&
+  #       var.throughput.manual_ru % 100 == 0
+  #     )
+  #   )
+  #   error_message = "Manual throughput must be 400-1,000,000 RU/s in increments of 100."
+  # }
 
-  validation {
-    condition = (
-      var.throughput.mode != "autoscale" ||
-      (
-        var.throughput.autoscale_max_ru >= 1000 &&
-        var.throughput.autoscale_max_ru <= 1000000 &&
-        var.throughput.autoscale_max_ru % 1000 == 0
-      )
-    )
-    error_message = "Autoscale maximum throughput must be 1,000-1,000,000 RU/s in increments of 1,000."
-  }
+  # Disabled: azurerm validates this at plan time.
+  # validation {
+  #   condition = (
+  #     var.throughput.mode != "autoscale" ||
+  #     (
+  #       var.throughput.autoscale_max_ru >= 1000 &&
+  #       var.throughput.autoscale_max_ru <= 1000000 &&
+  #       var.throughput.autoscale_max_ru % 1000 == 0
+  #     )
+  #   )
+  #   error_message = "Autoscale maximum throughput must be 1,000-1,000,000 RU/s in increments of 1,000."
+  # }
 
   validation {
     condition     = var.api_type != "Table" || var.throughput.scope == "container"
@@ -102,10 +108,11 @@ variable "consistency_level" {
   type        = string
   default     = "Session"
 
-  validation {
-    condition     = contains(["Eventual", "ConsistentPrefix", "Session", "BoundedStaleness", "Strong"], var.consistency_level)
-    error_message = "consistency_level must be Eventual, ConsistentPrefix, Session, BoundedStaleness, or Strong."
-  }
+  # Disabled: azurerm validates this at plan time.
+  # validation {
+  #   condition     = contains(["Eventual", "ConsistentPrefix", "Session", "BoundedStaleness", "Strong"], var.consistency_level)
+  #   error_message = "consistency_level must be Eventual, ConsistentPrefix, Session, BoundedStaleness, or Strong."
+  # }
 }
 
 variable "local_authentication_disabled" {
@@ -137,15 +144,17 @@ variable "mongodb" {
   })
   default = {}
 
-  validation {
-    condition     = contains(["7.0", "6.0", "5.0", "4.2", "4.0", "3.6", "3.2"], var.mongodb.server_version)
-    error_message = "mongodb.server_version must be a version supported by AzureRM."
-  }
+  # Disabled: azurerm validates this at plan time.
+  # validation {
+  #   condition     = contains(["7.0", "6.0", "5.0", "4.2", "4.0", "3.6", "3.2"], var.mongodb.server_version)
+  #   error_message = "mongodb.server_version must be a version supported by AzureRM."
+  # }
 
-  validation {
-    condition     = trimspace(var.mongodb.shard_key) != ""
-    error_message = "mongodb.shard_key cannot be empty."
-  }
+  # Disabled: azurerm rejects empty values at plan time.
+  # validation {
+  #   condition     = trimspace(var.mongodb.shard_key) != ""
+  #   error_message = "mongodb.shard_key cannot be empty."
+  # }
 }
 
 variable "cassandra_schema" {

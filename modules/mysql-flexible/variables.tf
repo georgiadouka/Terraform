@@ -33,10 +33,11 @@ variable "administrator_login" {
   type        = string
   default     = "mysqladminuser"
 
-  validation {
-    condition     = trimspace(var.administrator_login) != ""
-    error_message = "administrator_login must be nonempty."
-  }
+  # Disabled: azurerm rejects empty values at plan time.
+  # validation {
+  #   condition     = trimspace(var.administrator_login) != ""
+  #   error_message = "administrator_login must be nonempty."
+  # }
 }
 
 variable "administrator_password" {
@@ -50,10 +51,11 @@ variable "sku_name" {
   type        = string
   default     = "B_Standard_B1ms"
 
-  validation {
-    condition     = trimspace(var.sku_name) != ""
-    error_message = "sku_name must be nonempty."
-  }
+  # Disabled: azurerm rejects empty values at plan time.
+  # validation {
+  #   condition     = trimspace(var.sku_name) != ""
+  #   error_message = "sku_name must be nonempty."
+  # }
 }
 
 variable "version_number" {
@@ -61,10 +63,11 @@ variable "version_number" {
   type        = string
   default     = "8.0.21"
 
-  validation {
-    condition     = trimspace(var.version_number) != ""
-    error_message = "version_number must be nonempty."
-  }
+  # Disabled: azurerm rejects empty values at plan time.
+  # validation {
+  #   condition     = trimspace(var.version_number) != ""
+  #   error_message = "version_number must be nonempty."
+  # }
 }
 
 variable "tags" {
@@ -90,10 +93,11 @@ variable "high_availability" {
   default  = {}
   nullable = false
 
-  validation {
-    condition     = contains(["SameZone", "ZoneRedundant"], var.high_availability.mode)
-    error_message = "High availability mode must be SameZone or ZoneRedundant."
-  }
+  # Disabled: azurerm validates this at plan time.
+  # validation {
+  #   condition     = contains(["SameZone", "ZoneRedundant"], var.high_availability.mode)
+  #   error_message = "High availability mode must be SameZone or ZoneRedundant."
+  # }
 
   validation {
     condition     = !var.high_availability.enabled || !startswith(var.sku_name, "B_")

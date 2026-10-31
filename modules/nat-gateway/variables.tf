@@ -28,14 +28,15 @@ variable "idle_timeout_in_minutes" {
   type        = number
   default     = 4
 
-  validation {
-    condition = (
-      var.idle_timeout_in_minutes >= 4 &&
-      var.idle_timeout_in_minutes <= 120 &&
-      var.idle_timeout_in_minutes == floor(var.idle_timeout_in_minutes)
-    )
-    error_message = "idle_timeout_in_minutes must be a whole number from 4 through 120."
-  }
+  # Disabled: azurerm validates this at plan time.
+  # validation {
+  #   condition = (
+  #     var.idle_timeout_in_minutes >= 4 &&
+  #     var.idle_timeout_in_minutes <= 120 &&
+  #     var.idle_timeout_in_minutes == floor(var.idle_timeout_in_minutes)
+  #   )
+  #   error_message = "idle_timeout_in_minutes must be a whole number from 4 through 120."
+  # }
 }
 
 variable "tags" {

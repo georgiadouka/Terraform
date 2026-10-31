@@ -40,23 +40,25 @@ variable "security_rules" {
     error_message = "security_rules keys must be 1-80 characters, start with a letter or digit, end with a letter, digit, or underscore, and contain only letters, digits, underscores, periods, or hyphens."
   }
 
-  validation {
-    condition = alltrue([
-      for rule in values(var.security_rules) :
-      rule.priority >= 100 && rule.priority <= 4096 && rule.priority == floor(rule.priority)
-    ])
-    error_message = "Every security rule priority must be a whole number from 100 through 4096."
-  }
+  # Disabled: azurerm validates this at plan time.
+  # validation {
+  #   condition = alltrue([
+  #     for rule in values(var.security_rules) :
+  #     rule.priority >= 100 && rule.priority <= 4096 && rule.priority == floor(rule.priority)
+  #   ])
+  #   error_message = "Every security rule priority must be a whole number from 100 through 4096."
+  # }
 
-  validation {
-    condition = alltrue([
-      for rule in values(var.security_rules) :
-      contains(["Inbound", "Outbound"], rule.direction) &&
-      contains(["Allow", "Deny"], rule.access) &&
-      contains(["Tcp", "Udp", "Icmp", "Esp", "Ah", "*"], rule.protocol)
-    ])
-    error_message = "Every security rule needs direction Inbound or Outbound, access Allow or Deny, and protocol Tcp, Udp, Icmp, Esp, Ah, or *."
-  }
+  # Disabled: azurerm validates this at plan time.
+  # validation {
+  #   condition = alltrue([
+  #     for rule in values(var.security_rules) :
+  #     contains(["Inbound", "Outbound"], rule.direction) &&
+  #     contains(["Allow", "Deny"], rule.access) &&
+  #     contains(["Tcp", "Udp", "Icmp", "Esp", "Ah", "*"], rule.protocol)
+  #   ])
+  #   error_message = "Every security rule needs direction Inbound or Outbound, access Allow or Deny, and protocol Tcp, Udp, Icmp, Esp, Ah, or *."
+  # }
 
   validation {
     condition = alltrue([

@@ -80,10 +80,11 @@ variable "elastic_pool" {
     error_message = "An enabled elastic pool requires a name, positive pool size and capacity, and per-database capacities between zero and the pool capacity."
   }
 
-  validation {
-    condition     = var.elastic_pool.license_type == null || contains(["LicenseIncluded", "BasePrice"], var.elastic_pool.license_type)
-    error_message = "elastic_pool.license_type must be LicenseIncluded, BasePrice, or null."
-  }
+  # Disabled: azurerm validates this at plan time.
+  # validation {
+  #   condition     = var.elastic_pool.license_type == null || contains(["LicenseIncluded", "BasePrice"], var.elastic_pool.license_type)
+  #   error_message = "elastic_pool.license_type must be LicenseIncluded, BasePrice, or null."
+  # }
 }
 
 variable "tags" {

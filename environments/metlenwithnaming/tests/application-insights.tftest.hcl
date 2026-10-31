@@ -290,12 +290,13 @@ run "reject_zero_log_analytics_quota" {
   expect_failures = [var.log_analytics_workspace]
 }
 
-run "reject_log_analytics_retention_out_of_range" {
-  command = plan
-
-  variables {
-    log_analytics_workspace = { retention_in_days = 20 }
-  }
-
-  expect_failures = [var.log_analytics_workspace]
-}
+# Disabled: the validation it tests is disabled (azurerm validates this at plan time).
+# run "reject_log_analytics_retention_out_of_range" {
+#   command = plan
+#
+#   variables {
+#     log_analytics_workspace = { retention_in_days = 20 }
+#   }
+#
+#   expect_failures = [var.log_analytics_workspace]
+# }

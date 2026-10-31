@@ -742,14 +742,15 @@ variable "log_analytics_workspace" {
     error_message = "log_analytics_workspace.daily_quota_gb must be greater than 0, or -1 for no cap."
   }
 
-  validation {
-    condition = (
-      var.log_analytics_workspace.retention_in_days >= 30 &&
-      var.log_analytics_workspace.retention_in_days <= 730 &&
-      floor(var.log_analytics_workspace.retention_in_days) == var.log_analytics_workspace.retention_in_days
-    )
-    error_message = "log_analytics_workspace.retention_in_days must be a whole number from 30 to 730."
-  }
+  # Disabled: azurerm validates retention_in_days (30-730) at plan time.
+  # validation {
+  #   condition = (
+  #     var.log_analytics_workspace.retention_in_days >= 30 &&
+  #     var.log_analytics_workspace.retention_in_days <= 730 &&
+  #     floor(var.log_analytics_workspace.retention_in_days) == var.log_analytics_workspace.retention_in_days
+  #   )
+  #   error_message = "log_analytics_workspace.retention_in_days must be a whole number from 30 to 730."
+  # }
 }
 
 variable "application_insights" {

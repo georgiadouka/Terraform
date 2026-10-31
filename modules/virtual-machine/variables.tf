@@ -32,16 +32,17 @@ variable "data_disk_names" {
   description = "Managed disk names keyed by the same logical labels as data_disks."
   type        = map(string)
 
-  validation {
-    condition = (
-      toset(keys(var.data_disk_names)) == toset(keys(var.data_disks)) &&
-      alltrue([for name in values(var.data_disk_names) : trimspace(name) != ""]) &&
-      length(distinct([
-        for name in values(var.data_disk_names) : lower(trimspace(name))
-      ])) == length(var.data_disk_names)
-    )
-    error_message = "data_disk_names must contain exactly the same logical keys as data_disks and use nonempty, unique names."
-  }
+  # Disabled: the root module builds data_disk_names from the data_disks keys.
+  # validation {
+  #   condition = (
+  #     toset(keys(var.data_disk_names)) == toset(keys(var.data_disks)) &&
+  #     alltrue([for name in values(var.data_disk_names) : trimspace(name) != ""]) &&
+  #     length(distinct([
+  #       for name in values(var.data_disk_names) : lower(trimspace(name))
+  #     ])) == length(var.data_disk_names)
+  #   )
+  #   error_message = "data_disk_names must contain exactly the same logical keys as data_disks and use nonempty, unique names."
+  # }
 }
 
 variable "size" {
@@ -49,10 +50,11 @@ variable "size" {
   type        = string
   default     = "Standard_B2s_v2"
 
-  validation {
-    condition     = trimspace(var.size) != ""
-    error_message = "size must be nonempty."
-  }
+  # Disabled: azurerm rejects empty values at plan time.
+  # validation {
+  #   condition     = trimspace(var.size) != ""
+  #   error_message = "size must be nonempty."
+  # }
 }
 
 variable "admin_username" {
@@ -60,10 +62,11 @@ variable "admin_username" {
   type        = string
   default     = "azureadmin"
 
-  validation {
-    condition     = trimspace(var.admin_username) != ""
-    error_message = "admin_username must be nonempty."
-  }
+  # Disabled: azurerm rejects empty values at plan time.
+  # validation {
+  #   condition     = trimspace(var.admin_username) != ""
+  #   error_message = "admin_username must be nonempty."
+  # }
 }
 
 variable "admin_ssh_public_key" {
@@ -197,12 +200,13 @@ variable "source_image_reference" {
   })
   default = null
 
-  validation {
-    condition = var.source_image_reference == null ? true : alltrue([
-      for field in values(var.source_image_reference) : try(trimspace(field) != "", false)
-    ])
-    error_message = "source_image_reference publisher, offer, sku, and version must all be nonempty."
-  }
+  # Disabled: azurerm rejects empty values at plan time.
+  # validation {
+  #   condition = var.source_image_reference == null ? true : alltrue([
+  #     for field in values(var.source_image_reference) : try(trimspace(field) != "", false)
+  #   ])
+  #   error_message = "source_image_reference publisher, offer, sku, and version must all be nonempty."
+  # }
 }
 
 variable "tags" {

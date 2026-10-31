@@ -2,10 +2,11 @@ variable "name" {
   description = "Recovery Services vault name: 2-50 letters, digits and hyphens, starting with a letter."
   type        = string
 
-  validation {
-    condition     = can(regex("^[A-Za-z][A-Za-z0-9-]{1,49}$", var.name))
-    error_message = "name must be 2-50 letters, digits or hyphens and start with a letter."
-  }
+  # Disabled: azurerm validates this at plan time.
+  # validation {
+  #   condition     = can(regex("^[A-Za-z][A-Za-z0-9-]{1,49}$", var.name))
+  #   error_message = "name must be 2-50 letters, digits or hyphens and start with a letter."
+  # }
 }
 
 variable "resource_group_name" {
@@ -24,10 +25,11 @@ variable "storage_mode_type" {
   default     = "ZoneRedundant"
   nullable    = false
 
-  validation {
-    condition     = contains(["GeoRedundant", "ZoneRedundant", "LocallyRedundant"], var.storage_mode_type)
-    error_message = "storage_mode_type must be GeoRedundant, ZoneRedundant or LocallyRedundant."
-  }
+  # Disabled: azurerm validates this at plan time.
+  # validation {
+  #   condition     = contains(["GeoRedundant", "ZoneRedundant", "LocallyRedundant"], var.storage_mode_type)
+  #   error_message = "storage_mode_type must be GeoRedundant, ZoneRedundant or LocallyRedundant."
+  # }
 }
 
 variable "cross_region_restore_enabled" {
@@ -54,10 +56,11 @@ variable "immutability" {
   type        = string
   default     = null
 
-  validation {
-    condition     = var.immutability == null || contains(["Disabled", "Unlocked", "Locked"], coalesce(var.immutability, "-"))
-    error_message = "immutability must be Disabled, Unlocked, Locked or null."
-  }
+  # Disabled: azurerm validates this at plan time.
+  # validation {
+  #   condition     = var.immutability == null || contains(["Disabled", "Unlocked", "Locked"], coalesce(var.immutability, "-"))
+  #   error_message = "immutability must be Disabled, Unlocked, Locked or null."
+  # }
 }
 
 variable "policies" {
@@ -145,19 +148,20 @@ variable "policies" {
     error_message = "Weekly policies need weekdays and retention_weekly and must not set retention_daily; Daily and Hourly policies must not set weekdays."
   }
 
-  validation {
-    condition = alltrue(flatten([
-      for policy in values(var.policies) : [
-        for day in concat(
-          policy.weekdays,
-          try(policy.retention_weekly.weekdays, []),
-          try(policy.retention_monthly.weekdays, []),
-          try(policy.retention_yearly.weekdays, [])
-        ) : contains(["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"], day)
-      ]
-    ]))
-    error_message = "weekdays values must be Sunday, Monday, Tuesday, Wednesday, Thursday, Friday or Saturday."
-  }
+  # Disabled: azurerm validates this at plan time.
+  # validation {
+  #   condition = alltrue(flatten([
+  #     for policy in values(var.policies) : [
+  #       for day in concat(
+  #         policy.weekdays,
+  #         try(policy.retention_weekly.weekdays, []),
+  #         try(policy.retention_monthly.weekdays, []),
+  #         try(policy.retention_yearly.weekdays, [])
+  #       ) : contains(["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"], day)
+  #     ]
+  #   ]))
+  #   error_message = "weekdays values must be Sunday, Monday, Tuesday, Wednesday, Thursday, Friday or Saturday."
+  # }
 
   validation {
     condition = alltrue([

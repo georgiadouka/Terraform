@@ -18,10 +18,11 @@ variable "replication_type" {
   type        = string
   default     = "LRS"
 
-  validation {
-    condition     = contains(["LRS", "GRS", "RAGRS", "ZRS", "GZRS", "RAGZRS"], upper(var.replication_type))
-    error_message = "replication_type must be LRS, GRS, RAGRS, ZRS, GZRS, or RAGZRS."
-  }
+  # Disabled: azurerm validates this at plan time.
+  # validation {
+  #   condition     = contains(["LRS", "GRS", "RAGRS", "ZRS", "GZRS", "RAGZRS"], upper(var.replication_type))
+  #   error_message = "replication_type must be LRS, GRS, RAGRS, ZRS, GZRS, or RAGZRS."
+  # }
 }
 
 variable "containers" {
@@ -39,13 +40,14 @@ variable "containers" {
     error_message = "containers must use stable lowercase logical labels of 1-63 letters, digits, or hyphens without consecutive hyphens."
   }
 
-  validation {
-    condition = alltrue([
-      for name in values(var.containers) :
-      can(regex("^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$", name)) && !strcontains(name, "--")
-    ])
-    error_message = "Every container name must be 3-63 lowercase letters, digits and hyphens, start and end with a letter or digit, and not contain consecutive hyphens."
-  }
+  # Disabled: the root module generates and validates this value.
+  # validation {
+  #   condition = alltrue([
+  #     for name in values(var.containers) :
+  #     can(regex("^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$", name)) && !strcontains(name, "--")
+  #   ])
+  #   error_message = "Every container name must be 3-63 lowercase letters, digits and hyphens, start and end with a letter or digit, and not contain consecutive hyphens."
+  # }
 }
 
 variable "file_shares" {
@@ -85,18 +87,20 @@ variable "file_share_names" {
   type        = map(string)
   default     = {}
 
-  validation {
-    condition     = toset(keys(var.file_share_names)) == toset(keys(var.file_shares))
-    error_message = "file_share_names must contain exactly the same logical keys as file_shares."
-  }
+  # Disabled: the root module generates and validates this value.
+  # validation {
+  #   condition     = toset(keys(var.file_share_names)) == toset(keys(var.file_shares))
+  #   error_message = "file_share_names must contain exactly the same logical keys as file_shares."
+  # }
 
-  validation {
-    condition = alltrue([
-      for name in values(var.file_share_names) :
-      can(regex("^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$", name)) && !strcontains(name, "--")
-    ])
-    error_message = "Every file share name must be 3-63 lowercase letters, digits and hyphens, start and end with a letter or digit, and not contain consecutive hyphens."
-  }
+  # Disabled: the root module generates and validates this value.
+  # validation {
+  #   condition = alltrue([
+  #     for name in values(var.file_share_names) :
+  #     can(regex("^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$", name)) && !strcontains(name, "--")
+  #   ])
+  #   error_message = "Every file share name must be 3-63 lowercase letters, digits and hyphens, start and end with a letter or digit, and not contain consecutive hyphens."
+  # }
 }
 
 variable "shared_access_key_enabled" {

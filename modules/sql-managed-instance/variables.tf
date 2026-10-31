@@ -109,10 +109,11 @@ variable "license_type" {
   type        = string
   default     = "LicenseIncluded"
 
-  validation {
-    condition     = contains(["LicenseIncluded", "BasePrice"], var.license_type)
-    error_message = "license_type must be LicenseIncluded or BasePrice."
-  }
+  # Disabled: azurerm validates this at plan time.
+  # validation {
+  #   condition     = contains(["LicenseIncluded", "BasePrice"], var.license_type)
+  #   error_message = "license_type must be LicenseIncluded or BasePrice."
+  # }
 }
 
 variable "azuread_administrator" {

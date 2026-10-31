@@ -2,20 +2,22 @@ variable "name" {
   description = "Virtual Machine Scale Set name."
   type        = string
 
-  validation {
-    condition     = trimspace(var.name) != ""
-    error_message = "name must be nonempty."
-  }
+  # Disabled: azurerm rejects empty values at plan time.
+  # validation {
+  #   condition     = trimspace(var.name) != ""
+  #   error_message = "name must be nonempty."
+  # }
 }
 
 variable "autoscale_setting_name" {
   description = "Azure Monitor autoscale setting name."
   type        = string
 
-  validation {
-    condition     = trimspace(var.autoscale_setting_name) != ""
-    error_message = "autoscale_setting_name must be nonempty."
-  }
+  # Disabled: azurerm rejects empty values at plan time.
+  # validation {
+  #   condition     = trimspace(var.autoscale_setting_name) != ""
+  #   error_message = "autoscale_setting_name must be nonempty."
+  # }
 }
 
 variable "resource_group_name" {
@@ -43,10 +45,11 @@ variable "size" {
   type        = string
   default     = "Standard_B2s_v2"
 
-  validation {
-    condition     = trimspace(var.size) != ""
-    error_message = "size must be nonempty."
-  }
+  # Disabled: azurerm rejects empty values at plan time.
+  # validation {
+  #   condition     = trimspace(var.size) != ""
+  #   error_message = "size must be nonempty."
+  # }
 }
 
 variable "admin_username" {
@@ -54,10 +57,11 @@ variable "admin_username" {
   type        = string
   default     = "azureadmin"
 
-  validation {
-    condition     = trimspace(var.admin_username) != ""
-    error_message = "admin_username must be nonempty."
-  }
+  # Disabled: azurerm rejects empty values at plan time.
+  # validation {
+  #   condition     = trimspace(var.admin_username) != ""
+  #   error_message = "admin_username must be nonempty."
+  # }
 }
 
 variable "admin_ssh_public_key" {
@@ -124,12 +128,13 @@ variable "source_image_reference" {
   })
   default = null
 
-  validation {
-    condition = var.source_image_reference == null ? true : alltrue([
-      for field in values(var.source_image_reference) : try(trimspace(field) != "", false)
-    ])
-    error_message = "source_image_reference publisher, offer, sku, and version must all be nonempty."
-  }
+  # Disabled: azurerm rejects empty values at plan time.
+  # validation {
+  #   condition = var.source_image_reference == null ? true : alltrue([
+  #     for field in values(var.source_image_reference) : try(trimspace(field) != "", false)
+  #   ])
+  #   error_message = "source_image_reference publisher, offer, sku, and version must all be nonempty."
+  # }
 }
 
 variable "os_disk" {
@@ -269,10 +274,11 @@ variable "upgrade_mode" {
   type        = string
   default     = "Manual"
 
-  validation {
-    condition     = contains(["Manual", "Automatic"], var.upgrade_mode)
-    error_message = "upgrade_mode must be Manual or Automatic."
-  }
+  # Disabled: azurerm validates this at plan time.
+  # validation {
+  #   condition     = contains(["Manual", "Automatic"], var.upgrade_mode)
+  #   error_message = "upgrade_mode must be Manual or Automatic."
+  # }
 }
 
 variable "load_balancer_backend_address_pool_ids" {

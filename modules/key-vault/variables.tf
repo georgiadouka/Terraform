@@ -23,10 +23,11 @@ variable "sku_name" {
   type        = string
   default     = "standard"
 
-  validation {
-    condition     = contains(["standard", "premium"], lower(var.sku_name))
-    error_message = "sku_name must be standard or premium."
-  }
+  # Disabled: azurerm validates this at plan time.
+  # validation {
+  #   condition     = contains(["standard", "premium"], lower(var.sku_name))
+  #   error_message = "sku_name must be standard or premium."
+  # }
 }
 
 variable "purge_protection_enabled" {

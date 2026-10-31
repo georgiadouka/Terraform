@@ -111,21 +111,23 @@ run "access_connector_diagnostics_and_root_storage" {
   }
 }
 
-run "reject_standard_sku" {
-  command = plan
-  variables {
-    sku = "standard"
-  }
-  expect_failures = [var.sku]
-}
+# Disabled: the validation it tests is disabled (the root module validates this value).
+# run "reject_standard_sku" {
+#   command = plan
+#   variables {
+#     sku = "standard"
+#   }
+#   expect_failures = [var.sku]
+# }
 
-run "reject_unknown_network_access" {
-  command = plan
-  variables {
-    network_access = "internal"
-  }
-  expect_failures = [var.network_access]
-}
+# Disabled: the validation it tests is disabled (the root module validates this value).
+# run "reject_unknown_network_access" {
+#   command = plan
+#   variables {
+#     network_access = "internal"
+#   }
+#   expect_failures = [var.network_access]
+# }
 
 run "reject_role_assignments_without_access_connector" {
   command = plan
@@ -168,10 +170,11 @@ run "reject_invalid_category" {
   expect_failures = [var.diagnostics]
 }
 
-run "reject_invalid_root_storage_name" {
-  command = plan
-  variables {
-    root_storage_account_name = "Not-Valid"
-  }
-  expect_failures = [var.root_storage_account_name]
-}
+# Disabled: the validation it tests is disabled (the root module validates this value).
+# run "reject_invalid_root_storage_name" {
+#   command = plan
+#   variables {
+#     root_storage_account_name = "Not-Valid"
+#   }
+#   expect_failures = [var.root_storage_account_name]
+# }

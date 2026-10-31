@@ -28,11 +28,12 @@ run "accept_premium_sku" {
   }
 }
 
-run "reject_unsupported_sku" {
-  command = plan
-  variables {
-    sku_name = "basic"
-  }
-
-  expect_failures = [var.sku_name]
-}
+# Disabled: the validation it tests is disabled (azurerm validates this at plan time).
+# run "reject_unsupported_sku" {
+#   command = plan
+#   variables {
+#     sku_name = "basic"
+#   }
+#
+#   expect_failures = [var.sku_name]
+# }

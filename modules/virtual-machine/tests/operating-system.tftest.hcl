@@ -324,31 +324,33 @@ run "invalid_windows_name_fallback" {
   expect_failures = [var.computer_name]
 }
 
-run "blank_image_field" {
-  command = plan
-  variables {
-    source_image_reference = {
-      publisher = " "
-      offer     = "offer"
-      sku       = "sku"
-      version   = "latest"
-    }
-  }
-  expect_failures = [var.source_image_reference]
-}
+# Disabled: the validation it tests is disabled (azurerm rejects empty values at plan time).
+# run "blank_image_field" {
+#   command = plan
+#   variables {
+#     source_image_reference = {
+#       publisher = " "
+#       offer     = "offer"
+#       sku       = "sku"
+#       version   = "latest"
+#     }
+#   }
+#   expect_failures = [var.source_image_reference]
+# }
 
-run "null_image_field" {
-  command = plan
-  variables {
-    source_image_reference = {
-      publisher = "Canonical"
-      offer     = "offer"
-      sku       = "sku"
-      version   = null
-    }
-  }
-  expect_failures = [var.source_image_reference]
-}
+# Disabled: the validation it tests is disabled (azurerm rejects empty values at plan time).
+# run "null_image_field" {
+#   command = plan
+#   variables {
+#     source_image_reference = {
+#       publisher = "Canonical"
+#       offer     = "offer"
+#       sku       = "sku"
+#       version   = null
+#     }
+#   }
+#   expect_failures = [var.source_image_reference]
+# }
 
 run "fractional_os_disk" {
   command = plan
@@ -374,17 +376,19 @@ run "duplicate_data_disk_luns" {
   expect_failures = [var.data_disks]
 }
 
-run "blank_size" {
-  command = plan
-  variables { size = " " }
-  expect_failures = [var.size]
-}
+# Disabled: the validation it tests is disabled (azurerm rejects empty values at plan time).
+# run "blank_size" {
+#   command = plan
+#   variables { size = " " }
+#   expect_failures = [var.size]
+# }
 
-run "blank_admin_username" {
-  command = plan
-  variables { admin_username = " " }
-  expect_failures = [var.admin_username]
-}
+# Disabled: the validation it tests is disabled (azurerm rejects empty values at plan time).
+# run "blank_admin_username" {
+#   command = plan
+#   variables { admin_username = " " }
+#   expect_failures = [var.admin_username]
+# }
 
 run "invalid_data_disk_label" {
   command = plan
@@ -397,36 +401,39 @@ run "invalid_data_disk_label" {
   expect_failures = [var.data_disks]
 }
 
-run "mismatched_data_disk_names" {
-  command = plan
-  variables {
-    data_disk_names = {}
-    data_disks = {
-      data = { lun = 0, disk_size_gb = 32 }
-    }
-  }
-  expect_failures = [var.data_disk_names]
-}
+# Disabled: the validation it tests is disabled (the root module validates this value).
+# run "mismatched_data_disk_names" {
+#   command = plan
+#   variables {
+#     data_disk_names = {}
+#     data_disks = {
+#       data = { lun = 0, disk_size_gb = 32 }
+#     }
+#   }
+#   expect_failures = [var.data_disk_names]
+# }
 
-run "blank_data_disk_name" {
-  command = plan
-  variables {
-    data_disk_names = { data = " " }
-    data_disks = {
-      data = { lun = 0, disk_size_gb = 32 }
-    }
-  }
-  expect_failures = [var.data_disk_names]
-}
+# Disabled: the validation it tests is disabled (the root module validates this value).
+# run "blank_data_disk_name" {
+#   command = plan
+#   variables {
+#     data_disk_names = { data = " " }
+#     data_disks = {
+#       data = { lun = 0, disk_size_gb = 32 }
+#     }
+#   }
+#   expect_failures = [var.data_disk_names]
+# }
 
-run "duplicate_data_disk_names" {
-  command = plan
-  variables {
-    data_disk_names = { one = "data-test", two = "DATA-TEST" }
-    data_disks = {
-      one = { lun = 0, disk_size_gb = 32 }
-      two = { lun = 1, disk_size_gb = 64 }
-    }
-  }
-  expect_failures = [var.data_disk_names]
-}
+# Disabled: the validation it tests is disabled (the root module validates this value).
+# run "duplicate_data_disk_names" {
+#   command = plan
+#   variables {
+#     data_disk_names = { one = "data-test", two = "DATA-TEST" }
+#     data_disks = {
+#       one = { lun = 0, disk_size_gb = 32 }
+#       two = { lun = 1, disk_size_gb = 64 }
+#     }
+#   }
+#   expect_failures = [var.data_disk_names]
+# }

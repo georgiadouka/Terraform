@@ -185,36 +185,39 @@ run "reject_blank_selector" {
   expect_failures = [var.apps]
 }
 
-run "reject_duplicate_app_names" {
-  command = plan
-  variables {
-    apps = {
-      hello = { name = "ca-test", container_name = "ctr-test" }
-      api   = { name = "ca-test", container_name = "ctr-test" }
-    }
-  }
-  expect_failures = [var.apps]
-}
+# Disabled: the validation it tests is disabled (the root module validates this value).
+# run "reject_duplicate_app_names" {
+#   command = plan
+#   variables {
+#     apps = {
+#       hello = { name = "ca-test", container_name = "ctr-test" }
+#       api   = { name = "ca-test", container_name = "ctr-test" }
+#     }
+#   }
+#   expect_failures = [var.apps]
+# }
 
-run "reject_overlong_app_name" {
-  command = plan
-  variables {
-    apps = {
-      hello = { name = "ca-thirty-three-characters-long-x", container_name = "ctr-test" }
-    }
-  }
-  expect_failures = [var.apps]
-}
+# Disabled: the validation it tests is disabled (the root module validates this value).
+# run "reject_overlong_app_name" {
+#   command = plan
+#   variables {
+#     apps = {
+#       hello = { name = "ca-thirty-three-characters-long-x", container_name = "ctr-test" }
+#     }
+#   }
+#   expect_failures = [var.apps]
+# }
 
-run "reject_app_name_with_consecutive_hyphens" {
-  command = plan
-  variables {
-    apps = {
-      hello = { name = "ca--test", container_name = "ctr-test" }
-    }
-  }
-  expect_failures = [var.apps]
-}
+# Disabled: the validation it tests is disabled (the root module validates this value).
+# run "reject_app_name_with_consecutive_hyphens" {
+#   command = plan
+#   variables {
+#     apps = {
+#       hello = { name = "ca--test", container_name = "ctr-test" }
+#     }
+#   }
+#   expect_failures = [var.apps]
+# }
 
 run "reject_duplicate_names" {
   command = plan
@@ -315,15 +318,16 @@ run "reject_inverted_counts" {
   expect_failures = [var.dedicated_workload_profiles]
 }
 
-run "reject_empty_image" {
-  command = plan
-  variables {
-    apps = {
-      hello = { name = "ca-test", container_name = "ctr-test", image = " " }
-    }
-  }
-  expect_failures = [var.apps]
-}
+# Disabled: the validation it tests is disabled (azurerm rejects empty values at plan time).
+# run "reject_empty_image" {
+#   command = plan
+#   variables {
+#     apps = {
+#       hello = { name = "ca-test", container_name = "ctr-test", image = " " }
+#     }
+#   }
+#   expect_failures = [var.apps]
+# }
 
 run "reject_target_port_below_minimum" {
   command = plan

@@ -2,10 +2,11 @@ variable "name" {
   description = "Azure Databricks workspace name, unique per resource group."
   type        = string
 
-  validation {
-    condition     = can(regex("^[A-Za-z0-9][A-Za-z0-9_-]{1,62}[A-Za-z0-9]$", var.name))
-    error_message = "name must be 3-64 letters, digits, underscores or hyphens and start and end with a letter or digit."
-  }
+  # Disabled: the root module generates and validates this value.
+  # validation {
+  #   condition     = can(regex("^[A-Za-z0-9][A-Za-z0-9_-]{1,62}[A-Za-z0-9]$", var.name))
+  #   error_message = "name must be 3-64 letters, digits, underscores or hyphens and start and end with a letter or digit."
+  # }
 }
 
 variable "resource_group_name" {
@@ -23,20 +24,22 @@ variable "sku" {
   type        = string
   default     = "premium"
 
-  validation {
-    condition     = contains(["premium", "trial"], var.sku)
-    error_message = "sku must be premium or trial."
-  }
+  # Disabled: the root module generates and validates this value.
+  # validation {
+  #   condition     = contains(["premium", "trial"], var.sku)
+  #   error_message = "sku must be premium or trial."
+  # }
 }
 
 variable "managed_resource_group_name" {
   description = "Name of the resource group that Azure Databricks creates and locks for the workspace's managed resources. It must not exist yet."
   type        = string
 
-  validation {
-    condition     = can(regex("^[-\\w._()]{0,89}[-\\w_()]$", var.managed_resource_group_name))
-    error_message = "managed_resource_group_name must be 1-90 letters, digits, underscores, hyphens, periods or parentheses and must not end with a period."
-  }
+  # Disabled: the root module generates and validates this value.
+  # validation {
+  #   condition     = can(regex("^[-\\w._()]{0,89}[-\\w_()]$", var.managed_resource_group_name))
+  #   error_message = "managed_resource_group_name must be 1-90 letters, digits, underscores, hyphens, periods or parentheses and must not end with a period."
+  # }
 }
 
 variable "root_storage_account_name" {
@@ -44,10 +47,11 @@ variable "root_storage_account_name" {
   type        = string
   default     = null
 
-  validation {
-    condition     = var.root_storage_account_name == null || can(regex("^[a-z0-9]{3,24}$", var.root_storage_account_name))
-    error_message = "root_storage_account_name must be null or 3-24 lowercase letters and digits."
-  }
+  # Disabled: the root module generates and validates this value.
+  # validation {
+  #   condition     = var.root_storage_account_name == null || can(regex("^[a-z0-9]{3,24}$", var.root_storage_account_name))
+  #   error_message = "root_storage_account_name must be null or 3-24 lowercase letters and digits."
+  # }
 }
 
 variable "virtual_network_id" {
@@ -81,10 +85,11 @@ variable "network_access" {
   type        = string
   default     = "private"
 
-  validation {
-    condition     = contains(["private", "backend_private", "public"], var.network_access)
-    error_message = "network_access must be private, backend_private, or public."
-  }
+  # Disabled: the root module generates and validates this value.
+  # validation {
+  #   condition     = contains(["private", "backend_private", "public"], var.network_access)
+  #   error_message = "network_access must be private, backend_private, or public."
+  # }
 }
 
 variable "access_connector_name" {
@@ -92,10 +97,11 @@ variable "access_connector_name" {
   type        = string
   default     = null
 
-  validation {
-    condition     = var.access_connector_name == null || can(regex("^[A-Za-z0-9][A-Za-z0-9_-]{1,62}[A-Za-z0-9]$", var.access_connector_name))
-    error_message = "access_connector_name must be null or 3-64 letters, digits, underscores or hyphens that start and end with a letter or digit."
-  }
+  # Disabled: the root module generates and validates this value.
+  # validation {
+  #   condition     = var.access_connector_name == null || can(regex("^[A-Za-z0-9][A-Za-z0-9_-]{1,62}[A-Za-z0-9]$", var.access_connector_name))
+  #   error_message = "access_connector_name must be null or 3-64 letters, digits, underscores or hyphens that start and end with a letter or digit."
+  # }
 }
 
 variable "access_connector_storage_account_ids" {

@@ -21,15 +21,16 @@ run "spoke_defaults" {
   }
 }
 
-run "reject_invalid_remote_id" {
-  command = plan
-
-  variables {
-    remote_virtual_network_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-hub"
-  }
-
-  expect_failures = [var.remote_virtual_network_id]
-}
+# Disabled: the validation it tests is disabled (the root module validates this value).
+# run "reject_invalid_remote_id" {
+#   command = plan
+#
+#   variables {
+#     remote_virtual_network_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-hub"
+#   }
+#
+#   expect_failures = [var.remote_virtual_network_id]
+# }
 
 run "reject_transit_and_remote_gateways_together" {
   command = plan

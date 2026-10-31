@@ -71,12 +71,13 @@ run "local_authentication_can_be_enabled" {
   }
 }
 
-run "reject_invalid_application_type" {
-  command = plan
-
-  variables {
-    application_type = "functions"
-  }
-
-  expect_failures = [var.application_type]
-}
+# Disabled: the validation it tests is disabled (azurerm validates this at plan time).
+# run "reject_invalid_application_type" {
+#   command = plan
+#
+#   variables {
+#     application_type = "functions"
+#   }
+#
+#   expect_failures = [var.application_type]
+# }

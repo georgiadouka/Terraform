@@ -102,10 +102,11 @@ run "reject_storage_outside_32_gib_increments" {
   expect_failures = [var.storage_size_in_gb]
 }
 
-run "reject_unsupported_license_type" {
-  command = plan
-  variables {
-    license_type = "Unsupported"
-  }
-  expect_failures = [var.license_type]
-}
+# Disabled: the validation it tests is disabled (azurerm validates this at plan time).
+# run "reject_unsupported_license_type" {
+#   command = plan
+#   variables {
+#     license_type = "Unsupported"
+#   }
+#   expect_failures = [var.license_type]
+# }

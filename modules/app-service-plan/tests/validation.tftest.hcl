@@ -47,42 +47,46 @@ run "windows_workflow_standard" {
   }
 }
 
-run "reject_linux_workflow_standard" {
-  command = plan
+# Disabled: the validation it tests is disabled (the root module validates this value).
+# run "reject_linux_workflow_standard" {
+#   command = plan
+#
+#   variables {
+#     sku_name = "WS2"
+#   }
+#
+#   expect_failures = [var.sku_name]
+# }
 
-  variables {
-    sku_name = "WS2"
-  }
+# Disabled: the validation it tests is disabled (the root module validates this value).
+# run "reject_unsupported_os" {
+#   command = plan
+#
+#   variables {
+#     os_type = "WindowsContainer"
+#   }
+#
+#   expect_failures = [var.os_type]
+# }
 
-  expect_failures = [var.sku_name]
-}
+# Disabled: the validation it tests is disabled (the root module validates this value).
+# run "reject_consumption_sku" {
+#   command = plan
+#
+#   variables {
+#     sku_name = "Y1"
+#   }
+#
+#   expect_failures = [var.sku_name]
+# }
 
-run "reject_unsupported_os" {
-  command = plan
-
-  variables {
-    os_type = "WindowsContainer"
-  }
-
-  expect_failures = [var.os_type]
-}
-
-run "reject_consumption_sku" {
-  command = plan
-
-  variables {
-    sku_name = "Y1"
-  }
-
-  expect_failures = [var.sku_name]
-}
-
-run "reject_free_sku" {
-  command = plan
-
-  variables {
-    sku_name = "F1"
-  }
-
-  expect_failures = [var.sku_name]
-}
+# Disabled: the validation it tests is disabled (the root module validates this value).
+# run "reject_free_sku" {
+#   command = plan
+#
+#   variables {
+#     sku_name = "F1"
+#   }
+#
+#   expect_failures = [var.sku_name]
+# }

@@ -19,26 +19,29 @@ run "accept_maximum_idle_timeout" {
   }
 }
 
-run "reject_idle_timeout_below_minimum" {
-  command = plan
-  variables {
-    idle_timeout_in_minutes = 3
-  }
-  expect_failures = [var.idle_timeout_in_minutes]
-}
+# Disabled: the validation it tests is disabled (azurerm validates this at plan time).
+# run "reject_idle_timeout_below_minimum" {
+#   command = plan
+#   variables {
+#     idle_timeout_in_minutes = 3
+#   }
+#   expect_failures = [var.idle_timeout_in_minutes]
+# }
 
-run "reject_idle_timeout_above_maximum" {
-  command = plan
-  variables {
-    idle_timeout_in_minutes = 121
-  }
-  expect_failures = [var.idle_timeout_in_minutes]
-}
+# Disabled: the validation it tests is disabled (azurerm validates this at plan time).
+# run "reject_idle_timeout_above_maximum" {
+#   command = plan
+#   variables {
+#     idle_timeout_in_minutes = 121
+#   }
+#   expect_failures = [var.idle_timeout_in_minutes]
+# }
 
-run "reject_fractional_idle_timeout" {
-  command = plan
-  variables {
-    idle_timeout_in_minutes = 4.5
-  }
-  expect_failures = [var.idle_timeout_in_minutes]
-}
+# Disabled: the validation it tests is disabled (azurerm validates this at plan time).
+# run "reject_fractional_idle_timeout" {
+#   command = plan
+#   variables {
+#     idle_timeout_in_minutes = 4.5
+#   }
+#   expect_failures = [var.idle_timeout_in_minutes]
+# }

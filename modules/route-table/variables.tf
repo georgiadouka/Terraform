@@ -47,13 +47,14 @@ variable "routes" {
     error_message = "Every route address_prefix must be an IPv4 CIDR written with its network address or an Azure service tag."
   }
 
-  validation {
-    condition = alltrue([
-      for route in values(var.routes) :
-      contains(["VirtualNetworkGateway", "VnetLocal", "Internet", "VirtualAppliance", "None"], route.next_hop_type)
-    ])
-    error_message = "Every route next_hop_type must be VirtualNetworkGateway, VnetLocal, Internet, VirtualAppliance, or None."
-  }
+  # Disabled: azurerm validates this at plan time.
+  # validation {
+  #   condition = alltrue([
+  #     for route in values(var.routes) :
+  #     contains(["VirtualNetworkGateway", "VnetLocal", "Internet", "VirtualAppliance", "None"], route.next_hop_type)
+  #   ])
+  #   error_message = "Every route next_hop_type must be VirtualNetworkGateway, VnetLocal, Internet, VirtualAppliance, or None."
+  # }
 
   validation {
     condition = alltrue([

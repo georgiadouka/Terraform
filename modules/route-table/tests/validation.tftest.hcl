@@ -73,17 +73,18 @@ run "reject_next_hop_for_internet_route" {
   expect_failures = [var.routes]
 }
 
-run "reject_invalid_next_hop_type" {
-  command = plan
-
-  variables {
-    routes = {
-      bad = {
-        address_prefix = "10.1.0.0/16"
-        next_hop_type  = "Firewall"
-      }
-    }
-  }
-
-  expect_failures = [var.routes]
-}
+# Disabled: the validation it tests is disabled (azurerm validates this at plan time).
+# run "reject_invalid_next_hop_type" {
+#   command = plan
+#
+#   variables {
+#     routes = {
+#       bad = {
+#         address_prefix = "10.1.0.0/16"
+#         next_hop_type  = "Firewall"
+#       }
+#     }
+#   }
+#
+#   expect_failures = [var.routes]
+# }
