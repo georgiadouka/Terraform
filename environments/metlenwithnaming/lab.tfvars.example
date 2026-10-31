@@ -217,10 +217,8 @@ virtual_machines = {
     # Default: the PRV VNet (or the only VNet).
     # virtual_network = "main"
 
-    # Every VM is backed up (see vm_backup below) with the "default" policy.
-    # Select another vm_backup.policies key, or set backup = false to opt out.
-    # backup_policy = "default"
-    # backup        = false
+    # Every VM is backed up daily to the shared Recovery Services vault
+    # M-AZU-RSV-<BU>-<DPT>-<APP>-<ENV>-<REG>-00.
   }
 
   # Add more independently configured VMs with stable logical keys:
@@ -232,49 +230,6 @@ virtual_machines = {
   #   os_type = "Windows"
   #   size    = "Standard_D2s_v5"
   # }
-}
-
-# Azure Backup for virtual_machines. One Recovery Services vault, named
-# M-AZU-RSV-<BU>-<DPT>-<APP>-<ENV>-<REG>-<sequence>, is created when at least
-# one VM is backed up. Policies are Enhanced (V2), the only type that protects
-# the Trusted Launch VMs created here; the key is the policy name. VM backup
-# needs no NAT Gateway or Private Endpoint. Soft delete is always on: deleted
-# backup data stays recoverable for 14 days. enabled = false turns backup off
-# for every VM.
-vm_backup = {
-  enabled  = true
-  sequence = "00"
-
-  # ZoneRedundant, GeoRedundant or LocallyRedundant. Azure rejects a change
-  # once a VM is protected. cross_region_restore_enabled needs GeoRedundant.
-  storage_mode_type            = "ZoneRedundant"
-  cross_region_restore_enabled = false
-
-  # VM backup and full-VM restore work without public access; file-level
-  # restore needs it.
-  public_network_access_enabled = false
-
-  # Disabled, Unlocked or Locked (Locked cannot be undone).
-  # immutability = "Unlocked"
-
-  policies = {
-    # Daily at 23:00 UTC, 7 days of instant-restore snapshots and 30 daily
-    # recovery points.
-    default = {}
-
-    # critical = {
-    #   timezone                       = "W. Europe Standard Time"
-    #   frequency                      = "Hourly" # Daily, Hourly or Weekly
-    #   time                           = "08:00"  # HH:00 or HH:30
-    #   hour_interval                  = 4        # 4, 6, 8 or 12
-    #   hour_duration                  = 24       # 4-24, multiple of hour_interval
-    #   instant_restore_retention_days = 14       # 1-30 (Weekly: 5)
-    #   retention_daily                = 90       # 7-9999, not for Weekly
-    #   retention_weekly               = { count = 12, weekdays = ["Sunday"] }
-    #   retention_monthly              = { count = 12, days = [1] }
-    #   retention_yearly               = { count = 7, months = ["January"], weekdays = ["Sunday"], weeks = ["First"] }
-    # }
-  }
 }
 
 # One entry per Virtual Machine Scale Set; an empty map creates none. Uncomment
