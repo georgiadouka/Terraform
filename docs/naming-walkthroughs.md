@@ -295,7 +295,7 @@ Input: `storage_accounts = { primary = { ... } }`, sequence not set, so it defau
 
 | # | File | What happens | Value |
 |---|---|---|---|
-| 1 | `variables.tf` | Key matches `^[a-z][a-z0-9-]{0,11}$`; sequence is two digits; sequence is unique across `storage_accounts`, `premium_file_accounts` and every `function_apps` `storage_sequence` | Accepted |
+| 1 | `variables.tf` | Key matches `^[a-z][a-z0-9-]{0,11}$`; sequence is two digits; sequence is unique across `storage_accounts`, `premium_file_accounts` and every `function_apps` and `logic_apps` `storage_sequence` | Accepted |
 | 2 | `locals.naming-dictionary.tf` | `resource_codes.storage_account` | `SOA` |
 | 3 | `locals.naming.tf` | `metlen_compact_tokens = lower(BU+DPT+APP+ENV+REG)` | `itppageodevswe` |
 | 4 | `locals.naming.tf` | `"mazu" + lower(code) + compact_tokens + sequence` | `mazusoaitppageodevswe00` |
@@ -350,7 +350,7 @@ The catalog deliberately holds only plan-time values (no module or name
 references) so `for_each` keys are always known and no dependency cycle forms
 with the naming locals.
 
-`main.tf` uses `local.private_endpoint_names[key]` in four module calls; the
+`main.tf` uses `local.private_endpoint_names[key]` in seven module calls; the
 catalog's `deployed_by` field says which one creates each endpoint:
 
 | Module call | Endpoints | Why it is separate |
@@ -359,6 +359,9 @@ catalog's `deployed_by` field says which one creates each endpoint:
 | `storage_private_endpoints` | `blob` and `file` of each Storage Account | A storage account rejects concurrent Private Endpoint connections (`StorageAccountOperationInProgress`), so the `storage-account-private-endpoints` module creates them one at a time |
 | `function_storage_private_endpoints` | `blob`, `file`, `queue`, `table` of each Function App's host storage, one call instance per app | Same ordering, and the Function Apps must wait for them |
 | `function_app_private_endpoint` | `sites` of each Function App | Other endpoints never wait for the Function Apps |
+| `logic_app_storage_private_endpoints` | `blob`, `file`, `queue`, `table` of each Logic App's host storage, one call instance per app | Same ordering, and the Logic Apps must wait for them |
+| `logic_app_private_endpoint` | `sites` of each Logic App | Other endpoints never wait for the Logic Apps |
+| `databricks_browser_authentication_private_endpoint` | `browser_authentication` of the dedicated Databricks browser authentication workspace | Created after the other endpoints; the workspace's delete lock waits for it |
 
 All private endpoint names with `lab.tfvars`:
 
@@ -459,14 +462,16 @@ Points worth following through the files:
   on `M-AZU-ASP-IT-PPA-GEO-DEV-SWE-00` and share its compute. Give an app its
   own plan entry when it needs isolation.
 - **Plans match their apps.** Web Apps need a Basic, Standard or Premium plan;
-  Function Apps need an Elastic Premium plan (EP1-EP3); every app's OS must
+  Function Apps need an Elastic Premium plan (EP1-EP3); Logic Apps (Standard)
+  need a Windows Workflow Standard plan (WS1-WS3); every app's OS must
   match its plan's `os_type` (the Function App takes its OS from its plan). A
   plan that no app uses is reported as a warning, because it is still billed.
-- **A second Web App needs its own `sequence`**, because Web App names are
-  global.
+- **A second Web App or Logic App needs its own `sequence`**, because Web App
+  and Logic App names are global.
 - **Apps share their integration subnet.** Every `web_apps` entry joins
-  `web_app_integration` and every `function_apps` entry joins
-  `function_integration`; when apps on more than one plan share a subnet it
+  `web_app_integration`, every `function_apps` entry joins
+  `function_integration` and every `logic_apps` entry joins
+  `logic_app_integration`; when apps on more than one plan share a subnet it
   must be `/26` or larger (multi-plan subnet join).
 - **The Function App name has no NN in the standard.** `compact()` drops the
   `null`, so at most one `function_apps` entry may leave `sequence` unset; set
@@ -474,13 +479,14 @@ Points worth following through the files:
   global name is taken (`M-AZU-FUN-IT-PPA-GEO-DEV-SWE-01`, 31 characters). It
   stays within 32 because Azure derives the Functions host ID from the first 32
   characters of the name.
-- **Storage NN is shared.** Each Function App has its own host storage, and
-  every `function_apps` `storage_sequence` must differ from each other and from
-  every `storage_accounts` and `premium_file_accounts` sequence.
+- **Storage NN is shared.** Each Function App and Logic App has its own host
+  storage, and every `function_apps` and `logic_apps` `storage_sequence` must
+  differ from each other and from every `storage_accounts` and
+  `premium_file_accounts` sequence.
 - **The content share** is the internal Azure Files share where the Functions
-  host keeps the app's code. It is always called `function-content`; each
-  Function App has its own host storage account, so the fixed name never
-  clashes.
+  host keeps the app's code. It is always called `function-content`
+  (`logic-app-content` for Logic Apps); each app has its own host storage
+  account, so the fixed name never clashes.
 
 ## 7. Walkthrough: one Container Apps environment fans out into many names
 

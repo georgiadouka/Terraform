@@ -140,6 +140,7 @@ variables {
   function_apps = {
     primary = { service_plan = "functions", storage_sequence = "04" }
   }
+  logic_apps = {}
   # Telemetry is covered by application-insights.tftest.hcl; these apps have
   # no NAT Gateway, which would trip the egress check.
   application_insights = { enabled = false }

@@ -49,7 +49,7 @@ Compact:  lowercase variants for resources where Azure does not allow the full f
 | Container App | `m-azu-cap-it-ppa-ecm-dev-swe-00` | 31 / 32 | Proposed |
 | Container Apps Environment | `M-AZU-CEV-IT-PPA-ECM-DEV-SWE-00` | 31 / 60 | Validate |
 | Load Balancer | `M-AZU-LBL-IT-PPA-ECM-DEV-SWE-00` | 31 / 80 | Working |
-| Logic App | `M-AZU-LAP-IT-PPA-ECM-DEV-SWE-00` | 31 / 43 (Consumption) | Working |
+| Logic App | `M-AZU-LAP-IT-PPA-ECM-DEV-SWE-00` | 31 / 60 (Standard; 43 for Consumption) | Working |
 | Automation Account | `M-AZU-AAA-IT-PPA-ECM-DEV-SWE-00` | 31 / 50 | Working |
 | AVD Host Pool | `M-AZU-HSP-IT-PPA-AVD-PRD-WEU-00` | 31 / 64 | Conflict |
 | AVD Workspace | `M-AZU-WSP-IT-PPA-AVD-PRD-WEU-00` | 31 / 64 | Conflict |

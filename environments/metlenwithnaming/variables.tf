@@ -142,7 +142,7 @@ variable "naming" {
 }
 
 variable "virtual_networks" {
-  description = "Virtual networks keyed by a stable logical name (the key never appears in Azure names). classification is the METLEN network intent, PRV (default) or PUB; it names the VNet M-AZU-VNT-<BU>-<DPT>-<APP>-<PUB|PRV>-<ENV>-<REG>, its subnets <DPT><APP><ENV><PUB|PRV><NN>, its NAT Gateway and, by default, the NSGs and route tables its subnets use. The standard defines no NN for VNets, so each classification can be used by one VNet only (at most one PRV and one PUB). subnets lists every subnet of the VNet, and every listed subnet is created whether or not anything uses it, so adding or removing a workload never adds or removes a subnet. The subnet key is its role: private_endpoints, virtual_machines, web_app_integration, function_integration, postgresql, mysql, sql_managed_instance, load_balancers, container_apps/<container_apps_environments key> or databricks/<databricks_workspaces key>/<host|container>; the role sets the delegation and the minimum size. number is the two-digit NN in the subnet name <DPT><APP><ENV><PUB|PRV><NN> (1-99, unique within the VNet); keep it stable, because changing it renames, and therefore replaces, the subnet. On each subnet, network_security_group and route_table name a network_security_groups or route_tables key and nat_gateway = true sends its outbound traffic through the VNet's NAT Gateway, which is created (with nat_gateway settings) only when a subnet uses it. A Container Apps environment or Databricks workspace is placed in the VNet that lists its subnets; every other networked resource selects its VNet with virtual_network and defaults to the PRV VNet (or the only VNet)."
+  description = "Virtual networks keyed by a stable logical name (the key never appears in Azure names). classification is the METLEN network intent, PRV (default) or PUB; it names the VNet M-AZU-VNT-<BU>-<DPT>-<APP>-<PUB|PRV>-<ENV>-<REG>, its subnets <DPT><APP><ENV><PUB|PRV><NN>, its NAT Gateway and, by default, the NSGs and route tables its subnets use. The standard defines no NN for VNets, so each classification can be used by one VNet only (at most one PRV and one PUB). subnets lists every subnet of the VNet, and every listed subnet is created whether or not anything uses it, so adding or removing a workload never adds or removes a subnet. The subnet key is its role: private_endpoints, virtual_machines, web_app_integration, function_integration, logic_app_integration, postgresql, mysql, sql_managed_instance, load_balancers, container_apps/<container_apps_environments key> or databricks/<databricks_workspaces key>/<host|container>; the role sets the delegation and the minimum size. number is the two-digit NN in the subnet name <DPT><APP><ENV><PUB|PRV><NN> (1-99, unique within the VNet); keep it stable, because changing it renames, and therefore replaces, the subnet. On each subnet, network_security_group and route_table name a network_security_groups or route_tables key and nat_gateway = true sends its outbound traffic through the VNet's NAT Gateway, which is created (with nat_gateway settings) only when a subnet uses it. A Container Apps environment or Databricks workspace is placed in the VNet that lists its subnets; every other networked resource selects its VNet with virtual_network and defaults to the PRV VNet (or the only VNet)."
   type = map(object({
     classification = optional(string, "PRV")
     address_space  = list(string)
@@ -205,13 +205,13 @@ variable "virtual_networks" {
     condition = alltrue(flatten([
       for network in values(var.virtual_networks) : [
         for subnet_key in keys(network.subnets) : (
-          can(regex("^(private_endpoints|virtual_machines|web_app_integration|function_integration|postgresql|mysql|sql_managed_instance|load_balancers)$", subnet_key)) ||
+          can(regex("^(private_endpoints|virtual_machines|web_app_integration|function_integration|logic_app_integration|postgresql|mysql|sql_managed_instance|load_balancers)$", subnet_key)) ||
           can(regex("^container_apps/[a-z]([a-z0-9-]{0,10}[a-z0-9])?$", subnet_key)) && !strcontains(subnet_key, "--") ||
           can(regex("^databricks/[a-z]([a-z0-9-]{0,10}[a-z0-9])?/(host|container)$", subnet_key)) && !strcontains(subnet_key, "--")
         )
       ]
     ]))
-    error_message = "Every virtual_networks subnets key must be a subnet role (private_endpoints, virtual_machines, web_app_integration, function_integration, postgresql, mysql, sql_managed_instance or load_balancers), container_apps/<environment key> or databricks/<workspace key>/<host|container>, where the environment and workspace keys follow the container_apps_environments and databricks_workspaces key rules. Current keys: ${join("; ", [for key, network in var.virtual_networks : "${key}: ${join(", ", keys(network.subnets))}"])}."
+    error_message = "Every virtual_networks subnets key must be a subnet role (private_endpoints, virtual_machines, web_app_integration, function_integration, logic_app_integration, postgresql, mysql, sql_managed_instance or load_balancers), container_apps/<environment key> or databricks/<workspace key>/<host|container>, where the environment and workspace keys follow the container_apps_environments and databricks_workspaces key rules. Current keys: ${join("; ", [for key, network in var.virtual_networks : "${key}: ${join(", ", keys(network.subnets))}"])}."
   }
 
   validation {
@@ -753,7 +753,7 @@ variable "log_analytics_workspace" {
 }
 
 variable "application_insights" {
-  description = "Settings for the workspace-based Application Insights resource shared by every function_apps and web_apps entry whose application_insights flag is true (the default). enabled = false turns telemetry off for every app, for example when the deployer cannot create role assignments. The resource is created only when at least one app uses it, stores its data in the shared Log Analytics workspace, and accepts only Microsoft Entra-authenticated telemetry: each app's system-assigned identity gets Monitoring Metrics Publisher, so the deployer needs rights to create role assignments. Telemetry leaves the VNet, so the function_integration and web_app_integration subnets of the apps' VNets need nat_gateway = true or a route table with a 0.0.0.0/0 route (Terraform warns otherwise). Named M-AZU-AIN-<BU>-<DPT>-<APP>-<ENV>-<REG>-<sequence>; sequence is the two-digit NN."
+  description = "Settings for the workspace-based Application Insights resource shared by every function_apps, logic_apps and web_apps entry whose application_insights flag is true (the default). enabled = false turns telemetry off for every app, for example when the deployer cannot create role assignments. The resource is created only when at least one app uses it, stores its data in the shared Log Analytics workspace, and accepts only Microsoft Entra-authenticated telemetry: each app's system-assigned identity gets Monitoring Metrics Publisher, so the deployer needs rights to create role assignments. Telemetry leaves the VNet, so the function_integration, logic_app_integration and web_app_integration subnets of the apps' VNets need nat_gateway = true or a route table with a 0.0.0.0/0 route (Terraform warns otherwise). Named M-AZU-AIN-<BU>-<DPT>-<APP>-<ENV>-<REG>-<sequence>; sequence is the two-digit NN."
   type = object({
     enabled  = optional(bool, true)
     sequence = optional(string, "00")
@@ -1091,14 +1091,16 @@ variable "storage_accounts" {
       length(distinct(concat(
         [for account in values(var.storage_accounts) : account.sequence],
         [for account in values(var.premium_file_accounts) : account.sequence],
-        [for app in values(var.function_apps) : app.storage_sequence]
+        [for app in values(var.function_apps) : app.storage_sequence],
+        [for app in values(var.logic_apps) : app.storage_sequence]
       ))) ==
-      length(var.storage_accounts) + length(var.premium_file_accounts) + length(var.function_apps)
+      length(var.storage_accounts) + length(var.premium_file_accounts) + length(var.function_apps) + length(var.logic_apps)
     )
-    error_message = "Storage Account names must be unique, so every storage_accounts and premium_file_accounts sequence and function_apps storage_sequence must differ. Current sequences: ${join(", ", concat(
+    error_message = "Storage Account names must be unique, so every storage_accounts and premium_file_accounts sequence and function_apps and logic_apps storage_sequence must differ. Current sequences: ${join(", ", concat(
       [for key, account in var.storage_accounts : "storage_accounts.${key}=${account.sequence}"],
       [for key, account in var.premium_file_accounts : "premium_file_accounts.${key}=${account.sequence}"],
-      [for key, app in var.function_apps : "function_apps.${key}.storage_sequence=${app.storage_sequence}"]
+      [for key, app in var.function_apps : "function_apps.${key}.storage_sequence=${app.storage_sequence}"],
+      [for key, app in var.logic_apps : "logic_apps.${key}.storage_sequence=${app.storage_sequence}"]
     ))}."
   }
 }
@@ -1487,12 +1489,13 @@ variable "databricks_workspaces" {
         [for workspace in values(var.databricks_workspaces) : workspace.storage_sequence if workspace.storage_sequence != null],
         [for account in values(var.storage_accounts) : account.sequence],
         [for account in values(var.premium_file_accounts) : account.sequence],
-        [for app in values(var.function_apps) : app.storage_sequence]
+        [for app in values(var.function_apps) : app.storage_sequence],
+        [for app in values(var.logic_apps) : app.storage_sequence]
       ))) ==
       length([for workspace in values(var.databricks_workspaces) : workspace if workspace.storage_sequence != null]) +
-      length(var.storage_accounts) + length(var.premium_file_accounts) + length(var.function_apps)
+      length(var.storage_accounts) + length(var.premium_file_accounts) + length(var.function_apps) + length(var.logic_apps)
     )
-    error_message = "Storage Account names must be unique, so every databricks_workspaces storage_sequence must differ from the others and from every storage_accounts and premium_file_accounts sequence and function_apps storage_sequence."
+    error_message = "Storage Account names must be unique, so every databricks_workspaces storage_sequence must differ from the others and from every storage_accounts and premium_file_accounts sequence and function_apps and logic_apps storage_sequence."
   }
 
   validation {
@@ -1721,7 +1724,7 @@ variable "mysql_servers" {
 }
 
 variable "app_service_plans" {
-  description = "App Service Plans keyed by a stable logical name, the only place App Service Plan NN values are set. Web Apps and Function Apps select a plan through their service_plan key, and several apps can share one plan (they then share its compute and scale together). Basic, Standard and Premium SKUs host Web Apps; Elastic Premium (EP1-EP3) hosts Function Apps, so a plan never mixes both. Every app on a plan must match its os_type. Names follow M-AZU-ASP-<BU>-<DPT>-<APP>-<ENV>-<REG>-<sequence>; sequence is the two-digit NN and must be unique per plan. A plan no app uses is still billed, so Terraform warns about it. Defaults to none."
+  description = "App Service Plans keyed by a stable logical name, the only place App Service Plan NN values are set. Web Apps, Function Apps and Logic Apps select a plan through their service_plan key, and several apps can share one plan (they then share its compute and scale together). Basic, Standard and Premium SKUs host Web Apps; Elastic Premium (EP1-EP3) hosts Function Apps; Workflow Standard (WS1-WS3, Windows only) hosts Logic Apps (Standard), so a plan never mixes app types. Every app on a plan must match its os_type. Names follow M-AZU-ASP-<BU>-<DPT>-<APP>-<ENV>-<REG>-<sequence>; sequence is the two-digit NN and must be unique per plan. A plan no app uses is still billed, so Terraform warns about it. Defaults to none."
   type = map(object({
     sequence = optional(string, "00")
     os_type  = optional(string, "Linux")
@@ -1763,10 +1766,16 @@ variable "app_service_plans" {
         "P1mv3", "P2mv3", "P3mv3", "P4mv3", "P5mv3",
         "P0v4", "P1v4", "P2v4", "P3v4",
         "P1mv4", "P2mv4", "P3mv4", "P4mv4", "P5mv4",
-        "EP1", "EP2", "EP3"
+        "EP1", "EP2", "EP3",
+        "WS1", "WS2", "WS3"
       ], plan.sku_name)
     ])
-    error_message = "Every app_service_plans sku_name must be a Basic, Standard or Premium SKU (for Web Apps) or an Elastic Premium SKU EP1-EP3 (for Function Apps)."
+    error_message = "Every app_service_plans sku_name must be a Basic, Standard or Premium SKU (for Web Apps), an Elastic Premium SKU EP1-EP3 (for Function Apps) or a Workflow Standard SKU WS1-WS3 (for Logic Apps)."
+  }
+
+  validation {
+    condition     = alltrue([for plan in values(var.app_service_plans) : !startswith(plan.sku_name, "WS") || plan.os_type == "Windows"])
+    error_message = "Workflow Standard (WS1-WS3) plans host Logic Apps (Standard), which run on Windows only; set os_type = \"Windows\". Plans: ${join(", ", [for key, plan in var.app_service_plans : "${key}=${plan.sku_name}/${plan.os_type}" if startswith(plan.sku_name, "WS")])}."
   }
 }
 
@@ -1855,6 +1864,88 @@ variable "function_apps" {
   }
 }
 
+variable "logic_apps" {
+  description = "Private Logic Apps (Standard) keyed by a stable logical name. Defaults to none; add one entry per app. service_plan is the key of a Windows Workflow Standard (WS1-WS3) app_service_plans entry; several Logic Apps can share one plan. Each entry creates its own host Storage Account with its content share and Private Endpoints (blob, file, queue and table on the storage account, sites on the app); every app joins the logic_app_integration subnet of its virtual_network (default: the PRV VNet; apps on one plan must share it; Microsoft recommends /26), and its Private Endpoints sit in the private_endpoints subnet. node_version is the Node.js major version for Inline Code actions (default 22) and app_settings adds workflow settings, for example parameters. application_insights (default true) sends the app's telemetry to the shared Application Insights resource (see var.application_insights); set false to opt out. Names follow M-AZU-LAP-<BU>-<DPT>-<APP>-<ENV>-<REG>-<sequence> for the app (global <name>.azurewebsites.net; sequence must be unique per app) and mazusoa...<storage_sequence> for its host storage (unique across all storage accounts)."
+  type = map(object({
+    virtual_network      = optional(string)
+    service_plan         = string
+    sequence             = optional(string, "00")
+    storage_sequence     = optional(string, "00")
+    node_version         = optional(string, "22")
+    app_settings         = optional(map(string), {})
+    application_insights = optional(bool, true)
+  }))
+  default  = {}
+  nullable = false
+
+  validation {
+    condition = alltrue([
+      for item in values(var.logic_apps) : try(
+        contains(keys(var.virtual_networks[coalesce(item.virtual_network, local.default_virtual_network)].subnets), "logic_app_integration") &&
+        contains(keys(var.virtual_networks[coalesce(item.virtual_network, local.default_virtual_network)].subnets), "private_endpoints"),
+      false)
+    ])
+    error_message = "Every logic_apps virtual_network must be a virtual_networks key (default: the PRV VNet) whose subnets list logic_app_integration and private_endpoints; the app integrates with the first and its Private Endpoints sit in the second. VNets: ${join(", ", [for key, item in var.logic_apps : "${key}=${coalesce(item.virtual_network, local.default_virtual_network, "none")}"])}."
+  }
+
+  validation {
+    condition = alltrue([
+      for key in keys(var.logic_apps) :
+      can(regex("^[a-z]([a-z0-9-]{0,10}[a-z0-9])?$", key)) && !strcontains(key, "--")
+    ])
+    error_message = "logic_apps keys must be 1-12 lowercase alphanumeric or hyphen characters, start with a letter, end with a letter or digit, and not contain consecutive hyphens."
+  }
+
+  validation {
+    condition = alltrue([
+      for app in values(var.logic_apps) :
+      can(regex("^[0-9]{2}$", app.sequence)) && can(regex("^[0-9]{2}$", app.storage_sequence))
+    ])
+    error_message = "Every logic_apps sequence and storage_sequence must be two digits, for example 01."
+  }
+
+  validation {
+    condition     = length(distinct([for app in values(var.logic_apps) : app.sequence])) == length(var.logic_apps)
+    error_message = "Every logic_apps entry needs a unique sequence because Logic App names are global. Current sequences: ${join(", ", [for key, app in var.logic_apps : "${key}=${app.sequence}"])}."
+  }
+
+  validation {
+    condition     = alltrue([for app in values(var.logic_apps) : contains(keys(var.app_service_plans), app.service_plan)])
+    error_message = "Every logic_apps service_plan must be a key in app_service_plans. Available plans: ${join(", ", keys(var.app_service_plans))}."
+  }
+
+  # Logic Apps (Standard) run on Workflow Standard plans, which are Windows
+  # only (app_service_plans enforces the OS).
+  validation {
+    condition = alltrue([
+      for app in values(var.logic_apps) :
+      startswith(try(var.app_service_plans[app.service_plan].sku_name, "WS"), "WS")
+    ])
+    error_message = "Every logic_apps service_plan must be a Workflow Standard plan (sku_name WS1, WS2 or WS3, os_type Windows). Plans per app: ${join(", ", [for key, app in var.logic_apps : "${key}=${app.service_plan}(${try(var.app_service_plans[app.service_plan].sku_name, "missing")})"])}."
+  }
+
+  # Multi-plan subnet join, which lets several App Service Plans share the
+  # integration subnet, requires a /26 or larger subnet.
+  validation {
+    condition = alltrue([
+      for network_key in distinct([for app in values(var.logic_apps) : coalesce(app.virtual_network, local.default_virtual_network, "-")]) : (
+        length(distinct([for app in values(var.logic_apps) : app.service_plan if coalesce(app.virtual_network, local.default_virtual_network, "-") == network_key])) <= 1 ||
+        try(tonumber(split("/", var.virtual_networks[network_key].subnets["logic_app_integration"].cidr)[1]) <= 26, false)
+      )
+    ])
+    error_message = "The logic_app_integration subnet must be /26 or larger in a virtual network where Logic Apps on more than one App Service Plan share it."
+  }
+
+  # An App Service Plan integrates with one VNet, so its apps share it.
+  validation {
+    condition = alltrue([
+      for plan_key in distinct([for app in values(var.logic_apps) : app.service_plan]) :
+      length(distinct([for app in values(var.logic_apps) : coalesce(app.virtual_network, local.default_virtual_network, "-") if app.service_plan == plan_key])) == 1
+    ])
+    error_message = "Every logic_apps entry on the same service_plan must use the same virtual_network, because an App Service Plan integrates with one virtual network. Apps: ${join(", ", [for key, app in var.logic_apps : "${key}=${app.service_plan}@${coalesce(app.virtual_network, local.default_virtual_network, "none")}"])}."
+  }
+}
+
 variable "web_apps" {
   description = "Private App Service Web Apps keyed by a stable logical name. Defaults to none; add one entry per app. service_plan is the key of a Basic, Standard or Premium app_service_plans entry whose os_type matches mode (Windows for windows, Linux for linux and container); several Web Apps can share one plan. Each entry creates its own Private Endpoint; every app joins the web_app_integration subnet of its virtual_network (default: the PRV VNet; apps on one plan must share it), where its Private Endpoint sits too. application_insights (default true) sends the app's telemetry to the shared Application Insights resource (see var.application_insights) and, in linux and windows mode, turns on the App Service agent; container images need their own Application Insights SDK or OpenTelemetry distro. Set false to opt out. Names follow M-AZU-APP-<BU>-<DPT>-<APP>-<ENV>-<REG>-<sequence> (global <name>.azurewebsites.net); sequence must be unique per app."
   type = map(object({
@@ -1913,9 +2004,10 @@ variable "web_apps" {
   validation {
     condition = alltrue([
       for app in values(var.web_apps) :
-      !startswith(try(var.app_service_plans[app.service_plan].sku_name, "B1"), "EP")
+      !startswith(try(var.app_service_plans[app.service_plan].sku_name, "B1"), "EP") &&
+      !startswith(try(var.app_service_plans[app.service_plan].sku_name, "B1"), "WS")
     ])
-    error_message = "Every web_apps service_plan must be a Basic, Standard or Premium plan; Elastic Premium (EP) plans are reserved for Function Apps. Plans per app: ${join(", ", [for key, app in var.web_apps : "${key}=${app.service_plan}(${try(var.app_service_plans[app.service_plan].sku_name, "missing")})"])}."
+    error_message = "Every web_apps service_plan must be a Basic, Standard or Premium plan; Elastic Premium (EP) plans are reserved for Function Apps and Workflow Standard (WS) plans for Logic Apps. Plans per app: ${join(", ", [for key, app in var.web_apps : "${key}=${app.service_plan}(${try(var.app_service_plans[app.service_plan].sku_name, "missing")})"])}."
   }
 
   validation {

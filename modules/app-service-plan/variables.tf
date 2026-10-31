@@ -26,7 +26,7 @@ variable "os_type" {
 }
 
 variable "sku_name" {
-  description = "Plan SKU. Basic, Standard and Premium SKUs host Web Apps; Elastic Premium (EP1-EP3) hosts Function Apps. Every listed SKU supports Private Link and regional VNet integration."
+  description = "Plan SKU. Basic, Standard and Premium SKUs host Web Apps; Elastic Premium (EP1-EP3) hosts Function Apps; Workflow Standard (WS1-WS3, Windows only) hosts Logic Apps (Standard). Every listed SKU supports Private Link and regional VNet integration."
   type        = string
   default     = "B1"
   nullable    = false
@@ -40,9 +40,15 @@ variable "sku_name" {
       "P1mv3", "P2mv3", "P3mv3", "P4mv3", "P5mv3",
       "P0v4", "P1v4", "P2v4", "P3v4",
       "P1mv4", "P2mv4", "P3mv4", "P4mv4", "P5mv4",
-      "EP1", "EP2", "EP3"
+      "EP1", "EP2", "EP3",
+      "WS1", "WS2", "WS3"
     ], var.sku_name)
-    error_message = "sku_name must be a Basic, Standard, Premium or Elastic Premium (EP1-EP3) App Service SKU that supports Private Link and VNet integration."
+    error_message = "sku_name must be a Basic, Standard, Premium, Elastic Premium (EP1-EP3) or Workflow Standard (WS1-WS3) App Service SKU that supports Private Link and VNet integration."
+  }
+
+  validation {
+    condition     = !startswith(var.sku_name, "WS") || var.os_type == "Windows"
+    error_message = "Workflow Standard (WS1-WS3) plans host Logic Apps (Standard), which run on Windows only; set os_type = \"Windows\"."
   }
 }
 

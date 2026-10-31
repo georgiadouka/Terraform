@@ -63,7 +63,7 @@ test AT-02).
 | `virtual_networks.<key>.classification` | PUB/PRV of the VNet, its subnets, NAT Gateway and Public IP, and of the NSGs and route tables its subnets use | `"PRV"` (default), `"PUB"` |
 | `network_security_groups.<key>.classification`, `route_tables.<key>.classification` | PUB/PRV; must match the VNet whose subnets use the group or table | `null` (default: that VNet's) |
 | `virtual_networks.<key>.subnets.<subnet key>.number` | NN of that subnet's name (required), unique within its VNet | `1`, `9` |
-| `app_service_plans.<key>.sequence`, `function_apps.<key>.storage_sequence`, `function_apps.<key>.sequence`, `sql_managed_instances.<key>.network_sequence` | NN of App Service Plans and of resources created for a service | `"00"`, `"01"` |
+| `app_service_plans.<key>.sequence`, `function_apps.<key>.storage_sequence`, `function_apps.<key>.sequence`, `logic_apps.<key>.sequence`, `logic_apps.<key>.storage_sequence`, `sql_managed_instances.<key>.network_sequence` | NN of App Service Plans and of resources created for a service | `"00"`, `"01"` |
 | `virtual_networks.<key>.nat_gateway.sequence`, `log_analytics_workspace.sequence`, `application_insights.sequence` | NN of the VNet's NAT Gateway (and its Public IP), of the shared Log Analytics workspace and of the shared Application Insights resource | `"00"` (default) |
 | `storage_accounts.<key>.containers`, the `file_shares` keys, `<server>.database_name`, `cosmos_db_accounts.<key>.container_name` | Names chosen by the application, used as-is (no convention) | `"invoices"`, `"appdb"` |
 
@@ -160,9 +160,9 @@ name = join("-", compact(["M-AZU", local.metlen_codes.function_app, local.metlen
 # function_apps.<key>.sequence = "01"  → M-AZU-FUN-IT-PPA-ECM-DEV-SWE-01
 ```
 
-Used for: Resource Group, Web App, App Service Plans, Function App, Container
-Apps Environment, Load Balancer, SQL elastic pool, Log Analytics workspace,
-Application Insights.
+Used for: Resource Group, Web App, App Service Plans, Function App, Logic App,
+Container Apps Environment, Load Balancer, SQL elastic pool, Log Analytics
+workspace, Application Insights.
 
 ### 6.2 Network family
 
@@ -288,7 +288,7 @@ When a parent's name changes, its endpoints follow automatically.
 | Private DNS zone links | `private_dns_links[<key>]` | Derived: the VNet name | `M-AZU-VNT-IT-PPA-ECM-PRV-DEV-SWE` |
 | NSGs | `network_security_groups[<key>]`, `sql_managed_instances[<key>].network_security_group_name` | Network | `M-AZU-NSG-IT-PPA-ECM-PRV-DEV-SWE-01` |
 | Route tables | `route_tables[<key>]`, `sql_managed_instances[<key>].route_table_name` | Network | `M-AZU-UDR-IT-PPA-ECM-PRV-DEV-SWE` |
-| Storage Accounts | `storage_accounts[<key>]`, `premium_file_accounts[<key>]`, `function_apps[<key>].storage_account_name` | Compact | `mazusoaitppaecmdevswe00` |
+| Storage Accounts | `storage_accounts[<key>]`, `premium_file_accounts[<key>]`, `function_apps[<key>].storage_account_name`, `logic_apps[<key>].storage_account_name` | Compact | `mazusoaitppaecmdevswe00` |
 | Key Vaults | `key_vaults[<key>]` | Compact | `mazukvaitppaecmdevswe00` |
 | Container Registries | `container_registries[<key>]` | Compact | `mazuacritppaecmdevswe00` |
 | SQL server / database | `azure_sql_servers[<key>].server_name` / `.database_name` | Lowercase / chosen by the application | `m-azu-sql-it-ppa-ecm-dev-swe-00` / `database_name`, default the key |
@@ -302,6 +302,7 @@ When a parent's name changes, its endpoints follow automatically.
 | App Service Plans | `app_service_plans[<key>]` | Full | `M-AZU-ASP-IT-PPA-ECM-DEV-SWE-00` |
 | Web App | `web_apps[<key>].name` (plan selected by `web_apps.<key>.service_plan`) | Full | `M-AZU-APP-…-00` |
 | Function App | `function_apps[<key>].name` (plan selected by `function_apps.<key>.service_plan`) | Full | `M-AZU-FUN-IT-PPA-ECM-DEV-SWE` |
+| Logic App (Standard) | `logic_apps[<key>].name` (Workflow Standard plan selected by `logic_apps.<key>.service_plan`) | Full | `M-AZU-LAP-IT-PPA-ECM-DEV-SWE-00` |
 | Container Apps environment | `container_apps_environments[<key>].name` | Full | `M-AZU-CEV-IT-PPA-ECM-DEV-SWE-00` |
 | Container Apps | `container_apps_environments[<key>].apps[<app>]` | Lowercase | `m-azu-cap-it-ppa-ecm-dev-swe-00` |
 | Databricks workspace / Access Connector | `databricks_workspaces[<key>].name` / `.access_connector_name` | Full | `M-AZU-DBR-IT-PPA-ECM-DEV-SWE-00` (both) |
@@ -315,6 +316,7 @@ When a parent's name changes, its endpoints follow automatically.
 | Application Insights | `application_insights` (NN from `application_insights.sequence`) | Full | `M-AZU-AIN-IT-PPA-ECM-DEV-SWE-00` |
 | Recovery Services vault / VM backup policies | `recovery_services_vault` (NN from `vm_backup.sequence`) / `vm_backup_policies[<key>]` | Full / key | `M-AZU-RSV-IT-PPA-ECM-DEV-SWE-00` / `default` |
 | Function App content share | `function_apps[<key>].content_share_name` | Fixed | `function-content` |
+| Logic App content share | `logic_apps[<key>].content_share_name` | Fixed | `logic-app-content` |
 | Private Endpoints | `local.private_endpoint_names[<endpoint>]` | Derived | `mazusoaitppaecmdevswe00-blob` |
 
 ## 8. How names reach Azure
@@ -355,9 +357,9 @@ After apply, `terraform output generated_resource_names` lists every name.
 | BU + DPT + APP at most 9 characters | Compact names fit 24 characters; Container App and Function App names fit 32 |
 | Every `sequence` is two digits; every subnet `number` is 1-99 | Consistent NN. The NN is optional (`null`) for NSGs, route tables, `function_apps.<key>.sequence` (at most one app) and `sql_managed_instances.<key>.network_sequence`, which follow examples without NN |
 | NN unique per resource type | Two resources never get the same name |
-| Storage NN unique across general-purpose, Premium Files and Function storage | They share one family |
-| App Service Plan NN set only in `app_service_plans`; apps select a plan by key | Web App and Function App plans share the ASP family, so a single map keeps their names unique |
-| Web Apps only on Basic/Standard/Premium plans, Function Apps only on Elastic Premium plans, and every app's OS matches its plan | A plan never mixes app types, and Azure rejects an app whose OS differs from its plan |
+| Storage NN unique across general-purpose, Premium Files, Function and Logic App host storage | They share one family |
+| App Service Plan NN set only in `app_service_plans`; apps select a plan by key | Web App, Function App and Logic App plans share the ASP family, so a single map keeps their names unique |
+| Web Apps only on Basic/Standard/Premium plans, Function Apps only on Elastic Premium plans, Logic Apps only on Windows Workflow Standard plans, and every app's OS matches its plan | A plan never mixes app types, and Azure rejects an app whose OS differs from its plan |
 | Container App NN unique across all environments | Container App names are unique per resource group |
 | NSG and route table names unique, including the SQL MI ones | Same family and classification |
 | Subnet numbers unique within each VNet | Subnet names must be unique |

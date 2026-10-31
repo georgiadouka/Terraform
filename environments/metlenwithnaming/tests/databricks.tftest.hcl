@@ -118,6 +118,7 @@ variables {
   postgresql_servers          = {}
   mysql_servers               = {}
   function_apps               = {}
+  logic_apps                  = {}
   web_apps                    = {}
   app_service_plans           = {}
   hub_peering                 = null

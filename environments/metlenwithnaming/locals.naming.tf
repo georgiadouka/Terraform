@@ -300,16 +300,17 @@ locals {
     recovery_services_vault = join("-", ["M-AZU", local.metlen_codes.recovery_services_vault, local.metlen_scope, local.metlen_placement, var.vm_backup.sequence])
     vm_backup_policies      = { for key in keys(var.vm_backup.policies) : key => key }
 
-    # App Service family. Web App and Function App names are global
+    # App Service family. Web App, Function App and Logic App names are global
     # (<name>.azurewebsites.net). App Service Plans are declared once in
     # app_service_plans and apps select one by key, so plan NN values live in a
     # single map and cannot collide. The Function App has no NN in the
     # standard; an optional sequence is the fallback when the global name is
-    # taken or a second Function App is added. The name stays within the 32
-    # characters Azure uses for the Functions host ID. Each Function App has
-    # its own host Storage Account (mazusoa... family), so the internal
-    # content share needs no convention: every app uses the fixed name
-    # function-content in its own account.
+    # taken or a second Function App is added. Function App and Logic App names
+    # stay within the 32 characters Azure uses for the Functions host ID. Each
+    # Function App and Logic App has its own host Storage Account (mazusoa...
+    # family), so the internal content share needs no convention: every app
+    # uses a fixed name (function-content, logic-app-content) in its own
+    # account.
     app_service_plans = {
       for key, plan in var.app_service_plans :
       key => join("-", ["M-AZU", local.metlen_codes.app_service_plan, local.metlen_scope, local.metlen_placement, plan.sequence])
@@ -324,6 +325,14 @@ locals {
         name                 = join("-", compact(["M-AZU", local.metlen_codes.function_app, local.metlen_scope, local.metlen_placement, app.sequence]))
         storage_account_name = "mazu${lower(local.metlen_codes.storage_account)}${local.metlen_compact_tokens}${app.storage_sequence}"
         content_share_name   = "function-content"
+      }
+    }
+    # M-AZU-LAP-<BU>-<DPT>-<APP>-<ENV>-<REG>-<NN> (Logic App Standard).
+    logic_apps = {
+      for key, app in var.logic_apps : key => {
+        name                 = join("-", ["M-AZU", local.metlen_codes.logic_app, local.metlen_scope, local.metlen_placement, app.sequence])
+        storage_account_name = "mazu${lower(local.metlen_codes.storage_account)}${local.metlen_compact_tokens}${app.storage_sequence}"
+        content_share_name   = "logic-app-content"
       }
     }
   }

@@ -37,6 +37,7 @@ locals {
       app_service             = "APP" # WORKING
       app_service_plan        = "ASP" # WORKING
       function_app            = "FUN" # WORKING, full family without NN
+      logic_app               = "LAP" # WORKING, full family with NN (Logic App Standard)
       container_app           = "CAP" # CONFLICT, lowercase variant (2-32 characters)
       container_apps_env      = "CEV" # VALIDATE
       load_balancer           = "LBL" # WORKING

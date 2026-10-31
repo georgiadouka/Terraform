@@ -76,6 +76,8 @@ All token values must exist in the controlled dictionary
 | 31 | Log Analytics workspace | Not in register | — | `M-AZU-LAW-IT-PPA-ECM-DEV-SWE-00` | `M-AZU-LAW-IT-PPA-GEO-DEV-SWE-05` ⁴ | Code `LAW` agreed 2026-10-28; full family with NN (see 4.12) |
 | 32 | Application Insights | Not in register | — | `M-AZU-AIN-IT-PPA-ECM-DEV-SWE-00` | — | Code `AIN` agreed 2026-10-29; full family with NN (see 4.15) |
 | 33 | Recovery Services vault | Not in register | — | `M-AZU-RSV-IT-PPA-ECM-DEV-SWE-00` | — | Code `RSV` agreed 2026-10-31; full family with NN (see 4.17) |
+| 34 | Logic App (Standard) | WORKING | `M-AZU-LAP-IT-PPA-ECM-DEV-SWE-00` | `M-AZU-LAP-IT-PPA-ECM-DEV-SWE-00` | — | Exact (see 4.18) |
+| 35 | Storage Account – Logic App host | (Storage) | `mazusoa…NN` | `mazusoaitppaecmdevswe<NN>` | — | Exact (same family) |
 
 ¹ The `00` name already exists in Azure outside the test subscription (see 5),
 so the test deployment used NN `01`.
@@ -91,6 +93,7 @@ numbers; the next test deployment uses `PPAECMDEVPRV01` and so on.
 |---|---|---|
 | Blob containers, file shares (standard and premium) | Exactly as configured, e.g. `invoices` | Named by the application (see 4.13) |
 | Function App content share | `function-content` | Internal to the Functions host; one per app, in the app's own host storage account |
+| Logic App content share | `logic-app-content` | Internal to the Logic Apps runtime; one per app, in the app's own host storage account |
 | Private endpoint connection | Same as the private endpoint name | Azure portal default; scoped to the endpoint |
 | Private endpoint DNS zone group | `default` | Azure portal default; scoped to the endpoint |
 | Load Balancer frontend IP configuration | `frontend` | Scoped to the load balancer |
@@ -142,6 +145,7 @@ not change when other subnets are enabled or disabled:
 | 03 | Web App integration | 08 | Load balancers |
 | 04 | Function App integration | 09 | Container Apps (default; configurable 01-99) |
 | 05 | PostgreSQL | 10, 11 | Databricks host, container (default; configurable 01-99) |
+| | | 14 | Logic App integration (in the examples; configurable 01-99) |
 
 PUB/PRV is the classification of the subnet's VNet. Subnet names are scoped to
 their VNet, so every VNet uses the same numbers, and Container Apps and
@@ -168,9 +172,9 @@ Every resource with NN has an explicit two-digit `sequence` input (default
 
 | Scope of uniqueness | Resources |
 |---|---|
-| All Storage Accounts | General-purpose, Premium Files and Function host storage |
-| Per resource type | Key Vaults, Container Registries, SQL servers, PostgreSQL servers, MySQL servers, Cosmos DB accounts, Load Balancers, Container Apps environments |
-| All App Service Plans | Web App plan and Function App plan |
+| All Storage Accounts | General-purpose, Premium Files, Function host and Logic App host storage |
+| Per resource type | Key Vaults, Container Registries, SQL servers, PostgreSQL servers, MySQL servers, Cosmos DB accounts, Load Balancers, Container Apps environments, Logic Apps |
+| All App Service Plans | Web App, Function App and Logic App plans |
 | All Container Apps in the resource group | Across every Container Apps environment |
 | Per classification | NSGs and route tables with the same PUB/PRV value |
 | One per classification, no NN | VNets (at most one PRV and one PUB) |
@@ -337,6 +341,25 @@ digits and hyphens, so it uses the full family with NN
 | Recovery Services vault | Full family with NN | `M-AZU-RSV-IT-PPA-ECM-DEV-SWE-00` |
 | VM backup policies | Scoped to the vault: the `vm_backup.policies` key | `default` |
 | Instant-restore snapshot resource group | Created and named by Azure Backup, outside Terraform | `AzureBackupRG_swedencentral_1` |
+
+### 4.18 Logic App (Standard) (`LAP`)
+
+The register lists `LAP` (WORKING) with the example
+`M-AZU-LAP-IT-PPA-ECM-DEV-SWE-00`; its 43-character limit is the Consumption
+(multitenant) one. The implementation creates Logic Apps (Standard), which are
+App Service sites: the name is global (`<name>.azurewebsites.net`, 2-60
+characters), and the 31-character example also stays within the 32
+characters Azure uses for the Functions host ID. Each app has an explicit
+`sequence` (default `00`), unique per Logic App.
+
+| Item | Family | Example |
+|---|---|---|
+| Logic App | Full family with NN (`logic_apps.<key>.sequence`) | `M-AZU-LAP-IT-PPA-ECM-DEV-SWE-00` |
+| Workflow Standard plan | App Service Plan family with its own NN in `app_service_plans` | `M-AZU-ASP-IT-PPA-ECM-DEV-SWE-03` |
+| Host storage account | Storage compact family with `logic_apps.<key>.storage_sequence` | `mazusoaitppaecmdevswe06` |
+| Content share | Fixed, inside the app's own host storage account | `logic-app-content` |
+| Integration subnet | Subnet pattern with the `number` of the `logic_app_integration` subnet (14 in the examples) | `PPAECMDEVPRV14` |
+| Private Endpoints | `<app name>-sites`, `<storage name>-blob`/`-file`/`-queue`/`-table` | `M-AZU-LAP-IT-PPA-ECM-DEV-SWE-00-sites` |
 
 ## 5. Names already taken in Azure
 

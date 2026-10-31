@@ -33,6 +33,30 @@ run "windows_elastic_premium" {
   }
 }
 
+run "windows_workflow_standard" {
+  command = plan
+
+  variables {
+    os_type  = "Windows"
+    sku_name = "WS1"
+  }
+
+  assert {
+    condition     = azurerm_service_plan.this.os_type == "Windows" && azurerm_service_plan.this.sku_name == "WS1"
+    error_message = "The plan must accept Windows Workflow Standard SKUs for Logic Apps."
+  }
+}
+
+run "reject_linux_workflow_standard" {
+  command = plan
+
+  variables {
+    sku_name = "WS2"
+  }
+
+  expect_failures = [var.sku_name]
+}
+
 run "reject_unsupported_os" {
   command = plan
 

@@ -65,6 +65,7 @@ locals {
       postgresql_servers         = var.postgresql_servers
       mysql_servers              = var.mysql_servers
       function_apps              = var.function_apps
+      logic_apps                 = var.logic_apps
       web_apps                   = var.web_apps
     } :
     type => {
@@ -118,11 +119,12 @@ locals {
   # Delegation of each subnet role that needs one; the name comes from
   # resource_names.subnet_delegations.
   subnet_delegation_services = {
-    web_app_integration  = { service = "Microsoft.Web/serverFarms", actions = ["Microsoft.Network/virtualNetworks/subnets/action"] }
-    function_integration = { service = "Microsoft.Web/serverFarms", actions = ["Microsoft.Network/virtualNetworks/subnets/action"] }
-    postgresql           = { service = "Microsoft.DBforPostgreSQL/flexibleServers", actions = ["Microsoft.Network/virtualNetworks/subnets/join/action"] }
-    mysql                = { service = "Microsoft.DBforMySQL/flexibleServers", actions = ["Microsoft.Network/virtualNetworks/subnets/join/action"] }
-    container_apps       = { service = "Microsoft.App/environments", actions = ["Microsoft.Network/virtualNetworks/subnets/join/action"] }
+    web_app_integration   = { service = "Microsoft.Web/serverFarms", actions = ["Microsoft.Network/virtualNetworks/subnets/action"] }
+    function_integration  = { service = "Microsoft.Web/serverFarms", actions = ["Microsoft.Network/virtualNetworks/subnets/action"] }
+    logic_app_integration = { service = "Microsoft.Web/serverFarms", actions = ["Microsoft.Network/virtualNetworks/subnets/action"] }
+    postgresql            = { service = "Microsoft.DBforPostgreSQL/flexibleServers", actions = ["Microsoft.Network/virtualNetworks/subnets/join/action"] }
+    mysql                 = { service = "Microsoft.DBforMySQL/flexibleServers", actions = ["Microsoft.Network/virtualNetworks/subnets/join/action"] }
+    container_apps        = { service = "Microsoft.App/environments", actions = ["Microsoft.Network/virtualNetworks/subnets/join/action"] }
     sql_managed_instance = {
       service = "Microsoft.Sql/managedInstances"
       actions = [

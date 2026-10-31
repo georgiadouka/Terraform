@@ -94,6 +94,7 @@ variables {
   mysql_servers               = {}
   app_service_plans           = {}
   function_apps               = {}
+  logic_apps                  = {}
   web_apps                    = {}
   hub_peering                 = null
   tags                        = {}

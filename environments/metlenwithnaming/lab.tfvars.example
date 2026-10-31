@@ -65,8 +65,9 @@ naming = {
 # used or not, and stays when the workloads in it are removed: add a subnet
 # before the service that needs it, and remove it yourself once nothing uses
 # it. The key is the subnet role: private_endpoints, virtual_machines,
-# web_app_integration, function_integration, postgresql, mysql,
-# sql_managed_instance, load_balancers, container_apps/<environment key> or
+# web_app_integration, function_integration, logic_app_integration,
+# postgresql, mysql, sql_managed_instance, load_balancers,
+# container_apps/<environment key> or
 # databricks/<workspace key>/<host|container>. Each subnet sets:
 #   cidr                    Range inside address_space; subnets must not overlap.
 #   number                  NN of the subnet name (1-99, unique in the VNet).
@@ -78,9 +79,9 @@ naming = {
 # Subnets are private (no default outbound access): a subnet without
 # nat_gateway = true or a route table with 0.0.0.0/0 (for example to a hub
 # firewall) has no internet egress. Container Apps need egress to pull images,
-# Web Apps and Function Apps to send telemetry to Application Insights, and
-# Databricks clusters to start. A 0.0.0.0/0 route overrides the NAT Gateway
-# (Terraform warns when a subnet has both).
+# Web Apps, Function Apps and Logic Apps to send telemetry to Application
+# Insights, and Databricks clusters to start. A 0.0.0.0/0 route overrides the
+# NAT Gateway (Terraform warns when a subnet has both).
 #
 # nat_gateway configures the VNet's NAT Gateway, created (with its Public IP)
 # only when at least one subnet sets nat_gateway = true; Azure attaches a NAT
@@ -125,6 +126,11 @@ virtual_networks = {
       # "databricks/analytics/container" = { cidr = "10.42.10.64/26", number = 11, nat_gateway = true }
       # "databricks/webauth/host"        = { cidr = "10.42.10.128/28", number = 12 }
       # "databricks/webauth/container"   = { cidr = "10.42.10.144/28", number = 13 }
+
+      # Logic Apps (Standard) VNet integration. Microsoft recommends /26: the
+      # size can't change after assignment, and apps on more than one plan
+      # sharing it need /26 or larger.
+      # logic_app_integration = { cidr = "10.42.11.0/26", number = 14, nat_gateway = true }
     }
   }
 
@@ -505,7 +511,8 @@ key_vaults = {
 # Storage Account names follow the METLEN compact family
 # mazusoa<BU><DPT><APP><ENV><REG><sequence>, for example
 # mazusoaitppaecmdevswe00. storage_accounts, premium_file_accounts and the
-# Function host storage (function_apps.<key>.storage_sequence) share this family, so
+# Function App and Logic App host storage (function_apps.<key>.storage_sequence,
+# logic_apps.<key>.storage_sequence) share this family, so
 # every sequence must be unique across them. Changing a sequence replaces the
 # account and its data. Blob container names (containers) and file share names
 # (file_shares keys) are yours to choose and are used exactly as written:
@@ -732,15 +739,16 @@ log_analytics_workspace = {
   retention_in_days = 30
 }
 
-# One workspace-based Application Insights resource shared by every Web App and
-# Function App (each app can opt out with application_insights = false). It is
+# One workspace-based Application Insights resource shared by every Web App,
+# Function App and Logic App (each app can opt out with
+# application_insights = false). It is
 # named M-AZU-AIN-<BU>-<DPT>-<APP>-<ENV>-<REG>-<sequence> and accepts only
 # Microsoft Entra-authenticated telemetry: each app's managed identity gets
 # Monitoring Metrics Publisher, so the deployer needs rights to create role
 # assignments. Telemetry leaves the VNet: set nat_gateway = true on the
-# web_app_integration and function_integration subnets of the apps' VNet (or
-# route 0.0.0.0/0 to a firewall), otherwise Terraform warns. enabled = false turns it off for every
-# app.
+# web_app_integration, function_integration and logic_app_integration subnets
+# of the apps' VNet (or route 0.0.0.0/0 to a firewall), otherwise Terraform
+# warns. enabled = false turns it off for every app.
 application_insights = {
   enabled  = true
   sequence = "00"
@@ -877,12 +885,13 @@ databricks_workspaces = {}
 # }
 
 # App Service Plans, keyed by a stable logical name. This is the only place
-# App Service Plan numbers are set: Web Apps and Function Apps select a plan
-# by key, so two plans can never get the same name. Several apps can share one
-# plan (they share its compute and scale together); give an app its own plan
-# when it needs isolation. Basic/Standard/Premium plans host Web Apps,
-# Elastic Premium (EP1-EP3) plans host Function Apps, and every app must match
-# its plan's os_type. Names follow M-AZU-ASP-...-<sequence>; sequence must be
+# App Service Plan numbers are set: Web Apps, Function Apps and Logic Apps
+# select a plan by key, so two plans can never get the same name. Several apps
+# can share one plan (they share its compute and scale together); give an app
+# its own plan when it needs isolation. Basic/Standard/Premium plans host Web
+# Apps, Elastic Premium (EP1-EP3) plans host Function Apps, Workflow Standard
+# (WS1-WS3, Windows only) plans host Logic Apps, and every app must match its
+# plan's os_type. Names follow M-AZU-ASP-...-<sequence>; sequence must be
 # unique per plan. Terraform warns about a plan no app uses, because it is
 # still billed. Changing os_type or sequence replaces the plan and its apps.
 app_service_plans = {
@@ -902,6 +911,13 @@ app_service_plans = {
   #   sequence = "02"
   #   os_type  = "Windows"
   #   sku_name = "B1"
+  # }
+
+  # Logic Apps (Standard) need a Windows Workflow Standard plan.
+  # workflows = {
+  #   sequence = "03"
+  #   os_type  = "Windows"
+  #   sku_name = "WS1"
   # }
 }
 
@@ -1010,6 +1026,44 @@ function_apps = {
   #     name    = "python"
   #     version = "3.11"
   #   }
+  # }
+}
+
+# One entry per Logic App (Standard), keyed by a stable logical name; an empty
+# map creates none. Each entry creates its own host Storage Account with its
+# content share and Private Endpoints (blob, file, queue, table and sites);
+# every app joins the logic_app_integration subnet of its virtual_network
+# (default: the PRV VNet; apps on one plan share a VNet). Add the subnet and a
+# Windows Workflow Standard plan (see app_service_plans) first.
+logic_apps = {
+  # orders = {
+  #   # Key of a Windows Workflow Standard (WS1-WS3) app_service_plans entry.
+  #   service_plan = "workflows"
+  #
+  #   # Names follow M-AZU-LAP-...-<sequence> (global <name>.azurewebsites.net);
+  #   # sequence must be unique per app.
+  #   sequence = "00"
+  #
+  #   # NN of the host Storage Account (mazusoa...<NN>); unique across
+  #   # storage_accounts, premium_file_accounts, function_apps and logic_apps.
+  #   storage_sequence = "06"
+  #
+  #   # Node.js major version for Inline Code actions (default 22).
+  #   # node_version = "22"
+  #
+  #   # Workflow settings, for example parameters; settings the module manages
+  #   # (runtime, storage, networking, Application Insights) are rejected.
+  #   app_settings = {
+  #     "Workflows.RuntimeConfiguration.RetentionInDays" = "30"
+  #   }
+  #
+  #   # Send telemetry to the shared Application Insights resource (default).
+  #   application_insights = true
+  #
+  #   # Optional: virtual_networks key whose logic_app_integration subnet the
+  #   # app joins and whose private_endpoints subnet hosts its Private
+  #   # Endpoints. Apps on the same plan must use the same VNet.
+  #   # virtual_network = "main"
   # }
 }
 

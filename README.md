@@ -90,11 +90,12 @@ when a module is checked on its own.
 | `cosmos-db` | NoSQL, MongoDB, Cassandra, Gremlin, or Table account with serverless/manual/autoscale throughput | Public network disabled; API-specific Private Endpoint and DNS |
 | `container-apps` | Internal Container Apps environment with Consumption, optional dedicated workload profiles, and zero or more Container Apps | Dedicated delegated subnet, internal load balancer, and private wildcard DNS |
 | `log-analytics-workspace` | Log Analytics workspace shared by every Container Apps environment, the Application Insights resource and Databricks diagnostic settings | N/A |
-| `application-insights` | Workspace-based Application Insights with local authentication disabled and Monitoring Metrics Publisher for the listed identities. Used by `environments/metlenwithnaming` for every Web App and Function App | Telemetry egress through NAT Gateway or a firewall; no Private Link (AMPLS) yet |
+| `application-insights` | Workspace-based Application Insights with local authentication disabled and Monitoring Metrics Publisher for the listed identities. Used by `environments/metlenwithnaming` for every Web App, Function App and Logic App | Telemetry egress through NAT Gateway or a firewall; no Private Link (AMPLS) yet |
 | `databricks-workspace` | Premium Azure Databricks workspace with VNet injection, its own NSG on both subnets, an optional Access Connector (Unity Catalog identity) with storage role assignments, and optional diagnostics to Log Analytics. Used by `environments/metlenwithnaming` | Two dedicated delegated subnets, no public IPs on clusters; `private` (default) or `backend_private` access through a `databricks_ui_api` Private Endpoint |
-| `app-service-plan` | App Service Plan (Basic, Standard, Premium or Elastic Premium) that one or more Web Apps or Function Apps run on | N/A |
+| `app-service-plan` | App Service Plan (Basic, Standard, Premium, Elastic Premium or Windows Workflow Standard) that one or more Web Apps, Function Apps or Logic Apps run on | N/A |
 | `web-app` | Linux code, Windows code, or Linux container App Service Web App, on its own plan or an existing plan passed as `service_plan_id` | Public network disabled; Private Endpoint and outbound VNet integration |
 | `function-app` | Linux or Windows Elastic Premium Function App, on its own plan or an existing Elastic Premium plan passed as `service_plan_id` | Inbound Private Endpoint and outbound VNet integration |
+| `logic-app` | Logic App (Standard) on a Windows Workflow Standard (WS1-WS3) plan, its own or an existing one passed as `service_plan_id`, with private host storage over the VNet. Used by `environments/metlenwithnaming` | Public network disabled; Private Endpoint and outbound VNet integration; content share over the VNet |
 
 SQL Managed Instance is disabled by default because it is comparatively
 expensive and long-running. The optional lab profile uses General Purpose Gen5,
@@ -742,21 +743,22 @@ virtual_network_peerings = {
   NAT Gateway associations in place, and adding one needs its subnet listed
   first. Remove a subnet from the map once nothing uses it.
 - The subnet key is its role: `private_endpoints`, `virtual_machines`,
-  `web_app_integration`, `function_integration`, `postgresql`, `mysql`,
-  `sql_managed_instance`, `load_balancers`, `container_apps/<environment key>`
-  or `databricks/<workspace key>/<host|container>`. The role sets the
+  `web_app_integration`, `function_integration`, `logic_app_integration`,
+  `postgresql`, `mysql`, `sql_managed_instance`, `load_balancers`,
+  `container_apps/<environment key>` or
+  `databricks/<workspace key>/<host|container>`. The role sets the
   delegation and the minimum size (/29 for every subnet, /27 for SQL Managed
   Instance and Container Apps, /28 for Databricks).
 - `number` is required: it is the NN of the subnet name and must be unique
   within the VNet (every VNet can reuse the same numbers). Keep it stable;
   changing it renames, and therefore replaces, the subnet. The examples keep
-  private endpoints 01 … load balancers 08, Container Apps 09 and Databricks
-  10 and up.
-- Every VM, scale set, load balancer, Web App, Function App, database, SQL
-  Managed Instance and Private Endpoint parent (Storage Account, Key Vault,
-  Container Registry, Azure SQL, Cosmos DB, premium files) takes an optional
-  `virtual_network`. It defaults to the PRV VNet, or to the only VNet when
-  there is one. Terraform rejects a VNet key that does not exist or whose
+  private endpoints 01 … load balancers 08, Container Apps 09, Databricks
+  10-13 and Logic App integration 14.
+- Every VM, scale set, load balancer, Web App, Function App, Logic App,
+  database, SQL Managed Instance and Private Endpoint parent (Storage Account,
+  Key Vault, Container Registry, Azure SQL, Cosmos DB, premium files) takes an
+  optional `virtual_network`. It defaults to the PRV VNet, or to the only VNet
+  when there is one. Terraform rejects a VNet key that does not exist or whose
   `subnets` lacks the subnet the resource needs.
 - A Container Apps environment or Databricks workspace is placed in the VNet
   that lists its `container_apps/<key>` or `databricks/<key>/<host|container>`
@@ -855,10 +857,10 @@ databricks_workspaces = {
 
 The [`metlenwithnaming`](environments/metlenwithnaming) environment creates one
 workspace-based Application Insights resource,
-`M-AZU-AIN-<BU>-<DPT>-<APP>-<ENV>-<REG>-<NN>`, shared by every Web App and
-Function App. It is on by default whenever at least one app exists and stores
-its data in the shared Log Analytics workspace (`M-AZU-LAW-…`), which is then
-created too:
+`M-AZU-AIN-<BU>-<DPT>-<APP>-<ENV>-<REG>-<NN>`, shared by every Web App,
+Function App and Logic App. It is on by default whenever at least one app
+exists and stores its data in the shared Log Analytics workspace
+(`M-AZU-LAW-…`), which is then created too:
 
 ```hcl
 virtual_networks = {
@@ -898,20 +900,95 @@ function_apps = {
   Insights SDK or OpenTelemetry distro.
 - Telemetry goes to the public Azure Monitor ingestion endpoint. Subnets are
   private and the apps route all outbound traffic through the VNet, so set
-  `nat_gateway = true` on the `web_app_integration` and `function_integration`
-  subnets of the apps' VNet or route them to a hub firewall; Terraform warns
-  when an app has neither.
+  `nat_gateway = true` on the `web_app_integration`, `function_integration`
+  and `logic_app_integration` subnets of the apps' VNet or route them to a hub
+  firewall; Terraform warns when an app has neither.
   Azure Monitor Private Link Scope is not implemented yet.
 - Application Insights data counts against the Log Analytics daily cap
   (0.1 GB by default). Once the cap is reached, ingestion stops until the next
   day; raise `log_analytics_workspace.daily_quota_gb` for real workloads.
-- Set `application_insights = false` on a `web_apps` or `function_apps` entry
-  to opt that app out. When no app uses it, neither resource is created.
+- Set `application_insights = false` on a `web_apps`, `function_apps` or
+  `logic_apps` entry to opt that app out. When no app uses it, neither
+  resource is created.
 - Azure adds a "Failure Anomalies" smart detector alert rule to every new
   Application Insights resource. The provider setting
   `application_insights { disable_generated_rule = true }` in `providers.tf`
   disables it on create and deletes it on destroy; without it the leftover
   rule blocked `terraform destroy` of the resource group in the live test.
+
+### Logic Apps (Standard) (metlenwithnaming)
+
+The [`metlenwithnaming`](environments/metlenwithnaming) environment creates
+private Logic Apps (Standard) from the `logic_apps` map (default: none). They
+follow the Function App pattern: each app runs on a plan from
+`app_service_plans`, has its own host storage account and joins an integration
+subnet, and nothing is reachable from the internet.
+
+```hcl
+virtual_networks = {
+  main = {
+    address_space = ["10.42.0.0/20"]
+    subnets = {
+      private_endpoints     = { cidr = "10.42.0.0/24", number = 1 }
+      logic_app_integration = { cidr = "10.42.11.0/26", number = 14, nat_gateway = true }
+    }
+  }
+}
+
+app_service_plans = {
+  workflows = { sequence = "02", os_type = "Windows", sku_name = "WS1" }
+}
+
+logic_apps = {
+  orders = {
+    service_plan     = "workflows"
+    sequence         = "00"
+    storage_sequence = "06"
+    app_settings     = { "Workflows.RuntimeConfiguration.RetentionInDays" = "30" }
+  }
+}
+```
+
+| Resource | Name | Notes |
+|---|---|---|
+| Logic App | `M-AZU-LAP-<BU>-<DPT>-<APP>-<ENV>-<REG>-<sequence>` | Global (`<name>.azurewebsites.net`); `sequence` must be unique per app |
+| Host storage account | `mazusoa…<storage_sequence>` | Unique across every storage account; content share `logic-app-content` |
+| Private Endpoints | `<app name>-sites`, `<storage name>-blob`/`-file`/`-queue`/`-table` | In the `private_endpoints` subnet of the app's VNet |
+
+- **Plans.** Logic Apps run only on Windows Workflow Standard plans (`WS1`,
+  `WS2`, `WS3`), which host nothing else: Web Apps need Basic, Standard or
+  Premium plans and Function Apps Elastic Premium plans. Several Logic Apps can
+  share one plan and then scale together. Terraform rejects a Linux `WS` plan.
+- **Networking.** Each app joins the `logic_app_integration` subnet of its
+  `virtual_network` (default: the PRV VNet), delegated to
+  `Microsoft.Web/serverFarms`, and routes all outbound traffic through it.
+  Microsoft recommends a /26 subnet because the subnet size cannot change
+  after assignment; /26 is required when apps on more than one plan share it.
+  Inbound traffic uses the app's `sites` Private Endpoint only.
+- **Storage.** Workflow state, run history and app content live in the app's
+  own storage account, reached only through its four Private Endpoints;
+  `WEBSITE_CONTENTOVERVNET` (`vnet_content_share_enabled`) keeps the content
+  share on the VNet. Logic Apps (Standard) still need the account key, so
+  shared key access is enabled on this account only.
+- **Runtime.** Functions host `~4` with the Workflows extension bundle, the
+  `dotnet` worker runtime and .NET 8, 64-bit, TLS 1.2, FTP and basic
+  publishing authentication off. `node_version` (default `22`) sets
+  `WEBSITE_NODE_DEFAULT_VERSION` for Inline Code actions; Microsoft reports
+  XSLT map issues on Node.js 24, so test before moving. `app_settings` adds
+  workflow settings; settings the module or the provider manage (runtime,
+  storage, networking, Application Insights) are rejected.
+- **Telemetry.** On by default through the shared Application Insights
+  resource (see above), with Entra authentication; the integration subnet
+  needs NAT or a firewall route.
+- **Connectors and deployment.** Built-in connectors run inside the app and
+  use the VNet. Azure-hosted managed connectors need outbound access to the
+  managed API service, and managed webhook (push) triggers such as Event Grid
+  cannot call a private app. Deploy workflows from inside the VNet (or a
+  peered network) or from a pipeline agent with access to the `sites` Private
+  Endpoint, using Microsoft Entra authentication.
+
+Logic Apps (Standard) have mocked plan tests and a plan against the real
+provider; they have not been deployed in the live test yet.
 
 ### VM backup (metlenwithnaming)
 

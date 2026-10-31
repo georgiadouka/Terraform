@@ -125,6 +125,7 @@ variables {
   function_apps = {
     primary = { service_plan = "functions", storage_sequence = "09" }
   }
+  logic_apps = {}
   web_apps = {
     primary = { service_plan = "web" }
   }

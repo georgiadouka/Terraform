@@ -318,6 +318,7 @@ output "app_service_plans" {
       sku_name      = var.app_service_plans[key].sku_name
       web_apps      = sort([for app_key, app in var.web_apps : app_key if app.service_plan == key])
       function_apps = sort([for app_key, app in var.function_apps : app_key if app.service_plan == key])
+      logic_apps    = sort([for app_key, app in var.logic_apps : app_key if app.service_plan == key])
     }
   }
 }
@@ -337,6 +338,24 @@ output "function_apps" {
       storage_account_name  = module.function_storage[key].name
       storage_blob_hostname = "${module.function_storage[key].name}.blob.core.windows.net"
       application_insights  = contains(keys(local.application_insights_apps), "function_app/${key}")
+    }
+  }
+}
+
+output "logic_apps" {
+  description = "Private Logic App (Standard) details keyed by the configured logical app name."
+  value = {
+    for key, app in module.logic_app : key => {
+      id                    = app.id
+      name                  = app.name
+      hostname              = app.default_hostname
+      principal_id          = app.principal_id
+      service_plan          = var.logic_apps[key].service_plan
+      service_plan_id       = app.service_plan_id
+      service_plan_name     = local.resource_names.app_service_plans[var.logic_apps[key].service_plan]
+      storage_account_name  = module.logic_app_storage[key].name
+      storage_blob_hostname = "${module.logic_app_storage[key].name}.blob.core.windows.net"
+      application_insights  = contains(keys(local.application_insights_apps), "logic_app/${key}")
     }
   }
 }
@@ -421,6 +440,12 @@ output "private_endpoint_ids" {
     }
     function_storage = {
       for app_key, endpoints in module.function_storage_private_endpoints : app_key => endpoints.ids
+    }
+    logic_apps = {
+      for app_key, endpoint in module.logic_app_private_endpoint : app_key => endpoint.id
+    }
+    logic_app_storage = {
+      for app_key, endpoints in module.logic_app_storage_private_endpoints : app_key => endpoints.ids
     }
     databricks_workspaces = {
       for workspace_key, workspace in var.databricks_workspaces : workspace_key => {

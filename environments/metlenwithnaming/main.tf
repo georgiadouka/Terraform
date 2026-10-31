@@ -438,6 +438,7 @@ locals {
   # mapped to the <VNet key>/<subnet key> their outbound traffic uses.
   application_insights_apps = var.application_insights.enabled ? merge(
     { for key, app in var.function_apps : "function_app/${key}" => "${local.virtual_network_placement.function_apps[key]}/function_integration" if app.application_insights },
+    { for key, app in var.logic_apps : "logic_app/${key}" => "${local.virtual_network_placement.logic_apps[key]}/logic_app_integration" if app.application_insights },
     { for key, app in var.web_apps : "web_app/${key}" => "${local.virtual_network_placement.web_apps[key]}/web_app_integration" if app.application_insights }
   ) : {}
   application_insights_required = length(local.application_insights_apps) > 0
@@ -474,6 +475,7 @@ module "application_insights" {
   workspace_id        = module.log_analytics[0].id
   metrics_publisher_principal_ids = merge(
     { for key in keys(var.function_apps) : "function_app/${key}" => module.function_app[key].principal_id if contains(keys(local.application_insights_apps), "function_app/${key}") },
+    { for key in keys(var.logic_apps) : "logic_app/${key}" => module.logic_app[key].principal_id if contains(keys(local.application_insights_apps), "logic_app/${key}") },
     { for key in keys(var.web_apps) : "web_app/${key}" => module.web_app[key].principal_id if contains(keys(local.application_insights_apps), "web_app/${key}") }
   )
   tags = local.common_tags
@@ -484,7 +486,7 @@ module "application_insights" {
 check "application_insights_egress" {
   assert {
     condition     = length(local.application_insights_without_egress) == 0
-    error_message = "These apps send telemetry to Application Insights but their integration subnet has no outbound internet access, so no telemetry arrives: ${join(", ", local.application_insights_without_egress)}. Set nat_gateway = true on the function_integration or web_app_integration subnet of the app's VNet, attach a route table with 0.0.0.0/0 to a firewall, or set application_insights = false on the app."
+    error_message = "These apps send telemetry to Application Insights but their integration subnet has no outbound internet access, so no telemetry arrives: ${join(", ", local.application_insights_without_egress)}. Set nat_gateway = true on the function_integration, logic_app_integration or web_app_integration subnet of the app's VNet, attach a route table with 0.0.0.0/0 to a firewall, or set application_insights = false on the app."
   }
 }
 
@@ -624,7 +626,8 @@ locals {
     for key in keys(var.app_service_plans) : key
     if !contains(concat(
       [for app in values(var.web_apps) : app.service_plan],
-      [for app in values(var.function_apps) : app.service_plan]
+      [for app in values(var.function_apps) : app.service_plan],
+      [for app in values(var.logic_apps) : app.service_plan]
     ), key)
   ])
 }
@@ -632,7 +635,7 @@ locals {
 check "unused_app_service_plans" {
   assert {
     condition     = length(local.unused_app_service_plans) == 0
-    error_message = "These app_service_plans entries have no web_apps or function_apps and are billed while empty: ${join(", ", local.unused_app_service_plans)}."
+    error_message = "These app_service_plans entries have no web_apps, function_apps or logic_apps and are billed while empty: ${join(", ", local.unused_app_service_plans)}."
   }
 }
 
@@ -727,6 +730,86 @@ module "function_app_private_endpoint" {
   private_connection_resource_id  = module.function_app[each.key].id
   subresource_names               = [local.private_endpoint_catalog["function_app/${each.key}"].subresource]
   private_dns_zone_ids            = [module.private_dns.zone_ids[local.private_endpoint_catalog["function_app/${each.key}"].dns_zone]]
+  tags                            = local.common_tags
+}
+
+# Logic App Standard host storage: workflow state and run history (blob,
+# queue, table) and the app content share (file). Logic Apps still need the
+# account key for the content share.
+module "logic_app_storage" {
+  for_each = var.logic_apps
+  source   = "../../modules/storage-account"
+
+  name                      = local.resource_names.logic_apps[each.key].storage_account_name
+  resource_group_name       = module.resource_group.name
+  location                  = module.resource_group.location
+  shared_access_key_enabled = true
+  file_share_names = {
+    "logic-app-content" = local.resource_names.logic_apps[each.key].content_share_name
+  }
+  file_shares = {
+    "logic-app-content" = {
+      quota_gb = 1
+    }
+  }
+  tags = local.common_tags
+}
+
+module "logic_app_storage_private_endpoints" {
+  for_each = local.logic_app_storage_private_endpoints
+  source   = "../../modules/storage-account-private-endpoints"
+
+  resource_group_name = module.resource_group.name
+  location            = module.resource_group.location
+  subnet_id           = module.network[local.virtual_network_placement.logic_apps[each.key]].subnet_ids["private_endpoints"]
+  storage_account_id  = module.logic_app_storage[each.key].id
+  endpoints = {
+    for key, endpoint in each.value : endpoint.subresource => {
+      name                            = local.private_endpoint_names[key].name
+      private_service_connection_name = local.private_endpoint_names[key].private_service_connection_name
+      private_dns_zone_group_name     = local.private_endpoint_names[key].private_dns_zone_group_name
+      private_dns_zone_ids            = [module.private_dns.zone_ids[endpoint.dns_zone]]
+    }
+  }
+  tags = local.common_tags
+}
+
+# Each app reaches its host storage only through the Private Endpoints, so the
+# apps wait for them. depends_on applies to the whole call, so every app waits
+# for every Logic App host storage endpoint.
+module "logic_app" {
+  for_each = var.logic_apps
+  source   = "../../modules/logic-app"
+
+  name                       = local.resource_names.logic_apps[each.key].name
+  service_plan_id            = module.app_service_plan[each.value.service_plan].id
+  resource_group_name        = module.resource_group.name
+  location                   = module.resource_group.location
+  storage_account_name       = module.logic_app_storage[each.key].name
+  storage_account_access_key = module.logic_app_storage[each.key].primary_access_key
+  content_share_name         = local.resource_names.logic_apps[each.key].content_share_name
+  virtual_network_subnet_id  = module.network[local.virtual_network_placement.logic_apps[each.key]].subnet_ids["logic_app_integration"]
+  node_version               = each.value.node_version
+  app_settings               = each.value.app_settings
+  application_insights       = contains(keys(local.application_insights_apps), "logic_app/${each.key}") ? { connection_string = module.application_insights[0].connection_string } : null
+  tags                       = local.common_tags
+
+  depends_on = [module.logic_app_storage_private_endpoints]
+}
+
+module "logic_app_private_endpoint" {
+  for_each = var.logic_apps
+  source   = "../../modules/private-endpoint"
+
+  name                            = local.private_endpoint_names["logic_app/${each.key}"].name
+  private_service_connection_name = local.private_endpoint_names["logic_app/${each.key}"].private_service_connection_name
+  private_dns_zone_group_name     = local.private_endpoint_names["logic_app/${each.key}"].private_dns_zone_group_name
+  resource_group_name             = module.resource_group.name
+  location                        = module.resource_group.location
+  subnet_id                       = module.network[local.virtual_network_placement.logic_apps[each.key]].subnet_ids["private_endpoints"]
+  private_connection_resource_id  = module.logic_app[each.key].id
+  subresource_names               = [local.private_endpoint_catalog["logic_app/${each.key}"].subresource]
+  private_dns_zone_ids            = [module.private_dns.zone_ids[local.private_endpoint_catalog["logic_app/${each.key}"].dns_zone]]
   tags                            = local.common_tags
 }
 

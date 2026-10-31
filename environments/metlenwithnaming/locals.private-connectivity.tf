@@ -23,10 +23,10 @@ locals {
   # this catalog cannot form a cycle with the naming locals.
   # deployed_by names the module call that creates the endpoint. A storage
   # account rejects concurrent Private Endpoint connections, so storage
-  # endpoints use calls that create them one at a time. Function host storage
-  # has its own call per Function App because each app waits for its storage
-  # endpoints, and the Function App endpoints have their own call so other
-  # endpoints never wait for the apps.
+  # endpoints use calls that create them one at a time. Function App and
+  # Logic App host storage has its own call per app because each app waits
+  # for its storage endpoints, and the Function App and Logic App endpoints
+  # have their own calls so other endpoints never wait for the apps.
   private_endpoint_catalog = merge(
     {
       for app_key in keys(var.web_apps) :
@@ -46,6 +46,17 @@ locals {
         deployed_by     = "function_app_private_endpoint"
         target          = "function_app/${app_key}"
         virtual_network = local.virtual_network_placement.function_apps[app_key]
+        subresource     = "sites"
+        dns_zone        = "privatelink.azurewebsites.net"
+      }
+    },
+    {
+      for app_key in keys(var.logic_apps) :
+      "logic_app/${app_key}" => {
+        enabled         = true
+        deployed_by     = "logic_app_private_endpoint"
+        target          = "logic_app/${app_key}"
+        virtual_network = local.virtual_network_placement.logic_apps[app_key]
         subresource     = "sites"
         dns_zone        = "privatelink.azurewebsites.net"
       }
@@ -127,6 +138,17 @@ locals {
         dns_zone        = "privatelink.${pair[1]}.core.windows.net"
       }
     },
+    {
+      for pair in setproduct(keys(var.logic_apps), ["blob", "file", "queue", "table"]) :
+      "logic_app_storage/${pair[0]}/${pair[1]}" => {
+        enabled         = true
+        deployed_by     = "logic_app_storage_private_endpoints"
+        target          = "logic_app_storage/${pair[0]}"
+        virtual_network = local.virtual_network_placement.logic_apps[pair[0]]
+        subresource     = pair[1]
+        dns_zone        = "privatelink.${pair[1]}.core.windows.net"
+      }
+    },
     # One databricks_ui_api endpoint per private or backend_private workload
     # workspace serves both users (front-end) and clusters (back-end) because
     # it sits in the workspace VNet. The browser authentication workspace
@@ -190,11 +212,21 @@ locals {
     }
   }
 
+  # Logic App host storage endpoints grouped by Logic App key.
+  logic_app_storage_private_endpoints = {
+    for app_key in keys(var.logic_apps) : app_key => {
+      for key, endpoint in local.private_endpoint_catalog : key => endpoint
+      if endpoint.enabled && endpoint.deployed_by == "logic_app_storage_private_endpoints" && endpoint.target == "logic_app_storage/${app_key}"
+    }
+  }
+
   # Parent resource name per catalog target.
   private_endpoint_parent_names = merge(
     { for key, app in local.resource_names.web_apps : "web_app/${key}" => app.name },
     { for key, app in local.resource_names.function_apps : "function_app/${key}" => app.name },
     { for key, app in local.resource_names.function_apps : "function_storage/${key}" => app.storage_account_name },
+    { for key, app in local.resource_names.logic_apps : "logic_app/${key}" => app.name },
+    { for key, app in local.resource_names.logic_apps : "logic_app_storage/${key}" => app.storage_account_name },
     { for key, name in local.resource_names.container_registries : "container_registry/${key}" => name },
     { for key, server in local.resource_names.azure_sql_servers : "azure_sql/${key}" => server.server_name },
     { for key, name in local.resource_names.cosmos_db_accounts : "cosmos_db/${key}" => name },
@@ -217,8 +249,8 @@ locals {
   }
 
   # Private Link resource IDs for module.private_endpoints, keyed by catalog
-  # target. Storage accounts and Function Apps are referenced by their own
-  # module calls so these endpoints never wait for them.
+  # target. Storage accounts, Function Apps and Logic Apps are referenced by
+  # their own module calls so these endpoints never wait for them.
   private_endpoint_target_ids = merge(
     { for key, app in module.web_app : "web_app/${key}" => app.id },
     { for key, registry in module.container_registry : "container_registry/${key}" => registry.id },
