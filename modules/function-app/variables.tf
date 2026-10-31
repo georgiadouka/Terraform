@@ -73,21 +73,25 @@ variable "runtime" {
 
   # Exact runtime-version allowlists are temporarily disabled because Azure
   # lifecycle support changes independently from this module.
+  # The lists below are the versions that are generally available on Functions
+  # v4 (https://learn.microsoft.com/azure/azure-functions/supported-languages)
+  # and accepted by the azurerm 4.81 schema. Linux PowerShell 7.6 is GA on
+  # Azure but not yet accepted by azurerm 4.81; Python 3.15 is in preview.
   /*
   validation {
     condition = var.os_type == "Windows" ? contains(lookup({
       dotnet          = ["8.0"]
-      dotnet-isolated = ["6.0", "7.0", "8.0", "9.0", "10.0"]
-      node            = ["12", "14", "16", "18", "20", "22", "24"]
+      dotnet-isolated = ["8.0", "9.0", "10.0"]
+      node            = ["22", "24"]
       java            = ["8", "11", "17", "21", "25"]
-      powershell      = ["7", "7.2", "7.4", "7.6"]
+      powershell      = ["7.4", "7.6"]
       }, var.runtime.name, []), var.runtime.version) : contains(lookup({
-      python          = ["3.7", "3.8", "3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
-      node            = ["12", "14", "16", "18", "20", "22", "24"]
+      python          = ["3.11", "3.12", "3.13", "3.14"]
+      node            = ["22", "24"]
       dotnet          = ["8.0"]
-      dotnet-isolated = ["6.0", "7.0", "8.0", "9.0"]
+      dotnet-isolated = ["8.0", "9.0", "10.0"]
       java            = ["8", "11", "17", "21", "25"]
-      powershell      = ["7", "7.2", "7.4"]
+      powershell      = ["7.4"]
     }, var.runtime.name, []), var.runtime.version)
     error_message = "runtime must select a language and plain version supported for the chosen OS. Python requires Linux; dotnet in-process requires 8.0. Set both name and version when changing language, without provider prefixes such as v or ~; verify Azure support before deployment."
   }

@@ -987,8 +987,22 @@ HTTPS/TLS 1.2, and enable a system-assigned managed identity. The default B1
 plan can be replaced with a supported Basic, Standard, or Premium SKU. Set the
 plain runtime version for code modes (for example Node.js `22`, Python `3.11`,
 or .NET `8.0`); the module converts it to the provider-specific format. Exact
-runtime-version allowlists are temporarily disabled, so verify the selected
-version against current Azure App Service support before deployment.
+runtime-version allowlists are temporarily disabled, so the module does not
+reject other versions. Use these versions, which `az webapp list-runtimes`
+reports as supported and the pinned provider (azurerm 4.81) accepts, checked on
+2026-10-31:
+
+| Runtime name | Linux versions | Windows versions |
+|---|---|---|
+| `node` | `22`, `24` | `22` |
+| `python` | `3.11`, `3.12`, `3.13`, `3.14` | Not supported |
+| `dotnet` | `8.0`, `9.0`, `10.0` | `8.0`, `9.0`, `10.0` |
+
+Azure also supports Node.js 24 on Windows and Node.js 26, Python 3.15, and
+.NET 11 on Linux, but azurerm 4.81 rejects them. Run
+`az webapp list-runtimes --os linux` (or `--os windows`) to see the current
+Azure list; see
+[Language runtime support policy](https://learn.microsoft.com/azure/app-service/language-support-policy).
 Container mode accepts a registry URL, image name, and listening port. Private
 registry role assignments and image publication remain the caller's
 responsibility.
@@ -1021,18 +1035,20 @@ reference for the pinned provider schema:
 
 | Runtime name | Linux versions | Windows versions | Guidance |
 |---|---|---|---|
-| `python` | `3.7`, `3.8`, `3.9`, `3.10`, `3.11`, `3.12`, `3.13`, `3.14` | Not supported | Python Function Apps require Linux. Python 3.11 is this composition's default. |
-| `node` | `12`, `14`, `16`, `18`, `20`, `22`, `24` | `12`, `14`, `16`, `18`, `20`, `22`, `24` | Supply the plain major version, such as `22`. |
-| `dotnet-isolated` | `6.0`, `7.0`, `8.0`, `9.0` | `6.0`, `7.0`, `8.0`, `9.0`, `10.0` | Preferred .NET execution model. |
+| `python` | `3.11`, `3.12`, `3.13`, `3.14` | Not supported | Python Function Apps require Linux. Python 3.11 is this composition's default. Python 3.15 is in preview on Azure and not accepted by the pinned provider. |
+| `node` | `22`, `24` | `22`, `24` | Supply the plain major version, such as `22`. |
+| `dotnet-isolated` | `8.0`, `9.0`, `10.0` | `8.0`, `9.0`, `10.0` | Preferred .NET execution model. |
 | `dotnet` | `8.0` only | `8.0` only | Legacy in-process model. The module also sets `FUNCTIONS_INPROC_NET8_ENABLED=1`. In-process support ends November 10, 2026. |
 | `java` | `8`, `11`, `17`, `21`, `25` | `8`, `11`, `17`, `21`, `25` | Supply `8`; the module maps it to the Windows provider value `1.8`. |
-| `powershell` | `7`, `7.2`, `7.4` | `7`, `7.2`, `7.4`, `7.6` | Select a version supported by Azure in the target region. |
+| `powershell` | `7.4` | `7.4`, `7.6` | PowerShell 7.6 is also GA on Linux Premium plans, but the pinned provider accepts only `7`, `7.2`, and `7.4` for Linux Function Apps. |
 
-These reference values include legacy versions and **do not guarantee that a
-version is still supported by Azure**. Before deployment, select a currently
-supported version from Microsoft's
-[Azure Functions language support table](https://learn.microsoft.com/azure/azure-functions/supported-languages)
-and verify regional availability.
+These are the versions Microsoft lists as generally available for Functions
+host v4 that the pinned provider (azurerm 4.81) also accepts, checked against
+the [Azure Functions language support table](https://learn.microsoft.com/azure/azure-functions/supported-languages)
+on 2026-10-31. Retired versions (Python 3.7-3.10, Node.js 12-20, .NET 6 and 7
+isolated, PowerShell 7 and 7.2) are not listed. The module does not enforce the
+list, so Azure lifecycle changes do not block a plan; check the table and
+regional availability before deployment.
 
 Use plain version values in tfvars (`22`, `8.0`, or `8`), without provider
 prefixes such as `~` or `v`. The module performs the required Windows mappings,

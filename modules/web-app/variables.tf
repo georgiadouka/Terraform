@@ -76,18 +76,23 @@ variable "runtime" {
 
   # Exact runtime-version allowlists are temporarily disabled because Azure
   # lifecycle support changes independently from this module.
+  # The lists below are the versions that `az webapp list-runtimes` reports as
+  # supported (Node.js 22/24, Python 3.11-3.14, .NET 8-10) and that the azurerm
+  # 4.81 schema accepts. Azure also lists Node.js 26, Python 3.15 and .NET 11
+  # on Linux, which azurerm 4.81 rejects. Windows Node.js 24 is supported by
+  # Azure but rejected by azurerm 4.81, which stops at ~22.
   /*
   validation {
     condition = (
       var.mode == "container" ||
       var.mode == "linux" && contains(lookup({
-        node   = ["18", "20", "22", "24"]
-        python = ["3.9", "3.10", "3.11", "3.12", "3.13"]
-        dotnet = ["6.0", "7.0", "8.0", "9.0"]
+        node   = ["22", "24"]
+        python = ["3.11", "3.12", "3.13", "3.14"]
+        dotnet = ["8.0", "9.0", "10.0"]
       }, var.runtime.name, []), var.runtime.version) ||
       var.mode == "windows" && contains(lookup({
-        node   = ["18", "20", "22", "24"]
-        dotnet = ["6.0", "7.0", "8.0", "9.0"]
+        node   = ["22"]
+        dotnet = ["8.0", "9.0", "10.0"]
       }, var.runtime.name, []), var.runtime.version)
     )
     error_message = "runtime must select a supported runtime/version for the chosen mode: Linux supports node, python, and dotnet; Windows supports node and dotnet."
