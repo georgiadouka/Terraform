@@ -10,6 +10,23 @@ variables {
 
 run "accept_defaults" {
   command = plan
+
+  assert {
+    condition     = azurerm_cosmosdb_account.this.local_authentication_enabled == true
+    error_message = "Key-based local authentication must stay enabled by default."
+  }
+}
+
+run "disable_local_authentication" {
+  command = plan
+  variables {
+    local_authentication_disabled = true
+  }
+
+  assert {
+    condition     = azurerm_cosmosdb_account.this.local_authentication_enabled == false
+    error_message = "local_authentication_disabled = true must turn key-based local authentication off."
+  }
 }
 
 run "reject_unknown_api_type" {

@@ -43,7 +43,7 @@ resource "azurerm_cosmosdb_account" "this" {
   mongo_server_version          = var.api_type == "MongoDB" ? var.mongodb.server_version : null
   minimal_tls_version           = "Tls12"
   public_network_access_enabled = false
-  local_authentication_disabled = var.local_authentication_disabled
+  local_authentication_enabled  = !var.local_authentication_disabled
 
   access_key_metadata_writes_enabled    = false
   network_acl_bypass_for_azure_services = false
