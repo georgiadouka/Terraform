@@ -77,6 +77,12 @@ resource "azurerm_linux_function_app" "this" {
       powershell_core_version     = var.runtime.name == "powershell" ? var.runtime.version : null
     }
   }
+
+  lifecycle {
+    # The Azure portal adds this tag to link the app to its Application
+    # Insights resource; every other tag stays managed.
+    ignore_changes = [tags["hidden-link: /app-insights-resource-id"]]
+  }
 }
 
 resource "azurerm_windows_function_app" "this" {
@@ -119,5 +125,10 @@ resource "azurerm_windows_function_app" "this" {
       java_version                = var.runtime.name == "java" ? (var.runtime.version == "8" ? "1.8" : var.runtime.version) : null
       powershell_core_version     = var.runtime.name == "powershell" ? var.runtime.version : null
     }
+  }
+
+  lifecycle {
+    # Added by the Azure portal; see azurerm_linux_function_app.
+    ignore_changes = [tags["hidden-link: /app-insights-resource-id"]]
   }
 }

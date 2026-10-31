@@ -68,6 +68,12 @@ resource "azurerm_linux_web_app" "this" {
       python_version      = var.mode == "linux" && var.runtime.name == "python" ? var.runtime.version : null
     }
   }
+
+  lifecycle {
+    # The Azure portal adds this tag to link the app to its Application
+    # Insights resource; every other tag stays managed.
+    ignore_changes = [tags["hidden-link: /app-insights-resource-id"]]
+  }
 }
 
 resource "azurerm_windows_web_app" "this" {
@@ -102,5 +108,10 @@ resource "azurerm_windows_web_app" "this" {
       dotnet_version = var.runtime.name == "dotnet" ? "v${var.runtime.version}" : null
       node_version   = var.runtime.name == "node" ? "~${var.runtime.version}" : null
     }
+  }
+
+  lifecycle {
+    # Added by the Azure portal; see azurerm_linux_web_app.
+    ignore_changes = [tags["hidden-link: /app-insights-resource-id"]]
   }
 }
