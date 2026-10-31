@@ -76,8 +76,8 @@ All token values must exist in the controlled dictionary
 | 31 | Log Analytics workspace | Not in register | — | `M-AZU-LAW-IT-PPA-ECM-DEV-SWE-00` | `M-AZU-LAW-IT-PPA-GEO-DEV-SWE-05` ⁴ | Code `LAW` agreed 2026-10-28; full family with NN (see 4.12) |
 | 32 | Application Insights | Not in register | — | `M-AZU-AIN-IT-PPA-ECM-DEV-SWE-00` | — | Code `AIN` agreed 2026-10-29; full family with NN (see 4.15) |
 | 33 | Recovery Services vault | Not in register | — | `M-AZU-RSV-IT-PPA-ECM-DEV-SWE-00` | — | Code `RSV` agreed 2026-10-31; full family with NN (see 4.17) |
-| 34 | Logic App (Standard) | WORKING | `M-AZU-LAP-IT-PPA-ECM-DEV-SWE-00` | `M-AZU-LAP-IT-PPA-ECM-DEV-SWE-00` | — | Exact (see 4.18) |
-| 35 | Storage Account – Logic App host | (Storage) | `mazusoa…NN` | `mazusoaitppaecmdevswe<NN>` | — | Exact (same family) |
+| 34 | Logic App (Standard) | WORKING | `M-AZU-LAP-IT-PPA-ECM-DEV-SWE-00` | `M-AZU-LAP-IT-PPA-ECM-DEV-SWE-00` | `M-AZU-LAP-IT-PPA-GEO-UAT-SWE-07`, `-08` ⁵ | Exact (see 4.18) |
+| 35 | Storage Account – Logic App host | (Storage) | `mazusoa…NN` | `mazusoaitppaecmdevswe<NN>` | `mazusoaitppageouatswe07`, `08` ⁵ | Exact (same family) |
 
 ¹ The `00` name already exists in Azure outside the test subscription (see 5),
 so the test deployment used NN `01`.
@@ -86,6 +86,8 @@ so the test deployment used NN `01`.
 numbers; the next test deployment uses `PPAECMDEVPRV01` and so on.
 ⁴ Deployed on 2026-10-28 in a separate sandbox test with the application token
 `GEO` and NN `05` (see 6).
+⁵ Deployed on 2026-10-31 in the sandbox Logic Apps test with `GEO`, `UAT` and
+NN `07`/`08` (resource group `M-AZU-RGP-IT-PPA-GEO-UAT-SWE`).
 
 ### Names inside resources (not covered by the standard)
 

@@ -987,8 +987,11 @@ logic_apps = {
   peered network) or from a pipeline agent with access to the `sites` Private
   Endpoint, using Microsoft Entra authentication.
 
-Logic Apps (Standard) have mocked plan tests and a plan against the real
-provider; they have not been deployed in the live test yet.
+Logic Apps (Standard) were deployed in the live test on 2026-10-31 (two apps
+on one WS1 plan, 49 resources in 16 minutes): both apps started with public
+access disabled, a stateful workflow deployed through ARM ran every minute
+against the private host storage, telemetry reached Application Insights with
+Entra authentication, and a plan right after the apply reported no changes.
 
 ### VM backup (metlenwithnaming)
 
