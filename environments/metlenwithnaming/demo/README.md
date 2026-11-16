@@ -52,9 +52,10 @@ Copy-Item demo\environment.tfvars.example demo\environment.tfvars
 $env:TF_VAR_vm_admin_password       = [Net.NetworkCredential]::new('', (Read-Host 'VM admin password' -AsSecureString)).Password
 $env:TF_VAR_database_admin_password = [Net.NetworkCredential]::new('', (Read-Host 'Database admin password' -AsSecureString)).Password
 
-# The demo keeps its own state, apart from any other deployment of this root.
+# State: the demo uses the default local state of this root
+# (terraform.tfstate here). `terraform state list` must be empty before step 1.
 terraform init
-terraform workspace select -or-create demo
+terraform state list
 
 # Demo hub (skip if you peer with an existing hub instead).
 terraform -chdir=demo\hub init
@@ -71,8 +72,6 @@ needs Network Contributor on the hub VNet, or set
 ## The loop for every step
 
 ```powershell
-terraform workspace show   # must print "demo"
-
 # What changes compared with the previous step (the "pull request").
 git diff --no-index demo\step-1-foundation.tfvars demo\step-2-security-storage.tfvars
 
@@ -126,8 +125,6 @@ errors Terraform raises for wrong input.
 ```powershell
 terraform destroy "-var-file=demo\environment.tfvars" "-var-file=demo\step-8-day2-move-remove.tfvars"
 terraform -chdir=demo\hub destroy "-var-file=..\environment.tfvars"
-terraform workspace select default
-terraform workspace delete demo
 ```
 
 - Use the file of the last step you applied; Terraform destroys what is in the
