@@ -1045,14 +1045,32 @@ run "multiple_key_vaults" {
   }
 }
 
-run "reject_invalid_key_vault_key" {
+# Disabled: the validation it tests is disabled (the key is only a label).
+# run "reject_invalid_key_vault_key" {
+#   command = plan
+#   variables {
+#     key_vaults = {
+#       "Bad_Key" = {}
+#     }
+#   }
+#   expect_failures = [var.key_vaults]
+# }
+
+run "key_vault_key_is_only_a_label" {
   command = plan
   variables {
     key_vaults = {
-      "Bad_Key" = {}
+      confidentials = { sequence = "02" }
     }
   }
-  expect_failures = [var.key_vaults]
+
+  assert {
+    condition = (
+      local.resource_names.key_vaults["confidentials"] == "mazukvaitppaecmdevswe02" &&
+      local.private_endpoint_names["key_vault/confidentials"].name == "mazukvaitppaecmdevswe02-vault"
+    )
+    error_message = "A key_vaults key longer than 12 characters must be accepted and must not appear in the vault or Private Endpoint name."
+  }
 }
 
 run "multiple_cosmos_db_accounts" {

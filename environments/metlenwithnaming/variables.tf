@@ -1012,14 +1012,16 @@ variable "key_vaults" {
     error_message = "Every key_vaults virtual_network must be a virtual_networks key (default: the PRV VNet) whose subnets list private_endpoints; its Private Endpoint sits in that subnet. VNets: ${join(", ", [for key, item in var.key_vaults : "${key}=${coalesce(item.virtual_network, local.default_virtual_network, "none")}"])}."
   }
 
-  validation {
-    condition = alltrue([
-      for key in keys(var.key_vaults) :
-      can(regex("^[a-z][a-z0-9-]{0,11}$", key)) &&
-      !strcontains(key, "--")
-    ])
-    error_message = "key_vaults keys must be 1-12 lowercase alphanumeric or hyphen characters, start with a letter, and not contain consecutive hyphens."
-  }
+  # Disabled: the key is only a label; it never appears in the vault name or
+  # its Private Endpoint name, so neither Azure nor METLEN restricts it.
+  # validation {
+  #   condition = alltrue([
+  #     for key in keys(var.key_vaults) :
+  #     can(regex("^[a-z][a-z0-9-]{0,11}$", key)) &&
+  #     !strcontains(key, "--")
+  #   ])
+  #   error_message = "key_vaults keys must be 1-12 lowercase alphanumeric or hyphen characters, start with a letter, and not contain consecutive hyphens."
+  # }
 
   validation {
     condition     = alltrue([for vault in values(var.key_vaults) : can(regex("^[0-9]{2}$", vault.sequence))])
