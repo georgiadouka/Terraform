@@ -1,0 +1,17 @@
+# Copy this file to environment.tfvars (git-ignored) and fill it in. Every
+# demo command loads it first and then one step file: this file says where to
+# deploy, the step files say what.
+subscription_id = "00000000-0000-0000-0000-000000000000"
+tenant_id       = "00000000-0000-0000-0000-000000000000"
+location        = "swedencentral"
+
+# Every VNet of the demo peers with this hub VNet. After creating the demo hub
+# (see README.md), paste the output of
+#   terraform -chdir=demo\hub output -raw hub_peering
+# here, or use the resource ID of an existing hub VNet.
+# hub_peering = { hub_virtual_network_id = "/subscriptions/<subscription-id>/resourceGroups/rg-metlen-demo-hub/providers/Microsoft.Network/virtualNetworks/vnet-hub-demo" }
+
+tags = {
+  purpose = "metlen-demo"
+  owner   = "<your alias>"
+}

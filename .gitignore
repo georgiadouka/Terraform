@@ -4,6 +4,7 @@
 *.tfplan
 *.tfvars
 !*.tfvars.example
+!environments/metlenwithnaming/demo/step-*.tfvars
 backend.hcl
 crash.log
 crash.*.log

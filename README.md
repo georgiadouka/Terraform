@@ -17,6 +17,8 @@ together:
 .
 |-- environments/lab/  # General lab root module and environment configuration
 |-- environments/mcaps-ha-test/ # Isolated Windows VM and database HA deployment
+|-- environments/metlenwithnaming/ # Generic METLEN root with the METLEN naming standard
+|   `-- demo/          # Step-by-step customer demo of the metlenwithnaming root
 |-- modules/           # Reusable resource modules
 |-- scripts/           # Plan, test, and teardown automation
 `-- docs/              # Operator guidance
@@ -26,6 +28,10 @@ Keeping these parts in one repository makes interface changes atomic and lets
 the lock file, example values, modules, and guide evolve together. Split a
 module into its own repository only when it needs an independent release and
 versioning lifecycle.
+
+The [METLEN demo](environments/metlenwithnaming/demo/README.md) deploys the
+`metlenwithnaming` root in eight cumulative steps, from the network
+foundation to day-2 changes, with a talk track for each step.
 
 ### Lab configuration structure
 
