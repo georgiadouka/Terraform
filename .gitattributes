@@ -1,0 +1,2 @@
+# Shell scripts run on Linux VMs through Azure Run Command; CRLF breaks bash.
+*.sh text eol=lf

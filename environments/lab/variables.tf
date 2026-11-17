@@ -16,10 +16,12 @@ variable "storage_use_azuread" {
   validation {
     condition = (
       var.storage_use_azuread ||
-      !var.services.storage ||
-      var.storage.shared_access_key_enabled
+      alltrue([
+        for account in values(var.storage_accounts) :
+        account.shared_access_key_enabled
+      ])
     )
-    error_message = "storage.shared_access_key_enabled must be true when storage_use_azuread is false and the standard storage service is enabled."
+    error_message = "Every storage_accounts entry must set shared_access_key_enabled to true when storage_use_azuread is false."
   }
 }
 
@@ -73,6 +75,11 @@ variable "naming" {
       data_disk                  = optional(string, "disk")
       autoscale_setting          = optional(string, "autoscale")
       nat_gateway                = optional(string, "nat")
+      load_balancer              = optional(string, "lbi")
+      load_balancer_frontend     = optional(string, "lbfe")
+      load_balancer_backend_pool = optional(string, "lbbe")
+      load_balancer_probe        = optional(string, "lbprobe")
+      load_balancer_rule         = optional(string, "lbrule")
       public_ip                  = optional(string, "pip")
       key_vault                  = optional(string, "kv")
       container_registry         = optional(string, "cr")
@@ -91,6 +98,7 @@ variable "naming" {
       sql_managed_instance       = optional(string, "sqlmi")
       network_security_group     = optional(string, "nsg")
       route_table                = optional(string, "rt")
+      virtual_network_peering    = optional(string, "peer")
       postgresql_server          = optional(string, "psql")
       postgresql_database        = optional(string, "psqldb")
       mysql_server               = optional(string, "mysql")
@@ -129,7 +137,12 @@ variable "naming" {
 
   validation {
     condition     = length(var.naming.prefixes.container_app) <= 4
-    error_message = "naming.prefixes.container_app must be no more than four characters so generated Container App names remain within Azure's 32-character limit."
+    error_message = "naming.prefixes.container_app must be no more than four characters so generated Container App names (<prefix>-<app key>-<environment key>-<suffix>) remain within Azure's 32-character limit."
+  }
+
+  validation {
+    condition     = length(var.naming.prefixes.key_vault) <= 7
+    error_message = "naming.prefixes.key_vault must be no more than seven characters so every generated Key Vault name keeps its full logical-key token within Azure's 24-character limit."
   }
 }
 
@@ -153,21 +166,21 @@ variable "address_space" {
 }
 
 variable "subnet_cidrs" {
-  description = "CIDR prefix assigned to each lab subnet."
+  description = "CIDR prefix for each lab subnet. container_apps maps each Container Apps environment key to its own range; load_balancers is one range shared by every load balancer frontend. Ranges are reserved and overlap-checked even when unused; a subnet is created only when something uses it."
   type = object({
     private_endpoints    = string
     virtual_machines     = string
-    container_apps       = string
     web_app_integration  = optional(string, "10.42.8.0/26")
     function_integration = string
     postgresql           = string
     mysql                = string
     sql_managed_instance = string
+    container_apps       = optional(map(string), {})
+    load_balancers       = optional(string)
   })
   default = {
     private_endpoints    = "10.42.0.0/24"
     virtual_machines     = "10.42.1.0/24"
-    container_apps       = "10.42.2.0/23"
     web_app_integration  = "10.42.8.0/26"
     function_integration = "10.42.4.0/24"
     postgresql           = "10.42.5.0/24"
@@ -177,7 +190,19 @@ variable "subnet_cidrs" {
 
   validation {
     condition = alltrue([
-      for prefix in values(var.subnet_cidrs) :
+      for prefix in concat(
+        [
+          var.subnet_cidrs.private_endpoints,
+          var.subnet_cidrs.virtual_machines,
+          var.subnet_cidrs.web_app_integration,
+          var.subnet_cidrs.function_integration,
+          var.subnet_cidrs.postgresql,
+          var.subnet_cidrs.mysql,
+          var.subnet_cidrs.sql_managed_instance
+        ],
+        var.subnet_cidrs.load_balancers == null ? [] : [var.subnet_cidrs.load_balancers],
+        values(var.subnet_cidrs.container_apps)
+      ) :
       can(cidrnetmask(prefix)) &&
       can(cidrhost(prefix, 0)) &&
       try(cidrhost(prefix, 0) == split("/", prefix)[0], false)
@@ -186,26 +211,38 @@ variable "subnet_cidrs" {
   }
 
   validation {
-    condition     = can(tonumber(split("/", var.subnet_cidrs.container_apps)[1])) && tonumber(split("/", var.subnet_cidrs.container_apps)[1]) <= 23
-    error_message = "The Container Apps subnet must be /23 or larger."
-  }
-
-  validation {
     condition     = can(tonumber(split("/", var.subnet_cidrs.sql_managed_instance)[1])) && tonumber(split("/", var.subnet_cidrs.sql_managed_instance)[1]) <= 27
     error_message = "The future SQL Managed Instance subnet must be /27 or larger."
   }
+
+  validation {
+    condition = alltrue([
+      for key in keys(var.subnet_cidrs.container_apps) :
+      can(regex("^[a-z]([a-z0-9-]{0,10}[a-z0-9])?$", key)) && !strcontains(key, "--")
+    ])
+    error_message = "subnet_cidrs.container_apps keys must match Container Apps environment keys: 1-12 lowercase alphanumeric or hyphen characters, starting with a letter, ending with a letter or digit, without consecutive hyphens."
+  }
+
+  # A workload profiles environment needs at least a /27; the /23 minimum
+  # applies only to Consumption-only environments, which this lab doesn't create.
+  validation {
+    condition = alltrue([
+      for prefix in values(var.subnet_cidrs.container_apps) :
+      try(tonumber(split("/", prefix)[1]) <= 27, false)
+    ])
+    error_message = "Every subnet_cidrs.container_apps range must be /27 or larger."
+  }
+
+  # Azure's smallest subnet is /29.
+  validation {
+    condition     = var.subnet_cidrs.load_balancers == null || try(tonumber(split("/", var.subnet_cidrs.load_balancers)[1]) <= 29, false)
+    error_message = "subnet_cidrs.load_balancers must be /29 or larger."
+  }
 }
 
-variable "vm_size" {
-  description = "Deprecated VM size override. Use virtual_machine.size for new configurations."
-  type        = string
-  default     = null
-  nullable    = true
-}
-
-variable "virtual_machine" {
-  description = "Primary Linux or Windows VM image, sizing, administrator, and disk settings."
-  type = object({
+variable "virtual_machines" {
+  description = "Linux or Windows virtual machines keyed by a stable logical name. Defaults to none; add one entry per VM."
+  type = map(object({
     size           = optional(string, "Standard_B2s_v2")
     admin_username = optional(string, "azureadmin")
     os_type        = optional(string, "Linux")
@@ -233,13 +270,31 @@ variable "virtual_machine" {
         caching              = "ReadWrite"
       }
     })
-  })
+    load_balancer = optional(string)
+  }))
   default = {}
+
+  validation {
+    condition = alltrue([
+      for key in keys(var.virtual_machines) :
+      can(regex("^[a-z][a-z0-9-]{0,11}$", key)) &&
+      !strcontains(key, "--")
+    ])
+    error_message = "virtual_machines keys must be 1-12 lowercase alphanumeric or hyphen characters, start with a letter, and not contain consecutive hyphens."
+  }
+
+  validation {
+    condition = alltrue([
+      for vm in values(var.virtual_machines) :
+      vm.load_balancer == null || contains(keys(var.load_balancers), coalesce(vm.load_balancer, "-"))
+    ])
+    error_message = "Every virtual_machines load_balancer must be a key in load_balancers."
+  }
 }
 
-variable "virtual_machine_scale_set" {
-  description = "Linux or Windows VMSS image, sizing, disks, networking, and Azure Monitor capacity settings."
-  type = object({
+variable "virtual_machine_scale_sets" {
+  description = "Linux or Windows Virtual Machine Scale Sets keyed by a stable logical name. Defaults to none; add one entry per scale set."
+  type = map(object({
     size                          = optional(string, "Standard_B2s_v2")
     admin_username                = optional(string, "azureadmin")
     os_type                       = optional(string, "Linux")
@@ -277,10 +332,114 @@ variable "virtual_machine_scale_set" {
         cooldown_minutes    = optional(number, 5)
       }), {})
     }), {})
+    load_balancer                                = optional(string)
     load_balancer_backend_address_pool_ids       = optional(set(string), [])
     application_gateway_backend_address_pool_ids = optional(set(string), [])
-  })
+  }))
   default = {}
+
+  validation {
+    condition = alltrue([
+      for key in keys(var.virtual_machine_scale_sets) :
+      can(regex("^[a-z][a-z0-9-]{0,11}$", key)) &&
+      !strcontains(key, "--")
+    ])
+    error_message = "virtual_machine_scale_sets keys must be 1-12 lowercase alphanumeric or hyphen characters, start with a letter, and not contain consecutive hyphens."
+  }
+
+  validation {
+    condition = alltrue([
+      for scale_set in values(var.virtual_machine_scale_sets) :
+      scale_set.load_balancer == null || contains(keys(var.load_balancers), coalesce(scale_set.load_balancer, "-"))
+    ])
+    error_message = "Every virtual_machine_scale_sets load_balancer must be a key in load_balancers."
+  }
+}
+
+variable "load_balancers" {
+  description = "Internal Standard load balancers keyed by a stable logical name. Every frontend IP sits in the shared subnet_cidrs.load_balancers range, and each load balancer has one backend pool; VMs and scale sets join by setting load_balancer to the key. Defaults to none."
+  type = map(object({
+    private_ip_address = optional(string)
+    zones              = optional(set(string), ["1", "2", "3"])
+    probes = optional(map(object({
+      protocol            = optional(string, "Tcp")
+      port                = number
+      request_path        = optional(string)
+      interval_in_seconds = optional(number, 5)
+      probe_threshold     = optional(number, 1)
+    })), {})
+    rules = optional(map(object({
+      probe                   = string
+      protocol                = optional(string, "Tcp")
+      frontend_port           = number
+      backend_port            = number
+      idle_timeout_in_minutes = optional(number, 4)
+      load_distribution       = optional(string, "Default")
+      floating_ip_enabled     = optional(bool, false)
+      tcp_reset_enabled       = optional(bool, true)
+    })), {})
+  }))
+  default  = {}
+  nullable = false
+
+  validation {
+    condition = alltrue([
+      for key in keys(var.load_balancers) :
+      can(regex("^[a-z]([a-z0-9-]{0,10}[a-z0-9])?$", key)) && !strcontains(key, "--")
+    ])
+    error_message = "load_balancers keys must be 1-12 lowercase alphanumeric or hyphen characters, start with a letter, end with a letter or digit, and not contain consecutive hyphens."
+  }
+
+  validation {
+    condition = alltrue(flatten([
+      for load_balancer in values(var.load_balancers) : [
+        for key in concat(keys(load_balancer.probes), keys(load_balancer.rules)) :
+        can(regex("^[a-z]([a-z0-9-]{0,18}[a-z0-9])?$", key)) && !strcontains(key, "--")
+      ]
+    ]))
+    error_message = "Probe and rule keys must be 1-20 lowercase alphanumeric or hyphen characters, start with a letter, end with a letter or digit, and not contain consecutive hyphens."
+  }
+
+  validation {
+    condition     = length(var.load_balancers) == 0 || var.subnet_cidrs.load_balancers != null
+    error_message = "Set subnet_cidrs.load_balancers to the range shared by every load balancer frontend (/29 or larger)."
+  }
+
+  # Azure reserves the first four addresses and the last address of a subnet.
+  validation {
+    condition = var.subnet_cidrs.load_balancers == null || alltrue([
+      for load_balancer in values(var.load_balancers) : load_balancer.private_ip_address == null ? true : try(
+        can(regex("^(25[0-5]|2[0-4][0-9]|1?[0-9]?[0-9])(\\.(25[0-5]|2[0-4][0-9]|1?[0-9]?[0-9])){3}$", load_balancer.private_ip_address)) &&
+        sum([
+          for index, octet in split(".", load_balancer.private_ip_address) :
+          tonumber(octet) * pow(256, 3 - index)
+          ]) >= sum([
+          for index, octet in split(".", cidrhost(var.subnet_cidrs.load_balancers, 0)) :
+          tonumber(octet) * pow(256, 3 - index)
+        ]) + 4 &&
+        sum([
+          for index, octet in split(".", load_balancer.private_ip_address) :
+          tonumber(octet) * pow(256, 3 - index)
+          ]) <= sum([
+          for index, octet in split(".", cidrhost(var.subnet_cidrs.load_balancers, 0)) :
+          tonumber(octet) * pow(256, 3 - index)
+        ]) + pow(2, 32 - tonumber(split("/", var.subnet_cidrs.load_balancers)[1])) - 2,
+        false
+      )
+    ])
+    error_message = "Every load_balancers private_ip_address must be a usable address in subnet_cidrs.load_balancers: not one of the first four addresses or the last address."
+  }
+
+  validation {
+    condition = length(distinct([
+      for load_balancer in values(var.load_balancers) : load_balancer.private_ip_address
+      if load_balancer.private_ip_address != null
+      ])) == length([
+      for load_balancer in values(var.load_balancers) : load_balancer.private_ip_address
+      if load_balancer.private_ip_address != null
+    ])
+    error_message = "Load balancers share one frontend subnet, so their static private_ip_address values must be unique."
+  }
 }
 
 variable "nat_gateway" {
@@ -291,18 +450,152 @@ variable "nat_gateway" {
   default = {}
 }
 
-variable "key_vault" {
-  description = "Key Vault cost and recovery settings."
-  type = object({
-    sku_name                 = optional(string, "standard")
-    purge_protection_enabled = optional(bool, false)
-  })
+variable "network_security_groups" {
+  description = "Network security groups keyed by a stable logical name. Defaults to none. subnets lists the subnet keys (for example virtual_machines or container_apps/primary) to associate; a subnet can belong to only one group. The SQL Managed Instance subnet is excluded because its module manages its own group. Rule names are the security_rules keys."
+  type = map(object({
+    subnets = optional(list(string), [])
+    security_rules = optional(map(object({
+      priority                     = number
+      direction                    = string
+      access                       = string
+      protocol                     = string
+      description                  = optional(string)
+      source_port_range            = optional(string)
+      source_port_ranges           = optional(list(string))
+      destination_port_range       = optional(string)
+      destination_port_ranges      = optional(list(string))
+      source_address_prefix        = optional(string)
+      source_address_prefixes      = optional(list(string))
+      destination_address_prefix   = optional(string)
+      destination_address_prefixes = optional(list(string))
+    })), {})
+  }))
   default = {}
+
+  validation {
+    condition = alltrue([
+      for key in keys(var.network_security_groups) :
+      can(regex("^[a-z][a-z0-9-]{0,11}$", key)) &&
+      !strcontains(key, "--")
+    ])
+    error_message = "network_security_groups keys must be 1-12 lowercase alphanumeric or hyphen characters, start with a letter, and not contain consecutive hyphens."
+  }
+
+  validation {
+    condition = alltrue(flatten([
+      for nsg in values(var.network_security_groups) : [
+        for subnet_key in nsg.subnets :
+        subnet_key != "sql_managed_instance" && contains(local.deployed_subnet_keys, subnet_key)
+      ]
+    ]))
+    error_message = "Every network_security_groups subnets entry must be a deployed subnet key other than sql_managed_instance. Deployed subnet keys: ${join(", ", local.deployed_subnet_keys)}."
+  }
+
+  validation {
+    condition = (
+      length(flatten([for nsg in values(var.network_security_groups) : nsg.subnets])) ==
+      length(distinct(flatten([for nsg in values(var.network_security_groups) : nsg.subnets])))
+    )
+    error_message = "A subnet can be listed only once across all network_security_groups entries."
+  }
 }
 
-variable "storage" {
-  description = "Standard storage account data services, authorization, workload RBAC, and redundancy settings."
+variable "route_tables" {
+  description = "Route tables keyed by a stable logical name. Defaults to none. subnets lists the subnet keys (for example virtual_machines or container_apps/primary) to associate; a subnet can belong to only one table. The SQL Managed Instance subnet is excluded because its module manages its own table. Route names are the routes keys. A 0.0.0.0/0 route overrides NAT Gateway egress for its subnets."
+  type = map(object({
+    subnets                       = optional(list(string), [])
+    bgp_route_propagation_enabled = optional(bool, true)
+    routes = optional(map(object({
+      address_prefix         = string
+      next_hop_type          = string
+      next_hop_in_ip_address = optional(string)
+    })), {})
+  }))
+  default = {}
+
+  validation {
+    condition = alltrue([
+      for key in keys(var.route_tables) :
+      can(regex("^[a-z][a-z0-9-]{0,11}$", key)) &&
+      !strcontains(key, "--")
+    ])
+    error_message = "route_tables keys must be 1-12 lowercase alphanumeric or hyphen characters, start with a letter, and not contain consecutive hyphens."
+  }
+
+  validation {
+    condition = alltrue(flatten([
+      for route_table in values(var.route_tables) : [
+        for subnet_key in route_table.subnets :
+        subnet_key != "sql_managed_instance" && contains(local.deployed_subnet_keys, subnet_key)
+      ]
+    ]))
+    error_message = "Every route_tables subnets entry must be a deployed subnet key other than sql_managed_instance. Deployed subnet keys: ${join(", ", local.deployed_subnet_keys)}."
+  }
+
+  validation {
+    condition = (
+      length(flatten([for route_table in values(var.route_tables) : route_table.subnets])) ==
+      length(distinct(flatten([for route_table in values(var.route_tables) : route_table.subnets])))
+    )
+    error_message = "A subnet can be listed only once across all route_tables entries."
+  }
+}
+
+variable "hub_peering" {
+  description = "Peers the lab VNet as a spoke to an existing hub VNet. Defaults to null (no peering). The spoke-to-hub side is always created; the hub-to-spoke side is created by default (create_hub_to_spoke_peering) through the azurerm.hub provider, whose subscription is read from hub_virtual_network_id. use_remote_gateways routes the spoke through the hub's VPN or ExpressRoute gateway and sets allow_gateway_transit on the hub side."
   type = object({
+    hub_virtual_network_id      = string
+    create_hub_to_spoke_peering = optional(bool, true)
+    allow_forwarded_traffic     = optional(bool, true)
+    use_remote_gateways         = optional(bool, false)
+  })
+  default = null
+
+  validation {
+    condition = (
+      var.hub_peering == null ||
+      can(regex("(?i)^/subscriptions/[0-9a-f-]{36}/resourceGroups/[^/]+/providers/Microsoft\\.Network/virtualNetworks/[^/]+$", var.hub_peering.hub_virtual_network_id))
+    )
+    error_message = "hub_peering.hub_virtual_network_id must be a virtual network resource ID: /subscriptions/<id>/resourceGroups/<name>/providers/Microsoft.Network/virtualNetworks/<name>."
+  }
+}
+
+variable "container_registries" {
+  description = "Private Premium Azure Container Registries keyed by a stable logical name. Defaults to none; add one entry per registry."
+  type        = map(object({}))
+  default     = {}
+
+  validation {
+    condition = alltrue([
+      for key in keys(var.container_registries) :
+      can(regex("^[a-z][a-z0-9-]{0,11}$", key)) &&
+      !strcontains(key, "--")
+    ])
+    error_message = "container_registries keys must be 1-12 lowercase alphanumeric or hyphen characters, start with a letter, and not contain consecutive hyphens."
+  }
+}
+
+variable "key_vaults" {
+  description = "RBAC-enabled Key Vaults keyed by a stable logical name. Defaults to none; add one entry per vault."
+  type = map(object({
+    sku_name                 = optional(string, "standard")
+    purge_protection_enabled = optional(bool, false)
+  }))
+  default = {}
+
+  validation {
+    condition = alltrue([
+      for key in keys(var.key_vaults) :
+      can(regex("^[a-z][a-z0-9-]{0,11}$", key)) &&
+      !strcontains(key, "--")
+    ])
+    error_message = "key_vaults keys must be 1-12 lowercase alphanumeric or hyphen characters, start with a letter, and not contain consecutive hyphens."
+  }
+}
+
+variable "storage_accounts" {
+  description = "General-purpose v2 storage accounts keyed by a stable logical name. Defaults to none; add one entry per account."
+  type = map(object({
     replication_type = optional(string, "LRS")
     containers       = optional(set(string), ["appdata", "archive"])
     file_shares = optional(map(object({
@@ -317,13 +610,22 @@ variable "storage" {
       description                      = optional(string)
       skip_service_principal_aad_check = optional(bool, false)
     })), {})
-  })
+  }))
   default = {}
+
+  validation {
+    condition = alltrue([
+      for key in keys(var.storage_accounts) :
+      can(regex("^[a-z][a-z0-9-]{0,11}$", key)) &&
+      !strcontains(key, "--")
+    ])
+    error_message = "storage_accounts keys must be 1-12 lowercase alphanumeric or hyphen characters, start with a letter, and not contain consecutive hyphens."
+  }
 }
 
-variable "premium_files" {
-  description = "Premium Azure Files redundancy and share sizing."
-  type = object({
+variable "premium_file_accounts" {
+  description = "Premium FileStorage accounts and SMB shares keyed by a stable logical account name. Defaults to none; add one entry per account."
+  type = map(object({
     replication_type = optional(string, "LRS")
     file_shares = optional(map(object({
       quota_gb = optional(number, 100)
@@ -332,13 +634,22 @@ variable "premium_files" {
         quota_gb = 100
       }
     })
-  })
+  }))
   default = {}
+
+  validation {
+    condition = alltrue([
+      for key in keys(var.premium_file_accounts) :
+      can(regex("^[a-z][a-z0-9-]{0,11}$", key)) &&
+      !strcontains(key, "--")
+    ])
+    error_message = "premium_file_accounts keys must be 1-12 lowercase alphanumeric or hyphen characters, start with a letter, and not contain consecutive hyphens."
+  }
 }
 
-variable "azure_sql" {
-  description = "Azure SQL database and optional elastic pool configuration."
-  type = object({
+variable "azure_sql_servers" {
+  description = "Azure SQL logical servers keyed by a stable logical name. Each server hosts one database, standalone or in an optional elastic pool. Defaults to none; add one entry per server."
+  type = map(object({
     database_sku_name = optional(string, "Basic")
     max_size_gb       = optional(number, 2)
     elastic_pool = optional(object({
@@ -357,36 +668,79 @@ variable "azure_sql" {
       license_type   = optional(string)
       zone_redundant = optional(bool, false)
     }), {})
-  })
+  }))
   default = {}
+
+  validation {
+    condition = alltrue([
+      for key in keys(var.azure_sql_servers) :
+      can(regex("^[a-z][a-z0-9-]{0,11}$", key)) &&
+      !strcontains(key, "--")
+    ])
+    error_message = "azure_sql_servers keys must be 1-12 lowercase alphanumeric or hyphen characters, start with a letter, and not contain consecutive hyphens."
+  }
 }
 
-variable "container_apps" {
-  description = "Container Apps environment and workload profile configuration."
-  type = object({
-    image       = optional(string, "mcr.microsoft.com/azuredocs/containerapps-helloworld:latest")
-    target_port = optional(number, 80)
+variable "container_apps_environments" {
+  description = "Internal Container Apps environments keyed by a stable logical name. Each environment uses the subnet_cidrs.container_apps range with the same key as its own delegated subnet, and gets its own private DNS zone, optional dedicated workload profiles, and zero or more Container Apps. Defaults to none."
+  type = map(object({
     dedicated_workload_profiles = optional(map(object({
       workload_profile_type = optional(string, "D4")
       minimum_count         = optional(number, 0)
       maximum_count         = optional(number, 3)
     })), {})
-    app_workload_profile = optional(string)
-    # Legacy input retained to avoid removing an existing profile on upgrade.
-    dedicated_workload_profile = optional(object({
-      enabled               = optional(bool, false)
-      workload_profile_type = optional(string, "D4")
-      minimum_count         = optional(number, 0)
-      maximum_count         = optional(number, 3)
-      use_for_app           = optional(bool, true)
-    }), {})
-  })
-  default = {}
+    apps = optional(map(object({
+      image            = optional(string, "mcr.microsoft.com/azuredocs/containerapps-helloworld:latest")
+      target_port      = optional(number, 80)
+      workload_profile = optional(string, "Consumption")
+    })), {})
+  }))
+  default  = {}
+  nullable = false
+
+  validation {
+    condition = alltrue([
+      for key in keys(var.container_apps_environments) :
+      can(regex("^[a-z]([a-z0-9-]{0,10}[a-z0-9])?$", key)) && !strcontains(key, "--")
+    ])
+    error_message = "container_apps_environments keys must be 1-12 lowercase alphanumeric or hyphen characters, start with a letter, end with a letter or digit, and not contain consecutive hyphens."
+  }
+
+  validation {
+    condition = alltrue([
+      for key in keys(var.container_apps_environments) :
+      contains(keys(var.subnet_cidrs.container_apps), key)
+    ])
+    error_message = "Every container_apps_environments key needs a subnet_cidrs.container_apps entry with the same key, for example subnet_cidrs = { container_apps = { primary = \"10.42.2.0/27\" } }."
+  }
+
+  validation {
+    condition = alltrue(flatten([
+      for environment in values(var.container_apps_environments) : [
+        for app_key in keys(environment.apps) :
+        can(regex("^[a-z]([a-z0-9-]{0,6}[a-z0-9])?$", app_key)) && !strcontains(app_key, "--")
+      ]
+    ]))
+    error_message = "App keys must be 1-8 lowercase alphanumeric or hyphen characters, start with a letter, end with a letter or digit, and not contain consecutive hyphens, so generated Container App names fit Azure's 32-character limit."
+  }
+
+  # App names are <prefix>-<app key>-<environment key>-<suffix>, so keys
+  # containing hyphens could produce the same name in two environments.
+  validation {
+    condition = length(distinct(flatten([
+      for environment_key, environment in var.container_apps_environments : [
+        for app_key in keys(environment.apps) : "${app_key}-${environment_key}"
+      ]
+      ]))) == length(flatten([
+      for environment in values(var.container_apps_environments) : keys(environment.apps)
+    ]))
+    error_message = "Every app key and environment key combination must produce a distinct Container App name; avoid pairs such as app a-b in environment c and app a in environment b-c."
+  }
 }
 
-variable "cosmos_db" {
-  description = "Cosmos DB classic API, throughput, and data-plane resource configuration."
-  type = object({
+variable "cosmos_db_accounts" {
+  description = "Cosmos DB accounts keyed by a stable logical name, each with its own classic API, throughput, and data-plane resources. Defaults to none; add one entry per account."
+  type = map(object({
     api_type                      = optional(string, "NoSQL")
     consistency_level             = optional(string, "Session")
     local_authentication_disabled = optional(bool, false)
@@ -431,8 +785,25 @@ variable "cosmos_db" {
       ])
     }), {})
     gremlin_partition_key_path = optional(string, "/partitionKey")
-  })
+  }))
   default = {}
+
+  validation {
+    condition = alltrue([
+      for key in keys(var.cosmos_db_accounts) :
+      can(regex("^[a-z][a-z0-9-]{0,11}$", key)) &&
+      !strcontains(key, "--")
+    ])
+    error_message = "cosmos_db_accounts keys must be 1-12 lowercase alphanumeric or hyphen characters, start with a letter, and not contain consecutive hyphens."
+  }
+
+  validation {
+    condition = alltrue([
+      for account in values(var.cosmos_db_accounts) :
+      contains(["NoSQL", "MongoDB", "Cassandra", "Gremlin", "Table"], account.api_type)
+    ])
+    error_message = "Every cosmos_db_accounts entry api_type must be NoSQL, MongoDB, Cassandra, Gremlin, or Table."
+  }
 }
 
 variable "sql_managed_instance" {
@@ -448,9 +819,9 @@ variable "sql_managed_instance" {
   default = {}
 }
 
-variable "postgresql" {
-  description = "PostgreSQL Flexible Server version, compute, and storage settings."
-  type = object({
+variable "postgresql_servers" {
+  description = "PostgreSQL Flexible Servers keyed by a stable logical name. Each entry creates one server with one database and its own generated administrator password; all servers share the delegated postgresql subnet and the privatelink.postgres.database.azure.com zone. Defaults to none."
+  type = map(object({
     administrator_login = optional(string, "pgadminuser")
     sku_name            = optional(string, "GP_Standard_D2ds_v5")
     version_number      = optional(string, "16")
@@ -461,13 +832,40 @@ variable "postgresql" {
       mode                      = optional(string, "ZoneRedundant")
       standby_availability_zone = optional(string)
     }), {})
-  })
-  default = {}
+  }))
+  default  = {}
+  nullable = false
+
+  validation {
+    condition = alltrue([
+      for key in keys(var.postgresql_servers) :
+      can(regex("^[a-z]([a-z0-9-]{0,10}[a-z0-9])?$", key)) && !strcontains(key, "--")
+    ])
+    error_message = "postgresql_servers keys must be 1-12 lowercase alphanumeric or hyphen characters, start with a letter, end with a letter or digit, and not contain consecutive hyphens."
+  }
+
+  # Azure's documented minimum for a PostgreSQL delegated subnet is /28.
+  validation {
+    condition     = length(var.postgresql_servers) == 0 || try(tonumber(split("/", var.subnet_cidrs.postgresql)[1]) <= 28, false)
+    error_message = "subnet_cidrs.postgresql must be /28 or larger when postgresql_servers is non-empty."
+  }
+
+  # Azure documents four subnet addresses per high-availability server; a
+  # non-HA server was measured in Azure to use one. Azure reserves five
+  # addresses in every subnet.
+  validation {
+    condition = length(var.postgresql_servers) == 0 || try(
+      sum([for server in values(var.postgresql_servers) : server.high_availability.enabled ? 4 : 1]) <=
+      pow(2, 32 - tonumber(split("/", var.subnet_cidrs.postgresql)[1])) - 5,
+      false
+    )
+    error_message = "subnet_cidrs.postgresql is too small for postgresql_servers: each server needs one address, or four with high availability, and Azure reserves five addresses per subnet."
+  }
 }
 
-variable "mysql" {
-  description = "MySQL Flexible Server version and compute settings."
-  type = object({
+variable "mysql_servers" {
+  description = "MySQL Flexible Servers keyed by a stable logical name. Each entry creates one server with one database and its own generated administrator password; all servers share the delegated mysql subnet and the privatelink.mysql.database.azure.com zone. Defaults to none."
+  type = map(object({
     administrator_login = optional(string, "mysqladminuser")
     sku_name            = optional(string, "B_Standard_B1ms")
     version_number      = optional(string, "8.0.21")
@@ -477,8 +875,28 @@ variable "mysql" {
       mode                      = optional(string, "ZoneRedundant")
       standby_availability_zone = optional(string)
     }), {})
-  })
-  default = {}
+  }))
+  default  = {}
+  nullable = false
+
+  validation {
+    condition = alltrue([
+      for key in keys(var.mysql_servers) :
+      can(regex("^[a-z]([a-z0-9-]{0,10}[a-z0-9])?$", key)) && !strcontains(key, "--")
+    ])
+    error_message = "mysql_servers keys must be 1-12 lowercase alphanumeric or hyphen characters, start with a letter, end with a letter or digit, and not contain consecutive hyphens."
+  }
+
+  # Each server takes one subnet address, or two with high availability; Azure
+  # reserves five addresses in every subnet.
+  validation {
+    condition = length(var.mysql_servers) == 0 || try(
+      sum([for server in values(var.mysql_servers) : server.high_availability.enabled ? 2 : 1]) <=
+      pow(2, 32 - tonumber(split("/", var.subnet_cidrs.mysql)[1])) - 5,
+      false
+    )
+    error_message = "subnet_cidrs.mysql is too small for mysql_servers: each server needs one address, or two with high availability, and Azure reserves five addresses per subnet."
+  }
 }
 
 variable "function_app" {
@@ -514,22 +932,11 @@ variable "web_app" {
 }
 
 variable "services" {
-  description = "Services enabled in this lab composition."
+  description = "Single-instance services enabled in this lab composition. Every service is opt-in."
   type = object({
-    virtual_machine           = optional(bool, true)
-    virtual_machine_scale_set = optional(bool, false)
-    key_vault                 = optional(bool, true)
-    container_registry        = optional(bool, true)
-    storage                   = optional(bool, true)
-    premium_files             = optional(bool, true)
-    azure_sql                 = optional(bool, true)
-    sql_managed_instance      = optional(bool, false)
-    postgresql                = optional(bool, true)
-    mysql                     = optional(bool, true)
-    container_apps            = optional(bool, true)
-    cosmos_db                 = optional(bool, false)
-    web_app                   = optional(bool, true)
-    function_app              = optional(bool, true)
+    sql_managed_instance = optional(bool, false)
+    web_app              = optional(bool, false)
+    function_app         = optional(bool, false)
   })
   default = {}
 }

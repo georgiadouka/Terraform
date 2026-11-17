@@ -64,35 +64,49 @@ run "reject_fractional_quota" {
   expect_failures = [var.file_shares]
 }
 
-run "reject_mismatched_share_names" {
-  command = plan
-  variables {
-    file_share_names = {}
-  }
-  expect_failures = [var.file_share_names]
-}
+# Disabled: the validation it tests is disabled (the root module validates this value).
+# run "reject_mismatched_share_names" {
+#   command = plan
+#   variables {
+#     file_share_names = {}
+#   }
+#   expect_failures = [var.file_share_names]
+# }
 
-run "reject_blank_share_name" {
-  command = plan
-  variables {
-    file_share_names = {
-      premium = " "
-    }
-  }
-  expect_failures = [var.file_share_names]
-}
+# Disabled: the validation it tests is disabled (the root module validates this value).
+# run "reject_blank_share_name" {
+#   command = plan
+#   variables {
+#     file_share_names = {
+#       premium = " "
+#     }
+#   }
+#   expect_failures = [var.file_share_names]
+# }
 
-run "reject_duplicate_share_names" {
-  command = plan
-  variables {
-    file_shares = {
-      one = { quota_gb = 100 }
-      two = { quota_gb = 100 }
-    }
-    file_share_names = {
-      one = "share-premium-test"
-      two = "SHARE-PREMIUM-TEST"
-    }
-  }
-  expect_failures = [var.file_share_names]
-}
+# Disabled: the validation it tests is disabled (the root module validates this value).
+# run "reject_share_name_with_consecutive_hyphens" {
+#   command = plan
+#   variables {
+#     file_share_names = {
+#       premium = "premium--share"
+#     }
+#   }
+#   expect_failures = [var.file_share_names]
+# }
+
+# Disabled: the validation it tests is disabled (the root module validates this value).
+# run "reject_duplicate_share_names" {
+#   command = plan
+#   variables {
+#     file_shares = {
+#       one = { quota_gb = 100 }
+#       two = { quota_gb = 100 }
+#     }
+#     file_share_names = {
+#       one = "share-premium-test"
+#       two = "SHARE-PREMIUM-TEST"
+#     }
+#   }
+#   expect_failures = [var.file_share_names]
+# }

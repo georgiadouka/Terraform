@@ -62,6 +62,30 @@ run "linux_defaults" {
     )
     error_message = "Linux must retain SSH-only authentication, trusted launch, and shared outputs."
   }
+  assert {
+    condition     = length(azurerm_network_interface_backend_address_pool_association.this) == 0
+    error_message = "By default the NIC must not join any load balancer backend pool."
+  }
+}
+
+run "joins_load_balancer_backend_pool" {
+  command = plan
+
+  variables {
+    load_balancer_backend_address_pool_ids = {
+      web = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-vm-test/providers/Microsoft.Network/loadBalancers/lbi-web/backendAddressPools/lbbe-web"
+    }
+  }
+
+  assert {
+    condition = (
+      length(azurerm_network_interface_backend_address_pool_association.this) == 1 &&
+      azurerm_network_interface_backend_address_pool_association.this["web"].ip_configuration_name == "primary" &&
+      azurerm_network_interface_backend_address_pool_association.this["web"].network_interface_id == azurerm_network_interface.this.id &&
+      endswith(azurerm_network_interface_backend_address_pool_association.this["web"].backend_address_pool_id, "/backendAddressPools/lbbe-web")
+    )
+    error_message = "The NIC's primary IP configuration must join each configured backend pool."
+  }
 }
 
 run "linux_custom_image_and_disks" {
@@ -188,6 +212,21 @@ run "missing_linux_key" {
   expect_failures = [var.admin_ssh_public_key]
 }
 
+run "linux_password_only" {
+  command = plan
+  variables {
+    admin_ssh_public_key = null
+    admin_password       = "MockOnly-Passw0rd!123"
+  }
+  assert {
+    condition = (
+      !azurerm_linux_virtual_machine.this[0].disable_password_authentication &&
+      length(azurerm_linux_virtual_machine.this[0].admin_ssh_key) == 0
+    )
+    error_message = "A Linux VM with only admin_password must enable password sign-in and have no SSH key."
+  }
+}
+
 run "blank_linux_key" {
   command = plan
   variables { admin_ssh_public_key = " " }
@@ -285,31 +324,33 @@ run "invalid_windows_name_fallback" {
   expect_failures = [var.computer_name]
 }
 
-run "blank_image_field" {
-  command = plan
-  variables {
-    source_image_reference = {
-      publisher = " "
-      offer     = "offer"
-      sku       = "sku"
-      version   = "latest"
-    }
-  }
-  expect_failures = [var.source_image_reference]
-}
+# Disabled: the validation it tests is disabled (azurerm rejects empty values at plan time).
+# run "blank_image_field" {
+#   command = plan
+#   variables {
+#     source_image_reference = {
+#       publisher = " "
+#       offer     = "offer"
+#       sku       = "sku"
+#       version   = "latest"
+#     }
+#   }
+#   expect_failures = [var.source_image_reference]
+# }
 
-run "null_image_field" {
-  command = plan
-  variables {
-    source_image_reference = {
-      publisher = "Canonical"
-      offer     = "offer"
-      sku       = "sku"
-      version   = null
-    }
-  }
-  expect_failures = [var.source_image_reference]
-}
+# Disabled: the validation it tests is disabled (azurerm rejects empty values at plan time).
+# run "null_image_field" {
+#   command = plan
+#   variables {
+#     source_image_reference = {
+#       publisher = "Canonical"
+#       offer     = "offer"
+#       sku       = "sku"
+#       version   = null
+#     }
+#   }
+#   expect_failures = [var.source_image_reference]
+# }
 
 run "fractional_os_disk" {
   command = plan
@@ -335,17 +376,19 @@ run "duplicate_data_disk_luns" {
   expect_failures = [var.data_disks]
 }
 
-run "blank_size" {
-  command = plan
-  variables { size = " " }
-  expect_failures = [var.size]
-}
+# Disabled: the validation it tests is disabled (azurerm rejects empty values at plan time).
+# run "blank_size" {
+#   command = plan
+#   variables { size = " " }
+#   expect_failures = [var.size]
+# }
 
-run "blank_admin_username" {
-  command = plan
-  variables { admin_username = " " }
-  expect_failures = [var.admin_username]
-}
+# Disabled: the validation it tests is disabled (azurerm rejects empty values at plan time).
+# run "blank_admin_username" {
+#   command = plan
+#   variables { admin_username = " " }
+#   expect_failures = [var.admin_username]
+# }
 
 run "invalid_data_disk_label" {
   command = plan
@@ -358,36 +401,39 @@ run "invalid_data_disk_label" {
   expect_failures = [var.data_disks]
 }
 
-run "mismatched_data_disk_names" {
-  command = plan
-  variables {
-    data_disk_names = {}
-    data_disks = {
-      data = { lun = 0, disk_size_gb = 32 }
-    }
-  }
-  expect_failures = [var.data_disk_names]
-}
+# Disabled: the validation it tests is disabled (the root module validates this value).
+# run "mismatched_data_disk_names" {
+#   command = plan
+#   variables {
+#     data_disk_names = {}
+#     data_disks = {
+#       data = { lun = 0, disk_size_gb = 32 }
+#     }
+#   }
+#   expect_failures = [var.data_disk_names]
+# }
 
-run "blank_data_disk_name" {
-  command = plan
-  variables {
-    data_disk_names = { data = " " }
-    data_disks = {
-      data = { lun = 0, disk_size_gb = 32 }
-    }
-  }
-  expect_failures = [var.data_disk_names]
-}
+# Disabled: the validation it tests is disabled (the root module validates this value).
+# run "blank_data_disk_name" {
+#   command = plan
+#   variables {
+#     data_disk_names = { data = " " }
+#     data_disks = {
+#       data = { lun = 0, disk_size_gb = 32 }
+#     }
+#   }
+#   expect_failures = [var.data_disk_names]
+# }
 
-run "duplicate_data_disk_names" {
-  command = plan
-  variables {
-    data_disk_names = { one = "data-test", two = "DATA-TEST" }
-    data_disks = {
-      one = { lun = 0, disk_size_gb = 32 }
-      two = { lun = 1, disk_size_gb = 64 }
-    }
-  }
-  expect_failures = [var.data_disk_names]
-}
+# Disabled: the validation it tests is disabled (the root module validates this value).
+# run "duplicate_data_disk_names" {
+#   command = plan
+#   variables {
+#     data_disk_names = { one = "data-test", two = "DATA-TEST" }
+#     data_disks = {
+#       one = { lun = 0, disk_size_gb = 32 }
+#       two = { lun = 1, disk_size_gb = 64 }
+#     }
+#   }
+#   expect_failures = [var.data_disk_names]
+# }

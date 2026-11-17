@@ -1,0 +1,68 @@
+# Focused multi-VM and multi-storage deployment. This file is self-contained:
+# copy it to multi-vm-storage.tfvars and pass only that file, for example:
+#   terraform -chdir=environments\lab plan -var-file=multi-vm-storage.tfvars
+subscription_id = "00000000-0000-0000-0000-000000000000"
+tenant_id       = "00000000-0000-0000-0000-000000000000"
+
+storage_use_azuread = true
+
+location     = "swedencentral"
+project_name = "metlen"
+environment  = "mvmtest"
+
+naming = {
+  unique_suffix = "mvm01"
+}
+
+# Every service is opt-in, so only the VMs and storage accounts below are deployed.
+
+virtual_machines = {
+  primary = {
+    os_type = "Linux"
+    size    = "Standard_B2s_v2"
+    data_disks = {
+      data = {
+        lun                  = 0
+        storage_account_type = "StandardSSD_LRS"
+        disk_size_gb         = 32
+        caching              = "ReadWrite"
+      }
+    }
+  }
+
+  worker = {
+    os_type    = "Linux"
+    size       = "Standard_B2s_v2"
+    data_disks = {}
+  }
+
+  admin = {
+    os_type    = "Windows"
+    size       = "Standard_B2s_v2"
+    data_disks = {}
+  }
+}
+
+storage_accounts = {
+  app = {
+    replication_type            = "LRS"
+    containers                  = ["appdata"]
+    file_shares                 = {}
+    shared_access_key_enabled   = false
+    data_plane_role_assignments = {}
+  }
+  logs = {
+    replication_type            = "ZRS"
+    containers                  = ["logs"]
+    file_shares                 = {}
+    shared_access_key_enabled   = false
+    data_plane_role_assignments = {}
+  }
+}
+
+premium_file_accounts = {}
+
+tags = {
+  owner   = "replace-me"
+  purpose = "multiple-virtual-machines-test"
+}

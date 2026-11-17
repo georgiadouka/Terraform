@@ -1,0 +1,1028 @@
+# Copy this file to lab.tfvars and keep all environment-specific values there.
+# The copied file is ignored by Git. Terraform does not load it automatically;
+# pass it explicitly, for example:
+#   terraform -chdir=environments\metlenwithnaming plan -var-file=lab.tfvars
+
+# Required Azure context
+subscription_id = "00000000-0000-0000-0000-000000000000"
+tenant_id       = "00000000-0000-0000-0000-000000000000"
+
+# true: Terraform uses Entra ID for supported Blob/Queue operations. Pre-grant
+# its identity Storage Blob/Queue data roles. false: Terraform uses account
+# keys, so every storage_accounts entry must enable Shared Key.
+storage_use_azuread = true
+
+# Azure region. Its METLEN region code (swedencentral -> SWE) comes from
+# locals.naming-dictionary.tf; locations without a code are rejected.
+location = "swedencentral"
+
+# METLEN naming standard tokens. Values must exist in
+# locals.naming-dictionary.tf; the region code is derived from location.
+# Example Resource Group: M-AZU-RGP-IT-PPA-ECM-DEV-SWE
+naming_tokens = {
+  business_unit = "IT"
+  department    = "PPA"
+  application   = "ECM"
+  environment   = "DEV"
+}
+
+# Legacy sample naming, still used for the tags and for resources that have no
+# METLEN convention yet (VMs and scale sets with their NICs and disks, VNet
+# peerings, private DNS links) and for names inside resources (subnet
+# delegations, Container Apps containers and workload profiles):
+# <resource-prefix>-<project_name>-<environment>-<unique_suffix>.
+# Blob containers, file shares and databases are not part of it: they use the
+# names you set below as-is. The internal Function App content share is always
+# called function-content.
+# Leave unique_suffix null to generate and persist a five-character suffix.
+project_name = "metlen"
+environment  = "lab"
+
+naming = {
+  unique_suffix = null
+
+  prefixes = {
+    virtual_machine           = "vm"
+    virtual_machine_scale_set = "vmss"
+    network_interface         = "nic"
+    os_disk                   = "osdisk"
+    data_disk                 = "disk"
+    autoscale_setting         = "autoscale"
+    subnet_delegation         = "dlg"
+    container_app_container   = "ctr"
+    container_apps_profile    = "wp"
+  }
+}
+
+# Virtual networks, keyed by a stable label that never appears in Azure names.
+# classification is the METLEN network intent, PRV (default) or PUB: it names
+# the VNet M-AZU-VNT-<BU>-<DPT>-<APP>-<PUB|PRV>-<ENV>-<REG> and its subnets
+# <DPT><APP><ENV><PUB|PRV><NN>. The standard has no NN for VNets, so there is
+# at most one PRV and one PUB VNet. Resources pick a VNet with
+# virtual_network = "<key>" and default to the PRV VNet (or the only VNet).
+#
+# subnets lists every subnet of the VNet. Every listed subnet is created,
+# used or not, and stays when the workloads in it are removed: add a subnet
+# before the service that needs it, and remove it yourself once nothing uses
+# it. The key is the subnet role: private_endpoints, virtual_machines,
+# web_app_integration, function_integration, logic_app_integration,
+# postgresql, mysql, sql_managed_instance, load_balancers,
+# container_apps/<environment key> or
+# databricks/<workspace key>/<host|container>. Each subnet sets:
+#   cidr                    Range inside address_space; subnets must not overlap.
+#   number                  NN of the subnet name (1-99, unique in the VNet).
+#                           Changing it renames, and therefore replaces, the subnet.
+#   network_security_group  Optional network_security_groups key.
+#   route_table             Optional route_tables key.
+#   nat_gateway             Optional; true sends the subnet's outbound traffic
+#                           through this VNet's NAT Gateway.
+# Subnets are private (no default outbound access): a subnet without
+# nat_gateway = true or a route table with 0.0.0.0/0 (for example to a hub
+# firewall) has no internet egress. Container Apps need egress to pull images,
+# Web Apps, Function Apps and Logic Apps to send telemetry to Application
+# Insights, and Databricks clusters to start. A 0.0.0.0/0 route overrides the
+# NAT Gateway (Terraform warns when a subnet has both).
+#
+# nat_gateway configures the VNet's NAT Gateway, created (with its Public IP)
+# only when at least one subnet sets nat_gateway = true; Azure attaches a NAT
+# Gateway to subnets of one VNet only. Names:
+# M-AZU-NGW-<BU>-<DPT>-<APP>-<PUB|PRV>-<ENV>-<REG>-<sequence> and
+# M-AZU-PIP-<BU>-<DPT>-<APP>-<PUB|PRV>-<ENV>-<REG>-<sequence>.
+virtual_networks = {
+  main = {
+    classification = "PRV"
+    address_space  = ["10.42.0.0/20"]
+    nat_gateway    = { sequence = "00", idle_timeout_in_minutes = 4 }
+
+    subnets = {
+      private_endpoints    = { cidr = "10.42.0.0/24", number = 1 }
+      virtual_machines     = { cidr = "10.42.1.0/24", number = 2, nat_gateway = true }
+      web_app_integration  = { cidr = "10.42.8.0/26", number = 3, nat_gateway = true }
+      function_integration = { cidr = "10.42.4.0/24", number = 4, nat_gateway = true }
+      postgresql           = { cidr = "10.42.5.0/24", number = 5 }
+      mysql                = { cidr = "10.42.6.0/24", number = 6 }
+
+      # /27 or larger. The SQL Managed Instance module attaches its own NSG and
+      # route table, so this subnet sets none of the three options.
+      # sql_managed_instance = { cidr = "10.42.7.0/27", number = 7 }
+
+      # Shared by every load balancer frontend IP in this VNet; /29 or larger.
+      # load_balancers = { cidr = "10.42.9.0/26", number = 8 }
+
+      # One subnet per Container Apps environment, keyed
+      # container_apps/<environment key>; the environment is placed in the
+      # VNet that lists it. /27 or larger, and it can't be resized after the
+      # environment is created.
+      "container_apps/primary" = { cidr = "10.42.2.0/27", number = 9, nat_gateway = true }
+
+      # Host and container subnets per Databricks workspace, keyed
+      # databricks/<workspace key>/<host|container>, both in the same VNet.
+      # /28 or larger (/26 or larger recommended: each cluster node takes one
+      # address in each); they can't be resized after the workspace is created.
+      # The Databricks module attaches its own NSG, so they set no
+      # network_security_group. The browser authentication workspace runs no
+      # clusters and needs no egress.
+      # "databricks/analytics/host"      = { cidr = "10.42.10.0/26", number = 10, nat_gateway = true }
+      # "databricks/analytics/container" = { cidr = "10.42.10.64/26", number = 11, nat_gateway = true }
+      # "databricks/webauth/host"        = { cidr = "10.42.10.128/28", number = 12 }
+      # "databricks/webauth/container"   = { cidr = "10.42.10.144/28", number = 13 }
+
+      # Logic Apps (Standard) VNet integration. Microsoft recommends /26: the
+      # size can't change after assignment, and apps on more than one plan
+      # sharing it need /26 or larger.
+      # logic_app_integration = { cidr = "10.42.11.0/26", number = 14, nat_gateway = true }
+    }
+  }
+
+  # A second, public-intent VNet (for example the frontend tier). Only the
+  # subnets listed here exist in it; numbers only need to be unique per VNet.
+  # edge = {
+  #   classification = "PUB"
+  #   address_space  = ["10.43.0.0/22"]
+  #
+  #   subnets = {
+  #     private_endpoints = { cidr = "10.43.0.0/26", number = 1 }
+  #     virtual_machines  = { cidr = "10.43.1.0/24", number = 2, network_security_group = "frontend", route_table = "egress" }
+  #     load_balancers    = { cidr = "10.43.2.0/28", number = 8 }
+  #   }
+  # }
+}
+
+# Peerings between the VNets above; each entry creates both sides, named
+# <local VNet name>-to-<remote VNet name>. Peered address spaces must not
+# overlap.
+virtual_network_peerings = {}
+
+# virtual_network_peerings = {
+#   main-edge = { virtual_networks = ["main", "edge"] }
+# }
+
+# Initial passwords (lab approach). Every VM and scale set signs in with its
+# admin_username and vm_admin_password (Linux too: no SSH keys), and every
+# PostgreSQL and MySQL server uses database_admin_password. Users change the
+# VM password after first sign-in.
+# Never put real values in this example or any committed file: set them in
+# your git-ignored lab.tfvars, or as TF_VAR_vm_admin_password and
+# TF_VAR_database_admin_password (for example pipeline secret variables).
+# 12+ characters with at least three of lower case, upper case, digits and
+# special characters (VM passwords at most 72).
+# vm_admin_password       = "<set in lab.tfvars or TF_VAR_vm_admin_password>"
+# database_admin_password = "<set in lab.tfvars or TF_VAR_database_admin_password>"
+
+virtual_machines = {
+  primary = {
+    # Linux or Windows. Changing OS replaces this VM.
+    os_type        = "Linux"
+    size           = "Standard_B2s_v2"
+    admin_username = "azureadmin"
+
+  # Choose an image compatible with os_type and the VM's secure boot/vTPM.
+  # Set this entire object to null to use the selected OS's default image.
+    source_image_reference = {
+      publisher = "Canonical"
+      offer     = "0001-com-ubuntu-server-jammy"
+      sku       = "22_04-lts-gen2"
+      version   = "latest"
+    }
+
+  # For Windows, set os_type = "Windows" and replace the image above with:
+  # source_image_reference = {
+  #   publisher = "MicrosoftWindowsServer"
+  #   offer     = "WindowsServer"
+  #   sku       = "2022-datacenter-azure-edition"
+  #   version   = "latest"
+  # }
+
+  # null disk_size_gb selects 32 GiB for Linux or 127 GiB for Windows.
+    os_disk = {
+      storage_account_type = "StandardSSD_LRS"
+      disk_size_gb         = null
+      caching              = "ReadWrite"
+    }
+
+    data_disks = {
+      data = {
+        lun                  = 0
+        storage_account_type = "StandardSSD_LRS"
+        disk_size_gb         = 32
+        caching              = "ReadWrite"
+      }
+    }
+
+    # Optional: join the backend pool of a load_balancers entry by key.
+    # load_balancer = "web"
+
+    # Optional: virtual_networks key whose virtual_machines subnet the VM joins;
+    # a load balancer it joins must be in the same VNet.
+    # Default: the PRV VNet (or the only VNet).
+    # virtual_network = "main"
+
+    # Every VM is backed up daily to the shared Recovery Services vault
+    # M-AZU-RSV-<BU>-<DPT>-<APP>-<ENV>-<REG>-00.
+  }
+
+  # Add more independently configured VMs with stable logical keys:
+  # worker = {
+  #   os_type = "Linux"
+  #   size    = "Standard_D2s_v5"
+  # }
+  # admin = {
+  #   os_type = "Windows"
+  #   size    = "Standard_D2s_v5"
+  # }
+}
+
+# One entry per Virtual Machine Scale Set; an empty map creates none. Uncomment
+# the template below to deploy one. Keys are stable logical names; changing a
+# key replaces that scale set. Every data disk is created for every instance.
+virtual_machine_scale_sets = {}
+
+# virtual_machine_scale_sets = {
+#   app = {
+#       os_type        = "Linux"
+#       size           = "Standard_B2s_v2"
+#       admin_username = "azureadmin"
+#       zones          = []
+#       upgrade_mode   = "Manual"
+#
+#       source_image_reference = {
+#         publisher = "Canonical"
+#         offer     = "ubuntu-24_04-lts"
+#         sku       = "server"
+#         version   = "latest"
+#       }
+#
+#       os_disk = {
+#         storage_account_type = "StandardSSD_LRS"
+#         disk_size_gb         = 64
+#         caching              = "ReadWrite"
+#       }
+#
+#       data_disks = {
+#         app = {
+#           lun                  = 0
+#           storage_account_type = "Premium_LRS"
+#           disk_size_gb         = 128
+#           caching              = "ReadOnly"
+#         }
+#         logs = {
+#           lun                  = 1
+#           storage_account_type = "StandardSSD_LRS"
+#           disk_size_gb         = 256
+#           caching              = "ReadWrite"
+#         }
+#       }
+#
+#       scaling = {
+#         mode              = "autoscale"
+#         minimum_instances = 2
+#         default_instances = 2
+#         maximum_instances = 6
+#
+#         cpu = {
+#           scale_out_threshold = 75
+#           scale_in_threshold  = 25
+#           scale_out_count     = 1
+#           scale_in_count      = 1
+#           time_window_minutes = 5
+#           cooldown_minutes    = 5
+#         }
+#       }
+#
+#       # Optional: join the backend pool of a load_balancers entry by key.
+#       # load_balancer = "web"
+#
+#       # Optional: VNet (virtual_networks key) whose virtual_machines subnet
+#       # the instances join; default: the PRV VNet.
+#       # virtual_network = "main"
+#   }
+# }
+
+# One entry per internal Standard load balancer; an empty map creates none.
+# Every frontend IP sits in the load_balancers subnet of the load balancer's
+# virtual_network (default: the PRV VNet), which must list it. VMs and scale sets in the
+# same VNet join by setting load_balancer = "<key>". Names follow
+# M-AZU-LBL-<BU>-<DPT>-<APP>-<ENV>-<REG>-<sequence>; give each load balancer a
+# unique two-digit sequence. Frontend and backend pool are named "frontend" and
+# "backend", and probes and rules use their keys.
+# Keys are stable logical names; changing a key or sequence replaces that load
+# balancer.
+load_balancers = {}
+
+# load_balancers = {
+#   web = {
+#     sequence           = "00"
+#     virtual_network    = "main" # Optional; default: the PRV VNet.
+#     private_ip_address = null   # Or a usable address in that VNet's load_balancers subnet, such as "10.42.9.4".
+#     zones              = ["1", "2", "3"]
+#
+#     probes = {
+#       http = {
+#         protocol            = "Http" # Tcp, Http, or Https.
+#         port                = 80
+#         request_path        = "/"
+#         interval_in_seconds = 5
+#         probe_threshold     = 1
+#       }
+#     }
+#
+#     rules = {
+#       http = {
+#         probe                   = "http"
+#         protocol                = "Tcp" # Tcp, Udp, or All with ports 0 (HA ports).
+#         frontend_port           = 80
+#         backend_port            = 80
+#         idle_timeout_in_minutes = 4
+#         load_distribution       = "Default" # Or SourceIP, SourceIPProtocol.
+#       }
+#     }
+#   }
+# }
+
+# NSGs are off. Each entry holds rules only and creates
+# M-AZU-NSG-<BU>-<DPT>-<APP>-<classification>-<ENV>-<REG>[-<sequence>]. A
+# subnet uses it with network_security_group = "<key>" in virtual_networks
+# above; every subnet that uses one group must be in the same VNet, because
+# classification (PRV or PUB) defaults to, and must match, that VNet's. The
+# sql_managed_instance and databricks/... subnets can't use one: their modules
+# attach their own. When two NSGs share a classification, give each a unique
+# two-digit sequence (NN).
+network_security_groups = {}
+
+# network_security_groups = {
+#   compute = {
+#     sequence = "01"
+#
+#     security_rules = {
+#       allow-ssh-from-vnet = {
+#         priority                   = 100
+#         direction                  = "Inbound"
+#         access                     = "Allow"
+#         protocol                   = "Tcp"
+#         destination_port_range     = "22"
+#         source_address_prefix      = "VirtualNetwork"
+#         destination_address_prefix = "*"
+#       }
+#     }
+#   }
+#
+#   # Used by the edge VNet's subnets, so it is named with PUB.
+#   frontend = {
+#     security_rules = {
+#       allow-https-from-vnet = {
+#         priority                   = 100
+#         direction                  = "Inbound"
+#         access                     = "Allow"
+#         protocol                   = "Tcp"
+#         destination_port_range     = "443"
+#         source_address_prefix      = "VirtualNetwork"
+#         destination_address_prefix = "*"
+#       }
+#     }
+#   }
+# }
+
+# Route tables are off. Each entry holds routes only and creates
+# M-AZU-UDR-<BU>-<DPT>-<APP>-<classification>-<ENV>-<REG>[-<sequence>]. A
+# subnet uses it with route_table = "<key>" in virtual_networks above; the
+# VNet, classification and sequence rules are the same as for NSGs, and the
+# sql_managed_instance subnet can't use one. A 0.0.0.0/0 route overrides NAT
+# Gateway egress for its subnets (Terraform warns when a subnet has both). In
+# hub-and-spoke, an egress table like the example below replaces the NAT
+# Gateway: drop nat_gateway = true from the subnets that use it.
+route_tables = {}
+
+# route_tables = {
+#   egress = {
+#     sequence = "01"
+#
+#     routes = {
+#       default-to-firewall = {
+#         address_prefix         = "0.0.0.0/0"
+#         next_hop_type          = "VirtualAppliance"
+#         next_hop_in_ip_address = "10.0.0.4"
+#       }
+#     }
+#   }
+# }
+
+# Hub-spoke peering is off. Set hub_peering to peer the VNets to an existing
+# hub: every VNet by default, or only the virtual_networks keys listed. Each
+# side is named <local VNet name>-to-<remote VNet name> (at most 80
+# characters). Both sides are created by default; the hub side uses the hub's subscription
+# (read from the ID), so Terraform's identity needs Network Contributor (or
+# virtualNetworks/peer/action plus peering write) on the hub VNet. Set
+# create_hub_to_spoke_peering = false when the hub team creates its side.
+# use_remote_gateways = true requires a VPN or ExpressRoute gateway in the hub.
+hub_peering = null
+
+# hub_peering = {
+#   hub_virtual_network_id      = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-hub/providers/Microsoft.Network/virtualNetworks/vnet-hub"
+#   virtual_networks            = ["main"]
+#   create_hub_to_spoke_peering = true
+#   allow_forwarded_traffic     = true
+#   use_remote_gateways         = false
+# }
+
+# One entry per private Premium Azure Container Registry. Keys are stable
+# logical names. Names follow the compact family
+# mazuacr<BU><DPT><APP><ENV><REG><sequence>, for example mazuacritppaecmdevswe00
+# (global, letters and digits only). ACR is a working assumption; METLEN has no
+# code yet. Give each registry a unique two-digit sequence; changing it renames,
+# and therefore replaces, that registry.
+container_registries = {
+  primary = {
+    sequence = "00"
+
+    # Optional: virtual_networks key whose private_endpoints subnet hosts the
+    # registry's Private Endpoint.
+    # Default: the PRV VNet (or the only VNet).
+    # virtual_network = "main"
+  }
+}
+
+# One entry per Key Vault. Keys are stable logical names. Names follow the
+# METLEN compact family mazukva<BU><DPT><APP><ENV><REG><sequence>, for example
+# mazukvaitppaecmdevswe00; give each vault a unique two-digit sequence.
+# Changing a sequence renames, and therefore replaces, that vault. Deleted
+# vaults keep their name reserved while soft-deleted, so a redeploy with the
+# same name needs the old vault purged (the provider purges on destroy unless
+# purge protection is on). Use key_vaults = {} for none.
+key_vaults = {
+  primary = {
+    sequence = "00"
+    sku_name = "standard"
+
+    # Keep false for an environment that must be destroyed automatically.
+    purge_protection_enabled = false
+
+    # Optional: virtual_networks key whose private_endpoints subnet hosts the
+    # vault's Private Endpoint.
+    # Default: the PRV VNet (or the only VNet).
+    # virtual_network = "main"
+  }
+}
+
+# Storage Account names follow the METLEN compact family
+# mazusoa<BU><DPT><APP><ENV><REG><sequence>, for example
+# mazusoaitppaecmdevswe00. storage_accounts, premium_file_accounts and the
+# Function App and Logic App host storage (function_apps.<key>.storage_sequence,
+# logic_apps.<key>.storage_sequence) share this family, so
+# every sequence must be unique across them. Changing a sequence replaces the
+# account and its data. Blob container names (containers) and file share names
+# (file_shares keys) are yours to choose and are used exactly as written:
+# 3-63 lowercase letters, digits and hyphens. Renaming one replaces it and its
+# data.
+storage_accounts = {
+  primary = {
+    sequence         = "00"
+    replication_type = "LRS"
+    containers       = ["appdata"]
+
+    # AzureRM 4.x provisions Azure Files with Shared Key. Keep this empty for
+    # Entra-only accounts. Where policy permits keys, enable Shared Key and add
+    # standard shares to the account.
+    file_shares = {}
+
+    # This controls whether clients may use account keys. It is separate from
+    # storage_use_azuread, which controls only Terraform's Blob/Queue client.
+    shared_access_key_enabled = false
+
+    # These account-scoped assignments are for workloads. The identity running
+    # Terraform needs its own data roles granted before this deployment starts.
+    data_plane_role_assignments = {
+      # app_blob_reader = {
+      #   principal_id         = "00000000-0000-0000-0000-000000000000"
+      #   role_definition_name = "Storage Blob Data Reader"
+      #   principal_type       = "ServicePrincipal"
+      # }
+    }
+
+    # Optional: virtual_networks key whose private_endpoints subnet hosts the
+    # account's blob and file Private Endpoints.
+    # Default: the PRV VNet (or the only VNet).
+    # virtual_network = "main"
+  }
+
+  # Add more independently configured StorageV2 accounts with stable keys:
+  # archive = {
+  #   sequence         = "03"
+  #   replication_type = "ZRS"
+  #   containers       = ["audit"]
+  #   file_shares      = {}
+  # }
+}
+
+premium_file_accounts = {
+  # Premium Files and the current Function content share still require Shared
+  # Key with AzureRM 4.x. Use premium_file_accounts = {} where policy prohibits
+  # keys.
+  primary = {
+    sequence         = "01"
+    replication_type = "LRS"
+
+    file_shares = {
+      premium = {
+        quota_gb = 100
+      }
+    }
+
+    # Optional: virtual_networks key whose private_endpoints subnet hosts the
+    # account's file Private Endpoint.
+    # Default: the PRV VNet (or the only VNet).
+    # virtual_network = "main"
+  }
+
+  # Add more independently configured FileStorage accounts with stable keys:
+  # analytics = {
+  #   sequence         = "04"
+  #   replication_type = "ZRS"
+  #   file_shares = {
+  #     models = { quota_gb = 200 }
+  #   }
+  # }
+}
+
+# One entry per Azure SQL logical server; each hosts one database. Keys are
+# stable logical names. The server name is the lowercase METLEN variant
+# m-azu-sql-<bu>-<dpt>-<app>-<env>-<reg>-<sequence> (global DNS name) and the
+# optional elastic pool M-AZU-SEL-<BU>-<DPT>-<APP>-<ENV>-<REG>-<sequence>. Give
+# each server a unique two-digit sequence; changing it replaces the server, its
+# database and its pool. database_name is yours to choose and defaults to the
+# entry key ("primary" here); changing it replaces the database and its data.
+azure_sql_servers = {
+  primary = {
+    sequence          = "00"
+    database_name     = "appdb"
+    database_sku_name = "Basic"
+    max_size_gb       = 2
+
+    # Set enabled to true to use the module defaults for a small Basic pool.
+    elastic_pool = {
+      enabled = false
+    }
+
+    # Optional: virtual_networks key whose private_endpoints subnet hosts the
+    # server's Private Endpoint.
+    # Default: the PRV VNet (or the only VNet).
+    # virtual_network = "main"
+  }
+}
+
+# SQL Managed Instances keyed by a stable logical name; an empty map creates
+# none, like every other resource. At most one entry is allowed. An entry
+# creates the instance in the delegated sql_managed_instance subnet of its
+# virtual_network (default: the PRV VNet) and its own NSG and
+# route table; an empty entry such as primary = {}
+# uses every default. Deployment takes several hours and the instance is
+# billed per vCore.
+sql_managed_instances = {}
+
+# sql_managed_instances = {
+#   primary = {
+#     # Instance name m-azu-smi-<bu>-<dpt>-<app>-<env>-<reg>-<sequence>
+#     # (global, lowercase).
+#     sequence           = "00"
+#     sku_name           = "GP_Gen5"
+#     vcores             = 4
+#     storage_size_in_gb = 32
+#     license_type       = "LicenseIncluded"
+#     # Two-digit NN for the instance's own NSG and route table. Set it when
+#     # another NSG or route table already uses the same name without a
+#     # sequence (they take the classification of the instance's VNet).
+#     network_sequence = null
+#     # Optional: VNet whose sql_managed_instance subnet hosts the instance;
+#     # default: the PRV VNet.
+#     virtual_network = "main"
+#   }
+# }
+
+# One entry per PostgreSQL Flexible Server; an empty map creates none. Each
+# server gets one database and uses database_admin_password; the servers in a
+# VNet (virtual_network, default: the PRV VNet) share its delegated
+# postgresql subnet (/28 or larger; one address per server, four
+# with HA), and all servers share one private DNS zone. Keys are stable logical
+# names; changing a key replaces that server. The smoke test uses the "primary"
+# server by default.
+# Server names follow m-azu-pgs-<bu>-<dpt>-<app>-<env>-<reg>-<sequence> (global,
+# lowercase). database_name is yours to choose (1-63 letters, digits, hyphens
+# and underscores) and defaults to the entry key.
+# PGS is a working assumption; METLEN has no code yet. Give each server a
+# unique two-digit sequence; changing it replaces the server.
+postgresql_servers = {
+  primary = {
+    sequence            = "00"
+    database_name       = "appdb"
+    administrator_login = "pgadminuser"
+    sku_name            = "GP_Standard_D2ds_v5"
+    version_number      = "16"
+    storage_mb          = 32768
+    zone                = null
+
+    # Optional: virtual_networks key whose delegated postgresql subnet hosts the
+    # server.
+    # Default: the PRV VNet (or the only VNet).
+    # virtual_network = "main"
+
+    # HA needs General Purpose or Memory Optimized compute and regional capacity.
+    high_availability = {
+      enabled                   = false
+      mode                      = "ZoneRedundant" # Or SameZone.
+      standby_availability_zone = null
+    }
+  }
+
+  # reports = {
+  #   storage_mb        = 65536
+  #   high_availability = { enabled = true }
+  # }
+}
+
+# One entry per MySQL Flexible Server; an empty map creates none. Each server
+# gets one database and uses database_admin_password; the servers in a VNet
+# (virtual_network, default: the PRV VNet) share its delegated
+# mysql subnet (one address per server, two with HA), and all
+# servers share one private DNS zone. Keys are stable logical names; changing a key replaces
+# that server. The smoke test uses the "primary" server by default.
+# Server names follow m-azu-mys-<bu>-<dpt>-<app>-<env>-<reg>-<sequence> (global,
+# lowercase). database_name is yours to choose and defaults to the entry key;
+# it must be lowercase (1-63 letters, digits, hyphens and underscores) because
+# MySQL stores database names in lowercase.
+# MYS is a working assumption; METLEN has no code yet. Give each server a
+# unique two-digit sequence; changing it replaces the server.
+mysql_servers = {
+  primary = {
+    sequence            = "00"
+    database_name       = "appdb"
+    administrator_login = "mysqladminuser"
+    sku_name            = "B_Standard_B1ms"
+    version_number      = "8.0.21"
+    zone                = null
+
+    # Optional: virtual_networks key whose delegated mysql subnet hosts the server.
+    # Default: the PRV VNet (or the only VNet).
+    # virtual_network = "main"
+
+    # Before enabling HA, change sku_name from B_ to GP_ or MO_.
+    # Plan zone-redundant HA at server creation; review existing-server limitations.
+    high_availability = {
+      enabled                   = false
+      mode                      = "ZoneRedundant" # Or SameZone.
+      standby_availability_zone = null
+    }
+  }
+
+  # reports = {
+  #   sku_name          = "GP_Standard_D2ds_v4"
+  #   high_availability = { enabled = true }
+  # }
+}
+
+# One Log Analytics workspace is shared by every Container Apps environment, the
+# Application Insights resource and Databricks diagnostic settings, and created
+# only when one of them exists. Its name is
+# M-AZU-LAW-<BU>-<DPT>-<APP>-<ENV>-<REG>-<sequence>.
+log_analytics_workspace = {
+  sequence = "00"
+
+  # Daily ingestion cap in GB for everything sent to the workspace, including
+  # Application Insights telemetry; ingestion stops for the rest of the day
+  # once reached. -1 removes the cap.
+  daily_quota_gb = 0.1
+
+  # 30-730 days.
+  retention_in_days = 30
+}
+
+# One workspace-based Application Insights resource shared by every Web App,
+# Function App and Logic App (each app can opt out with
+# application_insights = false). It is
+# named M-AZU-AIN-<BU>-<DPT>-<APP>-<ENV>-<REG>-<sequence> and accepts only
+# Microsoft Entra-authenticated telemetry: each app's managed identity gets
+# Monitoring Metrics Publisher, so the deployer needs rights to create role
+# assignments. Telemetry leaves the VNet: set nat_gateway = true on the
+# web_app_integration, function_integration and logic_app_integration subnets
+# of the apps' VNet (or route 0.0.0.0/0 to a firewall), otherwise Terraform
+# warns. enabled = false turns it off for every app.
+application_insights = {
+  enabled  = true
+  sequence = "00"
+}
+
+# One entry per internal Container Apps environment; an empty map creates none.
+# Each environment uses the container_apps/<key> subnet with the same key and
+# is placed in the VNet that lists it (add the subnet in virtual_networks
+# before adding an environment here). Environment and app keys
+# are 1-12 characters; changing a key replaces that environment or app.
+# The smoke test uses environment "primary" and app "hello" by default.
+# Environment names follow M-AZU-CEV-<BU>-<DPT>-<APP>-<ENV>-<REG>-<sequence> and
+# app names the lowercase m-azu-cap-<bu>-<dpt>-<app>-<env>-<reg>-<sequence>.
+# Environment sequences must be unique, and app sequences unique across all
+# environments (Container App names are unique per resource group).
+container_apps_environments = {
+  primary = {
+    sequence = "00"
+    # Empty means Consumption-only. Uncomment one or more profiles as needed.
+    # Keys are stable logical labels; Azure profile names are generated centrally.
+    # Counts are dedicated NODES, not app replicas; review billing/region support.
+    dedicated_workload_profiles = {
+      # general = {
+      #   workload_profile_type = "D4"
+      #   minimum_count         = 0
+      #   maximum_count         = 3
+      # }
+      # memory = {
+      #   workload_profile_type = "E4"
+      #   minimum_count         = 0
+      #   maximum_count         = 2
+      # }
+    }
+
+    apps = {
+      hello = {
+        sequence    = "00"
+        image       = "mcr.microsoft.com/azuredocs/containerapps-helloworld:latest"
+        target_port = 80
+        # Use "general" or "memory" after enabling that profile above.
+        workload_profile = "Consumption"
+      }
+    }
+  }
+
+  # Needs a "container_apps/jobs" subnet, for example number = 14.
+  # jobs = {
+  #   sequence = "01"
+  #   apps = {
+  #     worker = { sequence = "01" }
+  #   }
+  # }
+}
+
+# One entry per Cosmos DB account; an empty map creates none. Each entry picks
+# its own api_type. Uncomment the template below to deploy one. Keys are
+# stable logical names; changing a key replaces that account.
+# Account names follow m-azu-cdb-<bu>-<dpt>-<app>-<env>-<reg>-<sequence>
+# (global, lowercase). database_name (keyspace or graph database; unused by the
+# Table API) and container_name (collection, table or graph) are yours to
+# choose and default to the entry key. Each API has its own rules: Cassandra
+# and Table names allow no hyphens, and Table names only letters and digits.
+# CDB is a working assumption; METLEN has no code yet. Give each account a
+# unique two-digit sequence; changing it replaces the account and its data.
+cosmos_db_accounts = {}
+
+# cosmos_db_accounts = {
+#   primary = {
+#       sequence          = "00"
+#       api_type          = "NoSQL"
+#       database_name     = "catalog"
+#       container_name    = "products"
+#       consistency_level = "Session"
+#
+#       throughput = {
+#         mode  = "serverless"
+#         scope = "container"
+#       }
+#
+#       nosql_partition_key_paths = ["/partitionKey"]
+#
+#       # Optional: VNet whose private_endpoints subnet hosts the Private
+#       # Endpoint; default: the PRV VNet.
+#       virtual_network = "main"
+#   }
+# }
+
+# One entry per Premium Azure Databricks workspace; an empty map creates none.
+# Each workspace is injected into the VNet that lists its
+# databricks/<key>/host and databricks/<key>/container subnets (both delegated
+# to Azure Databricks and covered by the workspace's own NSG) and its clusters get no public IP addresses.
+# network_access:
+#   private         (default) public access off; users and clusters use the
+#                   databricks_ui_api Private Endpoint.
+#   backend_private users over the internet, clusters over the Private Endpoint.
+#   public          users and clusters over the internet.
+# Browser sign-in to private workspaces needs the region's single
+# browser_authentication endpoint. Microsoft recommends a dedicated workspace
+# for it: set browser_authentication_workspace = true on one private entry
+# that runs no workloads; it gets only that endpoint and a CanNotDelete lock
+# (delete_lock = false turns it off). Terraform warns when private workspaces
+# have none, for example because a hub already provides it.
+# Clusters need outbound internet access: set nat_gateway = true on both
+# subnets or route them to a hub firewall; Terraform warns otherwise.
+# Names: workspace and Access Connector M-AZU-DBR-...-<sequence>, managed
+# resource group M-AZU-RGP-...-<sequence>, NSG M-AZU-NSG-...-<PUB|PRV>-...-<sequence>,
+# with the classification of the workspace's VNet. DBR was chosen on
+# 2026-10-29 and is not in the register yet. Changing sequence, or the number
+# or range of its subnets, replaces the workspace and everything in it.
+databricks_workspaces = {}
+
+# databricks_workspaces = {
+#   analytics = {
+#     sequence                = "00"
+#     network_access   = "private"
+#     storage_sequence = "08" # optional: name the root (DBFS) storage account
+#
+#     # Unity Catalog identity with Storage Blob Data Contributor on these
+#     # storage_accounts keys.
+#     access_connector = { storage_accounts = ["primary"] }
+#
+#     # Workspace resource logs to the shared Log Analytics workspace: every
+#     # category by default (allLogs, the only category group Azure Databricks
+#     # supports), or only the listed ones to limit ingestion cost.
+#     diagnostics = { categories = ["accounts", "clusters", "jobs", "unityCatalog"] }
+#   }
+#
+#   # Dedicated browser authentication workspace (WEB_AUTH in Microsoft's
+#   # guidance). Small subnets are enough because it runs no clusters.
+#   webauth = {
+#     sequence                         = "01"
+#     browser_authentication_workspace = true
+#   }
+# }
+
+# App Service Plans, keyed by a stable logical name. This is the only place
+# App Service Plan numbers are set: Web Apps, Function Apps and Logic Apps
+# select a plan by key, so two plans can never get the same name. Several apps
+# can share one plan (they share its compute and scale together); give an app
+# its own plan when it needs isolation. Basic/Standard/Premium plans host Web
+# Apps, Elastic Premium (EP1-EP3) plans host Function Apps, Workflow Standard
+# (WS1-WS3, Windows only) plans host Logic Apps, and every app must match its
+# plan's os_type. Names follow M-AZU-ASP-...-<sequence>; sequence must be
+# unique per plan. Terraform warns about a plan no app uses, because it is
+# still billed. Changing os_type or sequence replaces the plan and its apps.
+app_service_plans = {
+  web = {
+    sequence = "00"
+    os_type  = "Linux"
+    sku_name = "B1"
+  }
+
+  functions = {
+    sequence = "01"
+    os_type  = "Linux"
+    sku_name = "EP1"
+  }
+
+  # web-windows = {
+  #   sequence = "02"
+  #   os_type  = "Windows"
+  #   sku_name = "B1"
+  # }
+
+  # Logic Apps (Standard) need a Windows Workflow Standard plan.
+  # workflows = {
+  #   sequence = "03"
+  #   os_type  = "Windows"
+  #   sku_name = "WS1"
+  # }
+}
+
+# One entry per Web App, keyed by a stable logical name. Each entry creates its
+# own Private Endpoint; every app joins the web_app_integration subnet of its
+# virtual_network (default: the PRV VNet; apps on one plan share a VNet), /26
+# or larger when apps on more than one plan share it.
+web_apps = {
+  primary = {
+    # Key of a Basic, Standard or Premium app_service_plans entry.
+    service_plan = "web"
+
+    # Names follow M-AZU-APP-...-<sequence> (global <name>.azurewebsites.net);
+    # sequence must be unique per app.
+    sequence = "00"
+
+    # Select one mode: linux, windows, or container. windows needs a Windows
+    # plan; linux and container need a Linux plan.
+    mode = "linux"
+
+    # Linux supports node, python, and dotnet. Windows supports node and dotnet.
+    runtime = {
+      name    = "node"
+      version = "22"
+    }
+
+    # Used only by container mode. This public sample requires no credentials.
+    container = {
+      registry_url = "https://mcr.microsoft.com"
+      image_name   = "appsvc/staticsite:latest"
+      port         = 80
+    }
+
+    app_settings = {}
+
+    # Send telemetry to the shared Application Insights resource (default).
+    # linux and windows modes also turn on the App Service agent; container
+    # images need their own Application Insights SDK or OpenTelemetry distro.
+    application_insights = true
+
+    # Optional: virtual_networks key whose web_app_integration subnet the app
+    # joins and whose private_endpoints subnet hosts its Private Endpoint.
+    # Apps on the same plan must use the same VNet.
+    # Default: the PRV VNet (or the only VNet).
+    # virtual_network = "main"
+  }
+
+  # api = {
+  #   service_plan = "web-windows"
+  #   sequence     = "01"
+  #   mode         = "windows"
+  #   runtime = {
+  #     name    = "dotnet"
+  #     version = "8.0"
+  #   }
+  # }
+}
+
+# One entry per Function App, keyed by a stable logical name. Each entry creates
+# its own host Storage Account with its content share and Private Endpoints
+# (blob, file, queue, table and sites); every app joins the
+# function_integration subnet of its virtual_network (default: the PRV VNet;
+# apps on one plan share a VNet), /26 or larger when apps on more than one
+# plan share it.
+function_apps = {
+  primary = {
+    # Key of an Elastic Premium app_service_plans entry; the plan's os_type
+    # sets the app's OS.
+    service_plan = "functions"
+
+    # The Function App name has no NN in the standard, so at most one app may
+    # leave sequence unset; set it for every further app or when the global
+    # name is already taken.
+    # sequence = "01"
+
+    # NN of the Function host Storage Account (mazusoa...<NN>); unique across
+    # storage_accounts, premium_file_accounts and every function_apps entry.
+    storage_sequence = "02"
+
+    # Set both runtime fields when changing language. Python requires a Linux
+    # plan. Examples: node / 22, dotnet-isolated / 8.0, java / 21,
+    # powershell / 7.4. For Windows, select a Windows Elastic Premium plan and
+    # a compatible runtime, for example name = "dotnet-isolated",
+    # version = "8.0". Moving to a plan with another OS recreates the app;
+    # redeploy matching application code.
+    runtime = {
+      name    = "python"
+      version = "3.11"
+    }
+
+    # Send telemetry to the shared Application Insights resource (default).
+    application_insights = true
+
+    # Optional: virtual_networks key whose function_integration subnet the app
+    # joins and whose private_endpoints subnet hosts its Private Endpoints.
+    # Apps on the same plan must use the same VNet.
+    # Default: the PRV VNet (or the only VNet).
+    # virtual_network = "main"
+  }
+
+  # jobs = {
+  #   service_plan     = "functions"
+  #   sequence         = "02"
+  #   storage_sequence = "05"
+  #   runtime = {
+  #     name    = "python"
+  #     version = "3.11"
+  #   }
+  # }
+}
+
+# One entry per Logic App (Standard), keyed by a stable logical name; an empty
+# map creates none. Each entry creates its own host Storage Account with its
+# content share and Private Endpoints (blob, file, queue, table and sites);
+# every app joins the logic_app_integration subnet of its virtual_network
+# (default: the PRV VNet; apps on one plan share a VNet). Add the subnet and a
+# Windows Workflow Standard plan (see app_service_plans) first.
+logic_apps = {
+  # orders = {
+  #   # Key of a Windows Workflow Standard (WS1-WS3) app_service_plans entry.
+  #   service_plan = "workflows"
+  #
+  #   # Names follow M-AZU-LAP-...-<sequence> (global <name>.azurewebsites.net);
+  #   # sequence must be unique per app.
+  #   sequence = "00"
+  #
+  #   # NN of the host Storage Account (mazusoa...<NN>); unique across
+  #   # storage_accounts, premium_file_accounts, function_apps and logic_apps.
+  #   storage_sequence = "06"
+  #
+  #   # Node.js major version for Inline Code actions (default 22).
+  #   # node_version = "22"
+  #
+  #   # Workflow settings, for example parameters; settings the module manages
+  #   # (runtime, storage, networking, Application Insights) are rejected.
+  #   app_settings = {
+  #     "Workflows.RuntimeConfiguration.RetentionInDays" = "30"
+  #   }
+  #
+  #   # Send telemetry to the shared Application Insights resource (default).
+  #   application_insights = true
+  #
+  #   # Optional: virtual_networks key whose logic_app_integration subnet the
+  #   # app joins and whose private_endpoints subnet hosts its Private
+  #   # Endpoints. Apps on the same plan must use the same VNet.
+  #   # virtual_network = "main"
+  # }
+}
+
+tags = {
+  owner      = "platform-team"
+  costCenter = "customer-project"
+}

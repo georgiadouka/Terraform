@@ -10,23 +10,42 @@ variables {
 
 run "accept_defaults" {
   command = plan
+
+  assert {
+    condition     = azurerm_cosmosdb_account.this.local_authentication_enabled == true
+    error_message = "Key-based local authentication must stay enabled by default."
+  }
 }
 
-run "reject_unknown_api_type" {
+run "disable_local_authentication" {
   command = plan
   variables {
-    api_type = "Unsupported"
+    local_authentication_disabled = true
   }
-  expect_failures = [var.api_type]
+
+  assert {
+    condition     = azurerm_cosmosdb_account.this.local_authentication_enabled == false
+    error_message = "local_authentication_disabled = true must turn key-based local authentication off."
+  }
 }
 
-run "reject_unknown_consistency_level" {
-  command = plan
-  variables {
-    consistency_level = "Unsupported"
-  }
-  expect_failures = [var.consistency_level]
-}
+# Disabled: the validation it tests is disabled (the root module validates this value).
+# run "reject_unknown_api_type" {
+#   command = plan
+#   variables {
+#     api_type = "Unsupported"
+#   }
+#   expect_failures = [var.api_type]
+# }
+
+# Disabled: the validation it tests is disabled (azurerm validates this at plan time).
+# run "reject_unknown_consistency_level" {
+#   command = plan
+#   variables {
+#     consistency_level = "Unsupported"
+#   }
+#   expect_failures = [var.consistency_level]
+# }
 
 run "reject_unknown_throughput_mode" {
   command = plan
@@ -36,27 +55,29 @@ run "reject_unknown_throughput_mode" {
   expect_failures = [var.throughput]
 }
 
-run "reject_manual_throughput_increment" {
-  command = plan
-  variables {
-    throughput = {
-      mode      = "manual"
-      manual_ru = 450
-    }
-  }
-  expect_failures = [var.throughput]
-}
+# Disabled: the validation it tests is disabled (azurerm validates this at plan time).
+# run "reject_manual_throughput_increment" {
+#   command = plan
+#   variables {
+#     throughput = {
+#       mode      = "manual"
+#       manual_ru = 450
+#     }
+#   }
+#   expect_failures = [var.throughput]
+# }
 
-run "reject_autoscale_throughput_increment" {
-  command = plan
-  variables {
-    throughput = {
-      mode             = "autoscale"
-      autoscale_max_ru = 1500
-    }
-  }
-  expect_failures = [var.throughput]
-}
+# Disabled: the validation it tests is disabled (azurerm validates this at plan time).
+# run "reject_autoscale_throughput_increment" {
+#   command = plan
+#   variables {
+#     throughput = {
+#       mode             = "autoscale"
+#       autoscale_max_ru = 1500
+#     }
+#   }
+#   expect_failures = [var.throughput]
+# }
 
 run "reject_table_database_throughput_scope" {
   command = plan
@@ -86,13 +107,14 @@ run "reject_invalid_nosql_partition_path" {
   expect_failures = [var.nosql_partition_key_paths]
 }
 
-run "reject_empty_mongodb_shard_key" {
-  command = plan
-  variables {
-    mongodb = { shard_key = " " }
-  }
-  expect_failures = [var.mongodb]
-}
+# Disabled: the validation it tests is disabled (azurerm rejects empty values at plan time).
+# run "reject_empty_mongodb_shard_key" {
+#   command = plan
+#   variables {
+#     mongodb = { shard_key = " " }
+#   }
+#   expect_failures = [var.mongodb]
+# }
 
 run "reject_invalid_gremlin_partition_path" {
   command = plan

@@ -7,7 +7,7 @@ resource names.
 ## 1. Base naming inputs
 
 The base values are configured in
-[`environments/lab/terraform.tfvars`](../environments/lab/terraform.tfvars):
+`environments/lab/lab.tfvars` (start from [`lab.tfvars.example`](../environments/lab/lab.tfvars.example)):
 
 ```hcl
 project_name = "metlen"
@@ -40,7 +40,7 @@ deployment therefore normally receives a different suffix.
 ## 2. Common name stem
 
 The central naming logic is in
-[`environments/lab/main.tf`](../environments/lab/main.tf):
+[`environments/lab/locals.naming.tf`](../environments/lab/locals.naming.tf):
 
 ```hcl
 naming_suffix = coalesce(
@@ -70,7 +70,7 @@ Most names are then formed as:
 ## 3. Prefixes
 
 Prefixes are configured in
-[`environments/lab/terraform.tfvars`](../environments/lab/terraform.tfvars):
+`environments/lab/lab.tfvars` (start from [`lab.tfvars.example`](../environments/lab/lab.tfvars.example)):
 
 | Resource | Prefix |
 |---|---:|
@@ -90,7 +90,18 @@ Prefixes are configured in
 | Container | `ctr` |
 | Workload profile | `wp` |
 | Log Analytics workspace | `log` |
+| Load balancer (internal) | `lbi` |
+| Load balancer frontend IP configuration | `lbfe` |
+| Load balancer backend pool | `lbbe` |
+| Load balancer health probe | `lbprobe` |
+| Load balancer rule | `lbrule` |
 | Private endpoint | `pe` |
+| Virtual network peering | `peer` |
+
+Every prefix must be 1-10 lowercase alphanumeric characters starting with a
+letter. Two prefixes are shorter so generated names fit Azure limits: the
+Container App prefix is at most four characters and the Key Vault prefix at
+most seven.
 
 ## 4. Standard resource names
 
@@ -106,34 +117,68 @@ Examples using the example suffix:
 |---|---|---|
 | Resource group | `rg` + stem | `rg-metlen-lab-it6hp` |
 | Virtual network | `vnet` + stem | `vnet-metlen-lab-it6hp` |
-| Virtual machine | `vm` + stem | `vm-metlen-lab-it6hp` |
-| VM scale set | `vmss` + stem | `vmss-metlen-lab-it6hp` |
+| Virtual machine | `vm` + logical key + stem | `vm-primary-metlen-lab-it6hp` |
+| VM scale set | `vmss` + key + stem | `vmss-web-metlen-lab-it6hp` |
 | NAT Gateway | `nat` + stem | `nat-metlen-lab-it6hp` |
-| Container Apps Environment | `cae` + stem | `cae-metlen-lab-it6hp` |
-| Container App | `ca` + stem | `ca-metlen-lab-it6hp` |
+| Network security group | `nsg` + key + stem | `nsg-compute-metlen-lab-it6hp` |
+| Route table | `rt` + key + stem | `rt-egress-metlen-lab-it6hp` |
+| VNet peering (spoke side) | `peer` + stem + `to-hub` | `peer-metlen-lab-it6hp-to-hub` |
+| VNet peering (hub side) | `peer` + `hub-to` + stem | `peer-hub-to-metlen-lab-it6hp` |
+| Load balancer | `lbi` + key + stem | `lbi-web-metlen-lab-it6hp` |
+| Load balancer frontend / backend pool | `lbfe` or `lbbe` + key + stem | `lbfe-web-metlen-lab-it6hp` |
+| Azure SQL server | `sql` + key + stem | `sql-primary-metlen-lab-it6hp` |
+| Azure SQL database | `sqldb` + key + stem | `sqldb-primary-metlen-lab-it6hp` |
+| Azure SQL elastic pool | `sqlep` + key + stem | `sqlep-primary-metlen-lab-it6hp` |
+| MySQL server | `mysql` + key + stem | `mysql-primary-metlen-lab-it6hp` |
+| MySQL database | `mysqldb` + key + stem | `mysqldb-primary-metlen-lab-it6hp` |
+| PostgreSQL server | `psql` + key + stem | `psql-primary-metlen-lab-it6hp` |
+| PostgreSQL database | `psqldb` + key + stem | `psqldb-primary-metlen-lab-it6hp` |
+| Container Apps Environment | `cae` + key + stem | `cae-primary-metlen-lab-it6hp` |
+| Container App | `ca` + app key + environment key + suffix | `ca-hello-primary-it6hp` |
 | Log Analytics workspace | `log` + stem | `log-metlen-lab-it6hp` |
 | Function App | `func` + stem | `func-metlen-lab-it6hp` |
 | Web App | `app` + stem | `app-metlen-lab-it6hp` |
 
-For example, the Container Apps Environment name is calculated as:
+Standalone VM, NIC, OS disk, and data disk names include the stable key from
+the `virtual_machines` map so that multiple independently configured VMs have
+distinct Azure names. Storage account and storage Private Endpoint names also
+derive from the stable keys in `storage_accounts` and `premium_file_accounts`.
+Azure SQL server names are globally unique and at most 63 characters; with the
+readable key they are at most 51 characters, so no hash token is needed.
+Database and elastic pool names are scoped to their server. MySQL and
+PostgreSQL server names follow the same pattern and are also globally unique
+(`<name>.mysql.database.azure.com` and `<name>.postgres.database.azure.com`),
+at most 51 characters within the 63-character limit.
+
+Container Apps environment names include the key from
+`container_apps_environments`. Container App names must be unique within the
+resource group and at most 32 characters, so they use
+`<prefix>-<app key>-<environment key>-<suffix>` without the project and
+environment labels. With the prefix capped at four characters, environment keys
+at 12, and app keys at 8, the longest name is exactly 32 characters. Plan-time
+validation rejects key pairs that would produce the same name, such as app
+`a-b` in environment `c` and app `a` in environment `b-c`. The one shared Log
+Analytics workspace keeps the plain stem.
+
+For example, the Container Apps Environment name for the `primary` key is
+calculated as:
 
 ```hcl
-container_apps_environment = (
-  "${local.naming_prefixes.container_apps_environment}-${local.name_stem}"
-)
+name = "${local.naming_prefixes.container_apps_environment}-${environment_key}-${local.name_stem}"
 ```
 
 This becomes:
 
 ```text
-cae-metlen-lab-it6hp
+cae-primary-metlen-lab-it6hp
 ```
 
 The environment passes that name to the module:
 
 ```hcl
 module "container_apps" {
-  environment_name = local.resource_names.container_apps_environment
+  for_each         = var.container_apps_environments
+  environment_name = local.resource_names.container_apps_environments[each.key].name
 }
 ```
 
@@ -159,14 +204,17 @@ Examples:
 |---|---|
 | Private Endpoints subnet | `snet-pe-metlen-lab-it6hp` |
 | VM subnet | `snet-vm-metlen-lab-it6hp` |
-| Container Apps subnet | `snet-aca-metlen-lab-it6hp` |
+| Container Apps subnet (environment `primary`) | `snet-aca-primary-metlen-lab-it6hp` |
+| Load balancer subnet (shared) | `snet-lb-metlen-lab-it6hp` |
 | Web App integration subnet | `snet-app-metlen-lab-it6hp` |
 | Function integration subnet | `snet-func-metlen-lab-it6hp` |
 | PostgreSQL subnet | `snet-psql-metlen-lab-it6hp` |
 | MySQL subnet | `snet-mysql-metlen-lab-it6hp` |
 | SQL Managed Instance subnet | `snet-sqlmi-metlen-lab-it6hp` |
 | NAT public IP | `pip-nat-metlen-lab-it6hp` |
-| VMSS network interface | `nic-vmss-metlen-lab-it6hp` |
+| VMSS network interface | `nic-vmss-web-metlen-lab-it6hp` |
+| VMSS autoscale setting | `autoscale-web-metlen-lab-it6hp` |
+| VMSS hostname prefix | `vmss` + first five SHA-1 characters of the key, such as `vmss` + 5 hex characters; 9 characters fits the Windows limit and stays unique per key |
 | Data disk labelled `data` | `disk-data-metlen-lab-it6hp` |
 | Data disk labelled `logs` | `disk-logs-metlen-lab-it6hp` |
 
@@ -178,7 +226,8 @@ retaining the project, environment, and deployment suffix:
 |---|---|
 | `private_endpoints` | `pe` |
 | `virtual_machines` | `vm` |
-| `container_apps` | `aca` |
+| `container_apps/<environment key>` | `aca-<environment key>` |
+| `load_balancers` | `lb` |
 | `web_app_integration` | `app` |
 | `function_integration` | `func` |
 | `postgresql` | `psql` |
@@ -204,45 +253,83 @@ compact_environment = lab
 
 ### Storage accounts
 
-The formula is:
+Every account uses a deterministic logical-key token before the project. The
+token combines the first five alphanumeric key characters with the first five
+characters of the key's SHA-1 digest, preventing collisions when names are
+truncated:
 
 ```text
-<prefix><project><environment><suffix>
+<prefix><key-token><project><environment><suffix>
 ```
 
-Examples:
+Examples for an account keyed `primary`:
 
 | Resource | Result |
 |---|---|
-| Standard Storage | `stmetlenlabit6hp` |
-| Premium Files | `stpfmetlenlabit6hp` |
+| Standard Storage | `stprimae3b7cmetlenlit6hp` |
+| Premium Files | `stpfprimae3b7cmetleit6hp` |
 | Function Storage | `stfnmetlenlabit6hp` |
 
-The expression is truncated if necessary to remain within Azure's
-24-character storage-account limit.
+The expression is truncated before the suffix if necessary to remain within
+Azure's 24-character storage-account limit. Stable logical keys are also used
+in additional accounts' Private Endpoint, private service connection, and DNS
+zone group names. Keep keys unchanged after deployment because they are part of
+both Terraform addresses and generated names.
 
 ### Container Registry
 
-The formula is:
+Registry names are globally unique, alphanumeric only, and 5-50 characters.
+Each `container_registries` entry uses the same logical-key token as storage
+accounts and Key Vaults:
 
 ```text
-cr + metlen + lab + it6hp
+<prefix><key token><project><environment><suffix>
 ```
 
-Result:
+| Logical key | Result |
+|---|---|
+| `primary` | `crprimae3b7cmetlenlabit6hp` |
 
-```text
-crmetlenlabit6hp
-```
+No truncation is needed: the longest possible name is 45 characters.
 
 ### Key Vault
 
-Key Vault permits hyphens but has a 24-character limit, so the expression uses
-compact project and environment tokens and truncates as necessary:
+Key Vault names are globally unique, permit hyphens, and have a 24-character
+limit. Each `key_vaults` entry uses the same logical-key token as storage
+accounts: up to five characters of the key plus five characters of its SHA-1
+hash. Compact project and environment tokens fill the remaining space:
 
 ```text
-kv-metlenlab-it6hp
+<prefix>-<key token><project><environment>-<suffix>   (truncated before the suffix)
 ```
+
+| Logical key | Result |
+|---|---|
+| `primary` | `kv-primae3b7cmetle-it6hp` |
+| `secrets` | `kv-secrefe865metle-it6hp` |
+
+The Key Vault prefix is limited to seven characters, so the full key token
+always fits even with a five-character suffix and only the project and
+environment tokens are shortened. Keep keys unchanged after deployment because
+they are part of both Terraform addresses and generated names.
+
+### Cosmos DB
+
+Cosmos DB account names are globally unique, permit hyphens, and have a
+44-character limit. Each `cosmos_db_accounts` entry uses the same pattern and
+logical-key token as Key Vault:
+
+```text
+<prefix>-<key token><project><environment>-<suffix>   (truncated before the suffix)
+```
+
+| Logical key | Result |
+|---|---|
+| `primary` | `cosmos-primae3b7cmetlenlab-it6hp` |
+
+The longest possible inputs produce exactly 44 characters with the full key
+token, so no extra prefix limit is needed. Database and container names are
+scoped to each account, so every account reuses the same compact names.
 
 ## 7. Child-resource names
 
@@ -260,6 +347,11 @@ Examples:
 | Blob container `archive` | `blob-archive-metlen-lab-it6hp` |
 | Premium share `premium` | `share-premium-metlen-lab-it6hp` |
 | Function content share | `share-function-content-metlen-lab-it6hp` |
+| Load balancer probe `http` | `lbprobe-http-metlen-lab-it6hp` |
+| Load balancer rule `http` | `lbrule-http-metlen-lab-it6hp` |
+
+Load balancer probe and rule names are scoped to their load balancer, so two
+load balancers can both have an `http` probe and rule.
 
 ## 8. Private endpoint names
 
@@ -271,12 +363,29 @@ Three related resources are generated for each private connection:
 | Private service connection | `psc` |
 | Private DNS zone group | `pdnszg` |
 
-For Standard Storage Blob:
+All three share one pattern built from the endpoint's name token:
 
 ```text
-pe-st-blob-metlen-lab-it6hp
-psc-st-blob-metlen-lab-it6hp
-pdnszg-st-blob-metlen-lab-it6hp
+<prefix>-<name token>-<project>-<environment>-<suffix>
+```
+
+| Endpoint | Name token |
+|---|---|
+| Single-instance service | Service prefix, such as `app` or `func` |
+| Azure SQL | `sql-<server key>` |
+| Cosmos DB | `cosmos-<account key>` |
+| Container Registry | `cr-<registry key>` |
+| Key Vault | `kv-<vault key>` |
+| Standard Storage | `st-<account key>-<blob or file>` |
+| Premium Files | `stpf-<account key>-file` |
+| Function host storage | `stfn-<blob, file, queue, or table>` |
+
+For the `primary` Standard Storage account's blob endpoint:
+
+```text
+pe-st-primary-blob-metlen-lab-it6hp
+psc-st-primary-blob-metlen-lab-it6hp
+pdnszg-st-primary-blob-metlen-lab-it6hp
 ```
 
 For Function Storage File:
@@ -287,7 +396,10 @@ psc-stfn-file-metlen-lab-it6hp
 pdnszg-stfn-file-metlen-lab-it6hp
 ```
 
-This keeps related resources visibly associated.
+This keeps related resources visibly associated. In the
+`generated_resource_names` output, `private_endpoints` is keyed by endpoint
+key, such as `key_vault/primary` or `storage/primary/blob`, and each entry holds all
+three names.
 
 ## 9. Container Apps workload-profile names
 
@@ -314,8 +426,6 @@ Current results:
 | `general` | `wp-general01` |
 | `memory` | `wp-memory01` |
 
-The deprecated single-profile input uses `wp-legacy01`.
-
 If a custom prefix or logical key would make the direct name longer than
 Azure's 15-character limit, the name falls back to:
 
@@ -329,8 +439,9 @@ short name such as `lon-dfe2169801`.
 Both forms use only input values that Terraform knows during planning. The
 random deployment suffix is intentionally excluded because AzureRM models
 workload profiles as a set and must correlate the same complete names between
-plan and apply. The Container Apps Environment and globally named resources
-continue to use the random suffix.
+plan and apply. Profile names are scoped to their environment, so two
+environments with a `general` key both use `wp-general01`. The Container Apps
+Environment and globally named resources continue to use the random suffix.
 
 ## 10. Random versus deterministic behavior
 

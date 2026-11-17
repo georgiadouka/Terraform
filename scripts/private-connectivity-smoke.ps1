@@ -18,6 +18,11 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# "none" marks an unset optional value; Run Command drops empty arguments.
+if ($SQL_MANAGED_INSTANCE_HOST -eq "none") { $SQL_MANAGED_INSTANCE_HOST = "" }
+if ($COSMOS_DB_HOST -eq "none") { $COSMOS_DB_HOST = "" }
+if ($NAT_GATEWAY_PUBLIC_IP -eq "none") { $NAT_GATEWAY_PUBLIC_IP = "" }
+
 foreach ($hostname in @(
     $SQL_HOST, $POSTGRESQL_HOST, $MYSQL_HOST, $KEY_VAULT_HOST,
     $STORAGE_BLOB_HOST, $PREMIUM_FILES_HOST, $FUNCTION_STORAGE_BLOB_HOST,

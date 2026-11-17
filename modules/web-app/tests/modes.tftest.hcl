@@ -45,8 +45,8 @@ run "linux_code_default" {
     condition = (
       length(azurerm_linux_web_app.this) == 1 &&
       length(azurerm_windows_web_app.this) == 0 &&
-      azurerm_service_plan.this.os_type == "Linux" &&
-      azurerm_service_plan.this.sku_name == "B1" &&
+      azurerm_service_plan.this[0].os_type == "Linux" &&
+      azurerm_service_plan.this[0].sku_name == "B1" &&
       azurerm_linux_web_app.this[0].site_config[0].application_stack[0].node_version == "22-lts" &&
       !azurerm_linux_web_app.this[0].public_network_access_enabled &&
       azurerm_linux_web_app.this[0].https_only &&
@@ -70,7 +70,7 @@ run "windows_code" {
     condition = (
       length(azurerm_linux_web_app.this) == 0 &&
       length(azurerm_windows_web_app.this) == 1 &&
-      azurerm_service_plan.this.os_type == "Windows" &&
+      azurerm_service_plan.this[0].os_type == "Windows" &&
       azurerm_windows_web_app.this[0].site_config[0].application_stack[0].current_stack == "dotnet" &&
       azurerm_windows_web_app.this[0].site_config[0].application_stack[0].dotnet_version == "v8.0" &&
       !azurerm_windows_web_app.this[0].ftp_publish_basic_authentication_enabled &&
@@ -151,4 +151,54 @@ run "reject_invalid_container_port" {
   }
 
   expect_failures = [var.container]
+}
+
+run "existing_service_plan" {
+  command = plan
+
+  variables {
+    service_plan_name = null
+    service_plan_id   = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Web/serverFarms/asp-shared"
+  }
+
+  assert {
+    condition = (
+      length(azurerm_service_plan.this) == 0 &&
+      azurerm_linux_web_app.this[0].service_plan_id == "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Web/serverFarms/asp-shared" &&
+      output.service_plan_id == "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Web/serverFarms/asp-shared"
+    )
+    error_message = "With service_plan_id the module must not create a plan and must run the app on the supplied plan."
+  }
+}
+
+run "created_service_plan_id_output" {
+  command = plan
+
+  assert {
+    condition = (
+      length(azurerm_service_plan.this) == 1 &&
+      output.service_plan_id == "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Web/serverFarms/asp-web-test"
+    )
+    error_message = "With service_plan_name the module must create its own plan and expose its ID."
+  }
+}
+
+run "reject_both_plan_inputs" {
+  command = plan
+
+  variables {
+    service_plan_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Web/serverFarms/asp-shared"
+  }
+
+  expect_failures = [var.service_plan_id]
+}
+
+run "reject_no_plan_input" {
+  command = plan
+
+  variables {
+    service_plan_name = null
+  }
+
+  expect_failures = [var.service_plan_id]
 }

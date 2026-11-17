@@ -1,0 +1,578 @@
+# Copy this file to lab.tfvars and keep all environment-specific values there.
+# The copied file is ignored by Git. Terraform does not load it automatically;
+# pass it explicitly, for example:
+#   terraform -chdir=environments\lab plan -var-file=lab.tfvars
+
+# Required Azure context
+subscription_id = "00000000-0000-0000-0000-000000000000"
+tenant_id       = "00000000-0000-0000-0000-000000000000"
+
+# true: Terraform uses Entra ID for supported Blob/Queue operations. Pre-grant
+# its identity Storage Blob/Queue data roles. false: Terraform uses account
+# keys, so every storage_accounts entry must enable Shared Key.
+storage_use_azuread = true
+
+# Environment identity
+location     = "swedencentral"
+project_name = "metlen"
+environment  = "lab"
+
+# Central naming convention:
+# <resource-prefix>-<project_name>-<environment>-<unique_suffix>
+# Leave unique_suffix null to generate and persist a five-character suffix.
+naming = {
+  unique_suffix = null
+
+  prefixes = {
+    resource_group             = "rg"
+    virtual_network            = "vnet"
+    subnet                     = "snet"
+    subnet_delegation          = "dlg"
+    virtual_machine            = "vm"
+    virtual_machine_scale_set  = "vmss"
+    network_interface          = "nic"
+    os_disk                    = "osdisk"
+    data_disk                  = "disk"
+    autoscale_setting          = "autoscale"
+    nat_gateway                = "nat"
+    load_balancer              = "lbi"
+    load_balancer_frontend     = "lbfe"
+    load_balancer_backend_pool = "lbbe"
+    load_balancer_probe        = "lbprobe"
+    load_balancer_rule         = "lbrule"
+    public_ip                  = "pip"
+    key_vault                  = "kv"
+    container_registry         = "cr"
+    storage_account            = "st"
+    premium_files_account      = "stpf"
+    function_storage_account   = "stfn"
+    storage_container          = "blob"
+    file_share                 = "share"
+    private_endpoint           = "pe"
+    private_service_connection = "psc"
+    private_dns_zone_group     = "pdnszg"
+    private_dns_link           = "pdnslink"
+    azure_sql_server           = "sql"
+    azure_sql_database         = "sqldb"
+    azure_sql_elastic_pool     = "sqlep"
+    sql_managed_instance       = "sqlmi"
+    network_security_group     = "nsg"
+    route_table                = "rt"
+    virtual_network_peering    = "peer"
+    postgresql_server          = "psql"
+    postgresql_database        = "psqldb"
+    mysql_server               = "mysql"
+    mysql_database             = "mysqldb"
+    cosmos_db_account          = "cosmos"
+    cosmos_db_database         = "cosmosdb"
+    cosmos_db_container        = "cosmosct"
+    container_apps_environment = "cae"
+    container_app              = "ca"
+    container_app_container    = "ctr"
+    container_apps_profile     = "wp"
+    log_analytics_workspace    = "log"
+    web_app                    = "app"
+    web_app_service_plan       = "aspweb"
+    function_app               = "func"
+    app_service_plan           = "asp"
+  }
+}
+
+# Complete network address plan. Terraform validates every CIDR but creates only
+# the subnets required by the enabled services. Keeping future allocations here
+# gives later deployments stable, non-overlapping ranges; an undeployed CIDR is
+# not reserved in Azure until its subnet is created.
+address_space = ["10.42.0.0/20"]
+
+subnet_cidrs = {
+  private_endpoints    = "10.42.0.0/24"
+  virtual_machines     = "10.42.1.0/24"
+  web_app_integration  = "10.42.8.0/26"
+  function_integration = "10.42.4.0/24"
+  postgresql           = "10.42.5.0/24"
+  mysql                = "10.42.6.0/24"
+  sql_managed_instance = "10.42.7.0/27"
+
+  # One range per Container Apps environment, keyed by the environment key in
+  # container_apps_environments below; /27 or larger, and it can't be resized
+  # after the environment is created. Unused keys stay reserved for later.
+  container_apps = {
+    primary = "10.42.2.0/27"
+    # jobs  = "10.42.2.32/27"
+  }
+
+  # One range shared by every load balancer frontend IP; /29 or larger.
+  load_balancers = "10.42.9.0/26"
+}
+
+# Enable only the services needed by this environment.
+services = {
+  sql_managed_instance      = false
+  web_app                   = true
+  function_app              = true
+}
+
+virtual_machines = {
+  primary = {
+    # Linux or Windows. Changing OS replaces this VM.
+    os_type        = "Linux"
+    size           = "Standard_B2s_v2"
+    admin_username = "azureadmin"
+
+  # Choose an image compatible with os_type and the VM's secure boot/vTPM.
+  # Set this entire object to null to use the selected OS's default image.
+    source_image_reference = {
+      publisher = "Canonical"
+      offer     = "0001-com-ubuntu-server-jammy"
+      sku       = "22_04-lts-gen2"
+      version   = "latest"
+    }
+
+  # For Windows, set os_type = "Windows" and replace the image above with:
+  # source_image_reference = {
+  #   publisher = "MicrosoftWindowsServer"
+  #   offer     = "WindowsServer"
+  #   sku       = "2022-datacenter-azure-edition"
+  #   version   = "latest"
+  # }
+
+  # null disk_size_gb selects 32 GiB for Linux or 127 GiB for Windows.
+    os_disk = {
+      storage_account_type = "StandardSSD_LRS"
+      disk_size_gb         = null
+      caching              = "ReadWrite"
+    }
+
+    data_disks = {
+      data = {
+        lun                  = 0
+        storage_account_type = "StandardSSD_LRS"
+        disk_size_gb         = 32
+        caching              = "ReadWrite"
+      }
+    }
+
+    # Optional: join the backend pool of a load_balancers entry by key.
+    # load_balancer = "web"
+  }
+
+  # Add more independently configured VMs with stable logical keys:
+  # worker = {
+  #   os_type = "Linux"
+  #   size    = "Standard_D2s_v5"
+  # }
+  # admin = {
+  #   os_type = "Windows"
+  #   size    = "Standard_D2s_v5"
+  # }
+}
+
+# One entry per Virtual Machine Scale Set; an empty map creates none. Uncomment
+# the template below to deploy one. Keys are stable logical names; changing a
+# key replaces that scale set. Every data disk is created for every instance.
+virtual_machine_scale_sets = {}
+
+# virtual_machine_scale_sets = {
+#   app = {
+#       os_type        = "Linux"
+#       size           = "Standard_B2s_v2"
+#       admin_username = "azureadmin"
+#       zones          = []
+#       upgrade_mode   = "Manual"
+#
+#       source_image_reference = {
+#         publisher = "Canonical"
+#         offer     = "ubuntu-24_04-lts"
+#         sku       = "server"
+#         version   = "latest"
+#       }
+#
+#       os_disk = {
+#         storage_account_type = "StandardSSD_LRS"
+#         disk_size_gb         = 64
+#         caching              = "ReadWrite"
+#       }
+#
+#       data_disks = {
+#         app = {
+#           lun                  = 0
+#           storage_account_type = "Premium_LRS"
+#           disk_size_gb         = 128
+#           caching              = "ReadOnly"
+#         }
+#         logs = {
+#           lun                  = 1
+#           storage_account_type = "StandardSSD_LRS"
+#           disk_size_gb         = 256
+#           caching              = "ReadWrite"
+#         }
+#       }
+#
+#       scaling = {
+#         mode              = "autoscale"
+#         minimum_instances = 2
+#         default_instances = 2
+#         maximum_instances = 6
+#
+#         cpu = {
+#           scale_out_threshold = 75
+#           scale_in_threshold  = 25
+#           scale_out_count     = 1
+#           scale_in_count      = 1
+#           time_window_minutes = 5
+#           cooldown_minutes    = 5
+#         }
+#       }
+#
+#       # Optional: join the backend pool of a load_balancers entry by key.
+#       # load_balancer = "web"
+#   }
+# }
+
+# One entry per internal Standard load balancer; an empty map creates none.
+# Every frontend IP sits in subnet_cidrs.load_balancers. VMs and scale sets join
+# by setting load_balancer = "<key>".
+# Keys are stable logical names; changing a key replaces that load balancer.
+load_balancers = {}
+
+# load_balancers = {
+#   web = {
+#     private_ip_address = null # Or a usable address in subnet_cidrs.load_balancers, such as "10.42.9.4".
+#     zones              = ["1", "2", "3"]
+#
+#     probes = {
+#       http = {
+#         protocol            = "Http" # Tcp, Http, or Https.
+#         port                = 80
+#         request_path        = "/"
+#         interval_in_seconds = 5
+#         probe_threshold     = 1
+#       }
+#     }
+#
+#     rules = {
+#       http = {
+#         probe                   = "http"
+#         protocol                = "Tcp" # Tcp, Udp, or All with ports 0 (HA ports).
+#         frontend_port           = 80
+#         backend_port            = 80
+#         idle_timeout_in_minutes = 4
+#         load_distribution       = "Default" # Or SourceIP, SourceIPProtocol.
+#       }
+#     }
+#   }
+# }
+
+# One shared gateway is created when VM, VMSS, or Container Apps is configured and is
+# associated with the VM subnet and every Container Apps environment subnet.
+nat_gateway = {
+  idle_timeout_in_minutes = 4
+}
+
+# NSGs are off. Each entry creates nsg-<key>-<stem> and associates it with the
+# listed subnet keys (virtual_machines, private_endpoints, web_app_integration,
+# function_integration, postgresql, mysql, load_balancers, or
+# container_apps/<environment key>). sql_managed_instance is managed by its own
+# module. A subnet may appear in only one NSG.
+network_security_groups = {}
+
+# network_security_groups = {
+#   compute = {
+#     subnets = ["virtual_machines"]
+#
+#     security_rules = {
+#       allow-ssh-from-vnet = {
+#         priority                   = 100
+#         direction                  = "Inbound"
+#         access                     = "Allow"
+#         protocol                   = "Tcp"
+#         destination_port_range     = "22"
+#         source_address_prefix      = "VirtualNetwork"
+#         destination_address_prefix = "*"
+#       }
+#     }
+#   }
+# }
+
+# Route tables are off. Each entry creates rt-<key>-<stem> and associates it
+# with the listed subnet keys (same keys as NSGs). A 0.0.0.0/0 route overrides
+# NAT Gateway egress for its subnets. A subnet may appear in only one table.
+route_tables = {}
+
+# route_tables = {
+#   egress = {
+#     subnets = ["virtual_machines"]
+#
+#     routes = {
+#       default-to-firewall = {
+#         address_prefix         = "0.0.0.0/0"
+#         next_hop_type          = "VirtualAppliance"
+#         next_hop_in_ip_address = "10.0.0.4"
+#       }
+#     }
+#   }
+# }
+
+# Hub-spoke peering is off. Set hub_peering to peer this VNet to an existing hub.
+# Both sides are created by default; the hub side uses the hub's subscription
+# (read from the ID), so Terraform's identity needs Network Contributor (or
+# virtualNetworks/peer/action plus peering write) on the hub VNet. Set
+# create_hub_to_spoke_peering = false when the hub team creates its side.
+# use_remote_gateways = true requires a VPN or ExpressRoute gateway in the hub.
+hub_peering = null
+
+# hub_peering = {
+#   hub_virtual_network_id      = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-hub/providers/Microsoft.Network/virtualNetworks/vnet-hub"
+#   create_hub_to_spoke_peering = true
+#   allow_forwarded_traffic     = true
+#   use_remote_gateways         = false
+# }
+
+# One entry per private Premium Azure Container Registry. Keys are stable
+# logical names; changing a key renames, and therefore replaces, that registry.
+container_registries = {
+  primary = {}
+}
+
+# One entry per Key Vault. Keys are stable logical names; changing a key
+# renames, and therefore replaces, that vault. Use key_vaults = {} for none.
+key_vaults = {
+  primary = {
+    sku_name = "standard"
+
+    # Keep false for an environment that must be destroyed automatically.
+    purge_protection_enabled = false
+  }
+}
+
+storage_accounts = {
+  primary = {
+    replication_type = "LRS"
+    containers       = ["appdata"]
+
+    # AzureRM 4.x provisions Azure Files with Shared Key. Keep this empty for
+    # Entra-only accounts. Where policy permits keys, enable Shared Key and add
+    # standard shares to the account.
+    file_shares = {}
+
+    # This controls whether clients may use account keys. It is separate from
+    # storage_use_azuread, which controls only Terraform's Blob/Queue client.
+    shared_access_key_enabled = false
+
+    # These account-scoped assignments are for workloads. The identity running
+    # Terraform needs its own data roles granted before this deployment starts.
+    data_plane_role_assignments = {
+      # app_blob_reader = {
+      #   principal_id         = "00000000-0000-0000-0000-000000000000"
+      #   role_definition_name = "Storage Blob Data Reader"
+      #   principal_type       = "ServicePrincipal"
+      # }
+    }
+  }
+
+  # Add more independently configured StorageV2 accounts with stable keys:
+  # archive = {
+  #   replication_type = "ZRS"
+  #   containers       = ["audit"]
+  #   file_shares      = {}
+  # }
+}
+
+premium_file_accounts = {
+  # Premium Files and the current Function content share still require Shared
+  # Key with AzureRM 4.x. Use premium_file_accounts = {} where policy prohibits
+  # keys.
+  primary = {
+    replication_type = "LRS"
+
+    file_shares = {
+      premium = {
+        quota_gb = 100
+      }
+    }
+  }
+
+  # Add more independently configured FileStorage accounts with stable keys:
+  # analytics = {
+  #   replication_type = "ZRS"
+  #   file_shares = {
+  #     models = { quota_gb = 200 }
+  #   }
+  # }
+}
+
+# One entry per Azure SQL logical server; each hosts one database. Keys are
+# stable logical names; changing a key replaces that server and its database.
+azure_sql_servers = {
+  primary = {
+      database_sku_name = "Basic"
+      max_size_gb       = 2
+
+      # Set enabled to true to use the module defaults for a small Basic pool.
+      elastic_pool = {
+        enabled = false
+      }
+  }
+}
+
+sql_managed_instance = {
+  sku_name           = "GP_Gen5"
+  vcores             = 4
+  storage_size_in_gb = 32
+  license_type       = "LicenseIncluded"
+}
+
+# One entry per PostgreSQL Flexible Server; an empty map creates none. Each
+# server gets one database and its own generated password, and all servers
+# share the delegated subnet_cidrs.postgresql subnet (/28 or larger; one address
+# per server, four with HA) and one private DNS zone. Keys are stable logical
+# names; changing a key replaces that server. The smoke test uses the "primary"
+# server by default.
+postgresql_servers = {
+  primary = {
+    administrator_login = "pgadminuser"
+    sku_name            = "GP_Standard_D2ds_v5"
+    version_number      = "16"
+    storage_mb          = 32768
+    zone                = null
+
+    # HA needs General Purpose or Memory Optimized compute and regional capacity.
+    high_availability = {
+      enabled                   = false
+      mode                      = "ZoneRedundant" # Or SameZone.
+      standby_availability_zone = null
+    }
+  }
+
+  # reports = {
+  #   storage_mb        = 65536
+  #   high_availability = { enabled = true }
+  # }
+}
+
+# One entry per MySQL Flexible Server; an empty map creates none. Each server
+# gets one database and its own generated password, and all servers share the
+# delegated subnet_cidrs.mysql subnet (one address per server, two with HA) and
+# one private DNS zone. Keys are stable logical names; changing a key replaces
+# that server. The smoke test uses the "primary" server by default.
+mysql_servers = {
+  primary = {
+    administrator_login = "mysqladminuser"
+    sku_name            = "B_Standard_B1ms"
+    version_number      = "8.0.21"
+    zone                = null
+
+    # Before enabling HA, change sku_name from B_ to GP_ or MO_.
+    # Plan zone-redundant HA at server creation; review existing-server limitations.
+    high_availability = {
+      enabled                   = false
+      mode                      = "ZoneRedundant" # Or SameZone.
+      standby_availability_zone = null
+    }
+  }
+
+  # reports = {
+  #   sku_name          = "GP_Standard_D2ds_v4"
+  #   high_availability = { enabled = true }
+  # }
+}
+
+# One entry per internal Container Apps environment; an empty map creates none.
+# Each environment uses the subnet_cidrs.container_apps range with the same key
+# (add one there before adding an environment here). Environment keys are 1-12
+# characters and app keys 1-8; changing a key replaces that environment or app.
+# The smoke test uses environment "primary" and app "hello" by default.
+container_apps_environments = {
+  primary = {
+    # Empty means Consumption-only. Uncomment one or more profiles as needed.
+    # Keys are stable logical labels; Azure profile names are generated centrally.
+    # Counts are dedicated NODES, not app replicas; review billing/region support.
+    dedicated_workload_profiles = {
+      # general = {
+      #   workload_profile_type = "D4"
+      #   minimum_count         = 0
+      #   maximum_count         = 3
+      # }
+      # memory = {
+      #   workload_profile_type = "E4"
+      #   minimum_count         = 0
+      #   maximum_count         = 2
+      # }
+    }
+
+    apps = {
+      hello = {
+        image       = "mcr.microsoft.com/azuredocs/containerapps-helloworld:latest"
+        target_port = 80
+        # Use "general" or "memory" after enabling that profile above.
+        workload_profile = "Consumption"
+      }
+    }
+  }
+
+  # jobs = {
+  #   apps = {
+  #     worker = {}
+  #   }
+  # }
+}
+
+# One entry per Cosmos DB account; an empty map creates none. Each entry picks
+# its own api_type. Uncomment the template below to deploy one. Keys are
+# stable logical names; changing a key replaces that account.
+cosmos_db_accounts = {}
+
+# cosmos_db_accounts = {
+#   primary = {
+#       api_type          = "NoSQL"
+#       consistency_level = "Session"
+#
+#       throughput = {
+#         mode  = "serverless"
+#         scope = "container"
+#       }
+#
+#       nosql_partition_key_paths = ["/partitionKey"]
+#   }
+# }
+
+web_app = {
+  # Select one mode: linux, windows, or container.
+  mode                  = "linux"
+  service_plan_sku_name = "B1"
+
+  # Linux supports node, python, and dotnet. Windows supports node and dotnet.
+  runtime = {
+    name    = "node"
+    version = "22"
+  }
+
+  # Used only by container mode. This public sample requires no credentials.
+  container = {
+    registry_url = "https://mcr.microsoft.com"
+    image_name   = "appsvc/staticsite:latest"
+    port         = 80
+  }
+
+  app_settings = {}
+}
+
+function_app = {
+  os_type               = "Linux"
+  service_plan_sku_name = "EP1"
+
+  # Set both runtime fields when changing language. Python requires Linux.
+  # Examples: node / 22, dotnet-isolated / 8.0, java / 21, powershell / 7.4.
+  # For Windows, set os_type = "Windows" and select a compatible runtime,
+  # for example name = "dotnet-isolated", version = "8.0".
+  # OS changes recreate the app/plan; redeploy matching application code.
+  runtime = {
+    name    = "python"
+    version = "3.11"
+  }
+}
+
+tags = {
+  owner      = "platform-team"
+  costCenter = "customer-project"
+}

@@ -61,8 +61,8 @@ run "windows_dotnet_isolated" {
     condition = (
       length(azurerm_linux_function_app.this) == 0 &&
       length(azurerm_windows_function_app.this) == 1 &&
-      azurerm_service_plan.this.os_type == "Windows" &&
-      azurerm_service_plan.this.sku_name == "EP1" &&
+      azurerm_service_plan.this[0].os_type == "Windows" &&
+      azurerm_service_plan.this[0].sku_name == "EP1" &&
       azurerm_windows_function_app.this[0].app_settings["FUNCTIONS_WORKER_RUNTIME"] == "dotnet-isolated" &&
       azurerm_windows_function_app.this[0].site_config[0].application_stack[0].dotnet_version == "v8.0" &&
       azurerm_windows_function_app.this[0].site_config[0].application_stack[0].use_dotnet_isolated_runtime &&
@@ -133,7 +133,7 @@ run "windows_node" {
     condition = (
       azurerm_windows_function_app.this[0].app_settings["FUNCTIONS_WORKER_RUNTIME"] == "node" &&
       azurerm_windows_function_app.this[0].site_config[0].application_stack[0].node_version == "~22" &&
-      azurerm_service_plan.this.sku_name == "EP2" &&
+      azurerm_service_plan.this[0].sku_name == "EP2" &&
       !contains(keys(azurerm_windows_function_app.this[0].app_settings), "FUNCTIONS_INPROC_NET8_ENABLED")
     )
     error_message = "Windows Node must map the plain version to AzureRM's ~major format without .NET-only app settings."
@@ -244,4 +244,47 @@ run "reject_os" {
     os_type = "macOS"
   }
   expect_failures = [var.os_type]
+}
+
+run "existing_service_plan" {
+  command = plan
+  variables {
+    service_plan_name = null
+    service_plan_id   = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Web/serverFarms/asp-shared"
+  }
+  assert {
+    condition = (
+      length(azurerm_service_plan.this) == 0 &&
+      azurerm_linux_function_app.this[0].service_plan_id == "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Web/serverFarms/asp-shared" &&
+      output.service_plan_id == "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Web/serverFarms/asp-shared"
+    )
+    error_message = "With service_plan_id the module must not create a plan and must run the app on the supplied plan."
+  }
+}
+
+run "created_service_plan_id_output" {
+  command = plan
+  assert {
+    condition = (
+      length(azurerm_service_plan.this) == 1 &&
+      output.service_plan_id == "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Web/serverFarms/asp-test"
+    )
+    error_message = "With service_plan_name the module must create its own plan and expose its ID."
+  }
+}
+
+run "reject_both_plan_inputs" {
+  command = plan
+  variables {
+    service_plan_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Web/serverFarms/asp-shared"
+  }
+  expect_failures = [var.service_plan_id]
+}
+
+run "reject_no_plan_input" {
+  command = plan
+  variables {
+    service_plan_name = null
+  }
+  expect_failures = [var.service_plan_id]
 }

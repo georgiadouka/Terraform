@@ -1,50 +1,3 @@
-variable "name" {
-  description = "Virtual network name."
-  type        = string
-}
-
-variable "resource_group_name" {
-  description = "Resource group name."
-  type        = string
-}
-
-variable "location" {
-  description = "Azure region."
-  type        = string
-}
-
-variable "address_space" {
-  description = "Virtual network address spaces."
-  type        = list(string)
-}
-
-variable "subnets" {
-  description = "Subnet definitions keyed by logical name."
-  type = map(object({
-    name                              = string
-    address_prefixes                  = list(string)
-    private_endpoint_network_policies = optional(string, "Enabled")
-    service_endpoints                 = optional(list(string), [])
-    delegation = optional(object({
-      name    = string
-      service = string
-      actions = list(string)
-    }))
-  }))
-}
-
-variable "planned_subnet_address_prefixes" {
-  description = "Complete planned subnet address map used for containment and overlap validation, including subnets not currently deployed."
-  type        = map(list(string))
-  default     = {}
-}
-
-variable "tags" {
-  description = "Tags applied to network resources."
-  type        = map(string)
-  default     = {}
-}
-
 locals {
   deployed_subnet_address_prefixes = {
     for subnet_key, subnet in var.subnets :
@@ -167,6 +120,7 @@ resource "azurerm_subnet" "this" {
   address_prefixes                  = each.value.address_prefixes
   private_endpoint_network_policies = each.value.private_endpoint_network_policies
   service_endpoints                 = each.value.service_endpoints
+  default_outbound_access_enabled   = each.value.default_outbound_access_enabled
 
   dynamic "delegation" {
     for_each = each.value.delegation == null ? [] : [each.value.delegation]
@@ -180,19 +134,4 @@ resource "azurerm_subnet" "this" {
       }
     }
   }
-}
-
-output "id" {
-  description = "Virtual network ID."
-  value       = azurerm_virtual_network.this.id
-}
-
-output "name" {
-  description = "Virtual network name."
-  value       = azurerm_virtual_network.this.name
-}
-
-output "subnet_ids" {
-  description = "Subnet IDs keyed by logical name."
-  value       = { for key, subnet in azurerm_subnet.this : key => subnet.id }
 }
