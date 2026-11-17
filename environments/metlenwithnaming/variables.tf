@@ -2069,7 +2069,12 @@ variable "web_apps" {
 }
 
 variable "tags" {
-  description = "Additional tags merged with the required lab tags."
+  description = "Additional tags merged with the generated tags (Application, BU, Department, Environment and Region from the naming tokens, ManagedBy, and Start Date from the first apply). A tag here replaces the generated tag with the same name in any casing."
   type        = map(string)
   default     = {}
+
+  validation {
+    condition     = length(distinct([for tag in keys(var.tags) : lower(tag)])) == length(var.tags)
+    error_message = "tags must not contain two names that differ only in casing (for example environment and Environment); Azure tag names are case-insensitive."
+  }
 }

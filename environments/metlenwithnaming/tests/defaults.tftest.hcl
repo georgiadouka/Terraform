@@ -86,3 +86,64 @@ run "services_are_opt_in" {
     error_message = "Every service must be opt-in: with no services and no subnets listed the lab deploys only the resource group and virtual network."
   }
 }
+
+run "tags_come_from_naming_tokens" {
+  command = plan
+
+  assert {
+    condition = (
+      { for name, value in local.common_tags : name => value if name != "Start Date" } == {
+        Application = "ECM"
+        BU          = "IT"
+        Department  = "PPA"
+        Environment = "DEV"
+        Region      = "Sweden Central"
+        ManagedBy   = "Terraform"
+      } &&
+      local.common_tags["Start Date"] == formatdate("DD/MM/YYYY", plantimestamp()) &&
+      toset(keys(local.naming_dictionary.region_names)) == toset(keys(local.naming_dictionary.region_codes))
+    )
+    error_message = "The generated tags must carry the METLEN naming tokens, the region's display name and the date of the first apply, and every region code needs a display name."
+  }
+}
+
+run "tags_replace_defaults_in_any_casing" {
+  command = plan
+
+  variables {
+    tags = {
+      environment         = "TEST"
+      "start date"        = "01/01/2026"
+      "Application Owner" = "platform-team"
+    }
+  }
+
+  assert {
+    condition = (
+      local.common_tags == {
+        Application         = "ECM"
+        BU                  = "IT"
+        Department          = "PPA"
+        environment         = "TEST"
+        Region              = "Sweden Central"
+        ManagedBy           = "Terraform"
+        "start date"        = "01/01/2026"
+        "Application Owner" = "platform-team"
+      }
+    )
+    error_message = "A tag in var.tags must replace the generated tag with the same name in any casing, so Azure never receives both environment and Environment."
+  }
+}
+
+run "tags_reject_names_differing_only_in_casing" {
+  command = plan
+
+  variables {
+    tags = {
+      environment = "dev"
+      Environment = "DEV"
+    }
+  }
+
+  expect_failures = [var.tags]
+}

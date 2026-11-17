@@ -33,6 +33,13 @@ locals, not typed by hand.
 | [outputs.tf](../environments/metlenwithnaming/outputs.tf) | **Mirror.** `generated_resource_names` publishes everything. |
 
 [locals.tags.tf](../environments/metlenwithnaming/locals.tags.tf) holds the tags, not names.
+It generates `Application`, `BU`, `Department` and `Environment` from
+`naming_tokens`, `Region` from the dictionary's `region_names` (the Azure
+display name, for example `Sweden Central`; the region code is for names only),
+`ManagedBy = Terraform`, and `Start Date` from the UTC date of the first apply
+(a `terraform_data` resource keeps it in state, so later runs do not change
+it); `tags` in the tfvars adds the rest and can replace a generated tag (the
+name match ignores casing).
 
 ### 0.2 Data flow
 
@@ -565,8 +572,9 @@ characters with a five-character suffix, the Windows hostname limit.
 Three things to know about the legacy names:
 
 1. **Two different "environment" values exist.** `var.environment = "lab"` is
-   the legacy label and feeds the stem and the tags. `naming_tokens.environment
-   = "DEV"` is the METLEN ENV token. Changing one does not change the other.
+   the legacy label and feeds the stem. `naming_tokens.environment
+   = "DEV"` is the METLEN ENV token and feeds the `Environment` tag. Changing
+   one does not change the other.
 2. **With `unique_suffix = null` the stem is unknown until apply.** The suffix
    then comes from `random_string.suffix`, so `terraform console` and
    `terraform plan` show `(known after apply)` for every legacy name (and for
@@ -626,7 +634,7 @@ resource that holds data, run `terraform plan` and look for `must be replaced`.
 | I want to | Edit |
 |---|---|
 | Use another BU, DPT, APP or ENV value | Add it to the lists in `locals.naming-dictionary.tf`, then set it in `naming_tokens` |
-| Support another Azure region | Add `region_codes` entry, for example `northeurope = "NEU"` |
+| Support another Azure region | Add a `region_codes` entry, for example `northeurope = "NEU"`, and its display name in `region_names` (`northeurope = "North Europe"`) for the `Region` tag |
 | Change a 3-character resource code | `resource_codes` in `locals.naming-dictionary.tf` |
 | Change the pattern of one resource | Its entry in `local.resource_names` in `locals.naming.tf` |
 | Give a resource a different NN | Its `sequence` in the tfvars (unique per resource type) |

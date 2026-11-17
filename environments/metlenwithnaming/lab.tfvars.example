@@ -1029,6 +1029,10 @@ logic_apps = {
   # }
 }
 
+# Application, BU, Department, Environment and Region tags are generated from
+# naming_tokens and location, plus ManagedBy = Terraform and "Start Date" (UTC
+# date of the first apply, kept in state). A tag here with the same name (any
+# casing) replaces the generated one.
 tags = {
   owner      = "platform-team"
   costCenter = "customer-project"

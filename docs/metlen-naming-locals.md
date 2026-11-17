@@ -92,6 +92,12 @@ naming_dictionary = {
     germanywestcentral = "GWC"              # assumption until D-02
   }
 
+  region_names = {                          # Region tag only
+    westeurope         = "West Europe"
+    swedencentral      = "Sweden Central"
+    germanywestcentral = "Germany West Central"
+  }
+
   resource_codes = {
     resource_group  = "RGP"
     storage_account = "SOA"
@@ -408,7 +414,7 @@ convention.
 |---|---|---|
 | Approve a new BU, DPT or APP value | Add it to the list in `naming_dictionary` | The value is accepted in `naming_tokens` |
 | Change a resource code, for example `KVA` to `KV` | `resource_codes` | Every name of that type changes |
-| Add a region | `region_codes`, for example `northeurope = "NEU"` | The location is accepted and gets its code |
+| Add a region | `region_codes`, for example `northeurope = "NEU"`, and `region_names` (`northeurope = "North Europe"`) | The location is accepted, gets its code, and its display name goes in the `Region` tag |
 | Add a resource type | Code in `resource_codes`, `sequence` input with validations in `variables.tf`, entry in `resource_names`, module call using it, test | The new type follows the chosen family |
 | Pick another instance number | `sequence` of that resource in the tfvars | That resource gets a new name |
 

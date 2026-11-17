@@ -21,6 +21,14 @@ locals {
       germanywestcentral = "GWC"
     }
 
+    # Azure display names for the Region tag (tags only, never in names).
+    # Add every new region_codes entry here too.
+    region_names = {
+      westeurope         = "West Europe"
+      swedencentral      = "Sweden Central"
+      germanywestcentral = "Germany West Central"
+    }
+
     # Three-character resource-type codes (§4).
     resource_codes = {
       subscription            = "SBS" # CONFIRMED
