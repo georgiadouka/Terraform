@@ -8,6 +8,14 @@ provider "azurerm" {
   # AzureRM 4.x still uses Shared Key for azurerm_storage_share.
   storage_use_azuread = var.storage_use_azuread
 
+  # The AzureRM 4.x default ("legacy") registers about 70 resource providers on
+  # every run, most of them unused here; on a new subscription this can fail
+  # with 409 ConflictingConcurrentWriteNotAllowed while other registrations
+  # are in progress. Only the core set and the providers of these modules are
+  # registered instead.
+  resource_provider_registrations = var.resource_provider_registrations
+  resource_providers_to_register  = var.resource_providers_to_register
+
   features {
     key_vault {
       purge_soft_delete_on_destroy    = true #for production turn into false

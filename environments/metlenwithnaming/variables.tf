@@ -25,6 +25,31 @@ variable "storage_use_azuread" {
   }
 }
 
+variable "resource_provider_registrations" {
+  description = "AzureRM resource provider registration set: none, core, extended, all or legacy. Use none when the subscription is prepared in advance or the Terraform identity cannot register providers at subscription scope."
+  type        = string
+  default     = "core"
+}
+
+variable "resource_providers_to_register" {
+  description = "Resource providers registered in addition to the resource_provider_registrations set. Names must match the Azure namespace casing exactly (microsoft.insights is lowercase); AzureRM ignores names it does not find. Set to [] together with resource_provider_registrations = \"none\" to skip registration entirely."
+  type        = list(string)
+  default = [
+    "Microsoft.App",
+    "Microsoft.ContainerRegistry",
+    "Microsoft.Databricks",
+    "Microsoft.DBforMySQL",
+    "Microsoft.DBforPostgreSQL",
+    "Microsoft.DocumentDB",
+    "microsoft.insights",
+    "Microsoft.KeyVault",
+    "Microsoft.OperationalInsights",
+    "Microsoft.RecoveryServices",
+    "Microsoft.Sql",
+    "Microsoft.Web",
+  ]
+}
+
 variable "location" {
   description = "Azure region used by the lab. Must have a METLEN region code in the naming dictionary."
   type        = string
