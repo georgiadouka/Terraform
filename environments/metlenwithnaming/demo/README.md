@@ -123,12 +123,32 @@ errors Terraform raises for wrong input.
 ## Teardown
 
 ```powershell
-terraform destroy "-var-file=demo\environment.tfvars" "-var-file=demo\step-8-day2-move-remove.tfvars"
-terraform -chdir=demo\hub destroy "-var-file=..\environment.tfvars"
+# Destroy still validates the inputs: the step files with VMs and databases
+# need both passwords set (any valid value works when destroying).
+$env:TF_VAR_vm_admin_password       = 'Destroy-Only-1!'
+$env:TF_VAR_database_admin_password = 'Destroy-Only-2!'
+
+# The demo: review the count, then apply.
+$step = "step-8-day2-move-remove"   # the last step you applied
+terraform plan -destroy "-var-file=demo\environment.tfvars" "-var-file=demo\$step.tfvars" "-out=destroy.tfplan"
+terraform apply destroy.tfplan
+terraform state list                # must print nothing
+
+# The demo hub, after the demo (its VNet holds the hub-side peerings until then).
+terraform -chdir=demo\hub plan -destroy "-var-file=..\environment.tfvars" "-out=hub-destroy.tfplan"
+terraform -chdir=demo\hub apply hub-destroy.tfplan
+terraform -chdir=demo\hub state list   # must print nothing
 ```
 
 - Use the file of the last step you applied; Terraform destroys what is in the
   state either way.
+- If the destroy fails, fix the cause and run it again rather than deleting
+  resources in the portal. If something was deleted outside Terraform anyway
+  (for example the resource group), run the destroy again: the refresh finds
+  it gone and drops it from the state, so the state ends up empty.
+- Check that nothing is left:
+  `az group list --query "[?location=='swedencentral'].name" -o tsv` must no
+  longer list `M-AZU-RGP-IT-PPA-GEO-DEV-SWE` or `rg-metlen-demo-hub`.
 - Deleting the Container Apps environment takes about 20 minutes (Azure shows
   `ScheduledForDelete`); it is not stuck.
 - `providers.tf` deletes VM backup data and purges Key Vaults on destroy (lab
