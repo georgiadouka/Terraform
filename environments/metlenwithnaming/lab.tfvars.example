@@ -12,6 +12,13 @@ tenant_id       = "00000000-0000-0000-0000-000000000000"
 # keys, so every storage_accounts entry must enable Shared Key.
 storage_use_azuread = true
 
+# Resource provider registration. The defaults register the AzureRM core set
+# plus the providers these modules use (see variables.tf). When the
+# subscription is prepared in advance, or the identity cannot register
+# providers at subscription scope, skip registration:
+# resource_provider_registrations = "none"
+# resource_providers_to_register  = []
+
 # Azure region. Its METLEN region code (swedencentral -> SWE) comes from
 # locals.naming-dictionary.tf; locations without a code are rejected.
 location = "swedencentral"
@@ -1022,6 +1029,10 @@ logic_apps = {
   # }
 }
 
+# Application, BU, Department, Environment and Region tags are generated from
+# naming_tokens and location, plus ManagedBy = Terraform and "Start Date" (UTC
+# date of the first apply, kept in state). A tag here with the same name (any
+# casing) replaces the generated one.
 tags = {
   owner      = "platform-team"
   costCenter = "customer-project"

@@ -11,7 +11,12 @@ location        = "swedencentral"
 # here, or use the resource ID of an existing hub VNet.
 # hub_peering = { hub_virtual_network_id = "/subscriptions/<subscription-id>/resourceGroups/rg-metlen-demo-hub/providers/Microsoft.Network/virtualNetworks/vnet-hub-demo" }
 
+# Application, BU, Department, Environment and Region tags are generated from
+# the naming tokens, plus ManagedBy = Terraform and "Start Date" (date of the
+# first apply). Add only the tags that have no naming token; quote names that
+# contain spaces.
 tags = {
-  purpose = "metlen-demo"
-  owner   = "<your alias>"
+  "Application Owner" = "<owner>"
+  CostCenter          = "<cost center>"
+  Requestor           = "<requestor>"
 }

@@ -6,6 +6,16 @@ resource "random_string" "suffix" {
   special = false
 }
 
+# Date of the first apply for the "Start Date" tag. ignore_changes keeps the
+# value stored in state, so later runs do not change it.
+resource "terraform_data" "start_date" {
+  input = formatdate("DD/MM/YYYY", plantimestamp())
+
+  lifecycle {
+    ignore_changes = [input]
+  }
+}
+
 module "resource_group" {
   source = "../../modules/resource-group"
 

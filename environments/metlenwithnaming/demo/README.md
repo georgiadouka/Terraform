@@ -33,6 +33,13 @@ is exactly what a pull request to the environment would contain.
 - Owner on the subscription, or Contributor plus User Access Administrator (or
   Role Based Access Control Administrator): the apps' identities get a role on
   Application Insights.
+- Terraform registers the resource providers it needs on the subscription
+  (the AzureRM core set plus those in `resource_providers_to_register`), which
+  needs subscription-level rights. If another process is registering providers
+  at the same time, the run can fail with `409
+  ConflictingConcurrentWriteNotAllowed`; wait until
+  `az provider list --query "[?registrationState=='Registering']"` is empty and
+  run it again.
 - Quota in the region for two `Standard_B2s_v2` VMs and for B1/B2, EP1 and WS1
   App Service plans.
 - Free address space: the demo uses `10.70.0.0/22` (demo hub), `10.71.0.0/20`
